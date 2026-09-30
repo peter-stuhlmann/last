@@ -1,0 +1,10 @@
+results/
+results_*/
+__pycache__/
+*.pyc
+*.pptx
+*.pdf
+.playwright-mcp/
+.git/
+.venv/
+venv/

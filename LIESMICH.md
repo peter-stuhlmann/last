@@ -1,0 +1,142 @@
+# LLM-Härtetest
+
+Lasttest für OpenAI-kompatible Modellserver (vLLM, SGLang, llama.cpp, Ollama) mit Weboberfläche
+und PowerPoint-Bericht.
+
+## Mit Docker (Windows, macOS, Linux – ohne Python-Installation)
+
+Voraussetzung: Docker Desktop (Windows/macOS) bzw. Docker mit Compose-Plugin (Linux).
+Im Ordner mit dieser Datei:
+
+    docker compose up --build        # erster Start baut das Image (~1 min)
+
+Dann im Browser **http://localhost:8090** öffnen. Beenden mit `Strg+C` bzw. `docker compose down`.
+
+- **Ergebnisse** (PowerPoint, PDF, Rohdaten) landen im Ordner `results/` neben dieser Datei.
+- **Adresse des Modellservers:** Der Spark im Netz wird ganz normal eingetragen
+  (`http://spark.buero.lan:8000/v1`). Läuft der Modellserver **auf demselben Rechner** wie Docker,
+  heißt er im Container `host.docker.internal` statt `localhost`
+  (`http://host.docker.internal:8000/v1`). Auf Linux muss der Modellserver dafür auf `0.0.0.0`
+  lauschen, nicht nur auf `127.0.0.1`.
+- **Kommandozeile im Container:**
+
+      docker compose run --rm llm-stresstest python llm_stresstest.py --base-url http://spark.buero.lan:8000/v1 --quick
+      docker compose run --rm llm-stresstest python llm_stresstest.py --compare results/results_A results/results_B
+
+- **Linux:** Damit die Dateien in `results/` dir gehören:
+  `LOCAL_UID=$(id -u) LOCAL_GID=$(id -g) docker compose up --build`
+- **Zeitzone** ist Europe/Berlin; anders mit `TZ=Europe/Vienna docker compose up`.
+- Die Oberfläche ist nur von diesem Rechner aus erreichbar (Port an `127.0.0.1` gebunden),
+  weil sie keinen Passwortschutz hat.
+- Läuft auf Intel/AMD und ARM (Apple Silicon, auch direkt auf dem DGX Spark).
+  GPU-Werte des Rechners selbst misst der Container nicht – Server-Werte kommen wie gewohnt
+  über `/metrics`.
+
+## Installation ohne Docker (einmalig, auf dem Rechner, von dem aus getestet wird)
+
+    python -m pip install aiohttp python-pptx reportlab      # Windows (oder: py -m pip …)
+    python3 -m pip install aiohttp python-pptx reportlab     # macOS / Linux
+
+Python 3.9 oder neuer. Wichtig: Pakete mit demselben Python installieren, mit dem du
+das Skript startest – daher `python -m pip` statt nur `pip`.
+
+## Weboberfläche starten
+
+    python stresstest_web.py        # Windows
+    python3 stresstest_web.py       # macOS / Linux
+
+Dann im Browser **http://localhost:8090** öffnen, Server-URL des Spark eintragen
+(z. B. `http://spark.buero.lan:8000/v1`), Enter drücken.
+
+- Ergebnisse erscheinen live auf der Seite, am Ende gibt es die PowerPoint zum Download.
+- Alle Läufe landen im Ordner `results/` und sind unter „Frühere Läufe“ wieder abrufbar.
+- `--host 0.0.0.0` macht die Seite im Netzwerk erreichbar – **ohne Passwortschutz**.
+
+## Ohne Weboberfläche (Kommandozeile)
+
+    python llm_stresstest.py --base-url http://spark.buero.lan:8000/v1 --quick
+    python llm_stresstest.py --help
+
+Vergleich zweier Läufe (z. B. vor und nach einer Einstellungsänderung oder Modell A gegen B) –
+in der Weboberfläche unter „Frühere Tests“ ankreuzen, oder:
+
+    python llm_stresstest.py --compare results/results_A results/results_B --labels "vorher,nachher"
+
+## Hinweise
+
+- **Systemwerte vom Spark (KV-Cache, Warteschlange)** kommen über `/metrics` des Modellservers
+  (bei vLLM und SGLang standardmäßig an). GPU-Temperatur/Takt des Spark lassen sich aus der
+  Ferne nicht messen – dafür müsste das Skript auf dem Spark selbst laufen.
+- Die gemessenen Wartezeiten enthalten die Netzwerklatenz zwischen deinem Rechner und dem Spark.
+  Im Büro-LAN ist das vernachlässigbar, über VPN eher nicht.
+- Nur gegen eigene Server testen – ein Lasttest sieht für fremde Server aus wie ein Angriff.
+
+## Dateien
+
+| Datei | Zweck |
+|---|---|
+| `stresstest_web.py` | Webserver mit Oberfläche |
+| `stresstest_ui.html` | die Seite selbst |
+| `llm_stresstest.py` | Testlogik und Prüfung der Messqualität (auch allein nutzbar) |
+| `report_pptx.py` | PowerPoint-Bericht in einfacher Sprache |
+| `report_pdf.py` | Kurzbericht als PDF auf einer A4-Seite (braucht `reportlab`, sonst wird er übersprungen) |
+| `report_compare.py` | Vergleichsbericht aus zwei oder mehr Läufen |
+| `Dockerfile`, `docker-compose.yml`, `.dockerignore` | Container für Windows, macOS und Linux |
+| `requirements.txt` | Python-Pakete (für Docker oder `pip install -r requirements.txt`) |
+
+## Was geprüft wird
+
+| Prüfung | Schnell (~15 min) | Gründlich (~50 min) |
+|---|---|---|
+| Vorab-Checks: Erreichbarkeit, Netzwerk-Umweg, Server frei?, echte Token-Zählung, feste Antwortlänge | ✓ | ✓ |
+| 1. Einer allein (mit gleichem Einleitungstext: Vergleich mit/ohne Prefix-Cache) | 5 Fragen | 10 Fragen |
+| 2. Immer mehr gleichzeitig | 1, 4, 16, 32, 64 · je 30 s · mind. 20 Antworten | 1 … 256 · je 60 s · mind. 40 Antworten |
+| Feinsuche der genauen Grenze | 1 Zwischenstufe | 2 Zwischenstufen |
+| 3. Echter Andrang: Fragen kommen zufällig (Poisson), bis die Schlange wächst | je 30 s | je 60 s |
+| 4. Lange Texte | 1k, 8k, 32k Tokens | 0,5k … 128k (bis zum Modell-Limit) |
+| 5. Großer Ansturm + Erholung | 32 auf einmal | 64 auf einmal |
+| 6. Ausdauer | 3 min | 15 min |
+| Kontrollmessung am Ende | ✓ | ✓ |
+| Laufend: Absturzerkennung, Aufpasser für den Messrechner, Server-Messwerte | ✓ | ✓ |
+
+Jede Stufe wird nur im „eingeschwungenen Zustand“ gemessen: Anlauf- und Auslaufphase zählen nicht.
+Nach einer Fehlermeldung wartet jede simulierte Person kurz, bevor sie es erneut versucht –
+wie ein echter Nutzer. So wird ein überlasteter Server nicht zusätzlich geflutet.
+Bleibt die Gesamtleistung zwei Stufen lang praktisch gleich und sind die Ziele schon verfehlt,
+überspringt der Test die höheren Stufen (`--saturation-stop`, 0 = aus).
+
+## Was zusätzlich gemessen wird
+
+- **Aktive Nutzer:** Aus Fragen pro Sekunde und Antwortdauer wird über das Gesetz von Little
+  geschätzt, für wie viele Personen der Server reicht. Annahme: `--think-time` Sekunden Pause
+  zwischen zwei Fragen einer Person (Standard 60). Bevorzugt aus „Echter Andrang“, sonst aus der Ramp.
+- **Ruckeln:** längste Pause zwischen zwei Textstücken einer Antwort (Stocken p95).
+- **Ziele erfüllt (Goodput):** Anteil der einzelnen Fragen, die Wartezeit- *und* Tempo-Ziel einhalten.
+- **Verdrängungen / Prefix-Cache-Treffer:** aus `/metrics` (vLLM), je Stufe als Differenz.
+- **Thinking-Modelle:** Zeit bis zur eigentlichen Antwort nach dem Nachdenken, getrennt ausgewiesen.
+
+## Realistischere Last (optional)
+
+    --length-mix mixed       # Längen schwanken wie im Alltag (viele kurze, einige lange Fragen)
+    --shared-prefix 1500     # gleicher System-Prompt vor jeder Frage → misst den Prefix-Cache
+    --seed 42                # gleiche Texte wie in einem früheren Lauf (Seed steht in summary.json)
+    --rates 30,60,120        # Echter Andrang mit festen Fragen pro Minute statt automatisch
+
+Die PowerPoint endet mit einer **Zusammenfassung auf einer Folie**: geschätzte Nutzerzahl und
+alle Ergebnisse als Ampel-Liste.
+
+## Für die Entscheidung
+
+Jeder Lauf erzeugt neben der PowerPoint einen **Kurzbericht als PDF auf einer A4-Seite**:
+Urteil in einem Satz, die vier wichtigsten Zahlen, Begründung, zwei Diagramme und alle Ergebnisse
+als Ampel-Liste.
+
+- **Empfehlung:** grün / gelb / rot, gemessen am Bedarf (`--target-users`, in der Oberfläche
+  „Wie viele sollen ihn gleichzeitig nutzen?“).
+- **Kosten:** eigener Server (Abschreibung + Strom) gegen die Cloud für dieselbe Menge an Antworten,
+  und ab welcher Auslastung sich der eigene Server lohnt. **Die Standardwerte sind Platzhalter** –
+  Kaufpreis, Stromverbrauch, Strompreis und Cloud-Preise vor dem Test eintragen
+  (`--hw-price`, `--server-watts`, `--power-price`, `--cloud-price-in`, `--cloud-price-out`).
+- **Antwortqualität:** Während der Lasttests laufen nebenher Kontrollfragen mit bekannter Antwort
+  (Rechnen, Sortieren, Hauptstädte, JSON-Format). Verglichen wird: richtig ohne Last gegen richtig
+  unter Last (`--probe-interval`, 0 = aus).

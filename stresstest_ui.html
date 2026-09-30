@@ -1,0 +1,1026 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LLM-Härtetest</title>
+<style>
+:root {
+  --bg: #f6f7f9; --surface: #ffffff; --surface-2: #f1f3f6; --panel: #eef4fb; --border: #e3e6eb;
+  --ink: #0f172a; --ink-2: #475569; --muted: #6b7280; --grid: #e8ebef;
+  --accent: #2a78d6; --accent-ink: #ffffff;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #4a3aa7; --ref: #9ca3af;
+  --good: #16a06d; --warn: #c98500; --bad: #d63d3c; --info: #6b7280;
+  --log-bg: #0f172a; --log-ink: #cbd5e1;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111214; --surface: #1a1b1e; --surface-2: #232428; --panel: #1d2633; --border: #2e3035;
+    --ink: #f3f4f6; --ink-2: #c3c2b7; --muted: #9a9a93; --grid: #2a2c31;
+    --accent: #3987e5;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #9085e9; --ref: #6b7280;
+    --good: #2bb582; --warn: #e0a21a; --bad: #e66767; --info: #9a9a93;
+    --log-bg: #0a0b0d; --log-ink: #c9ced6;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+.wrap { max-width: 1240px; margin: 0 auto; padding: 24px 16px 64px; }
+header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+h1 { font-size: 26px; margin: 0; letter-spacing: -0.01em; }
+h2 { font-size: 19px; margin: 0 0 4px; }
+h3 { font-size: 14px; margin: 0 0 6px; color: var(--ink); }
+.lead { color: var(--ink-2); font-size: 15px; margin: 0 0 14px; }
+.sub { color: var(--muted); font-size: 14px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+.grid { display: grid; gap: 16px; }
+.g2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.g3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.g4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.split { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 900px) { .g3, .g4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } .split { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 620px) { .g2, .g3, .g4 { grid-template-columns: minmax(0, 1fr); } }
+
+label { display: block; font-size: 13.5px; color: var(--ink); margin-bottom: 4px; font-weight: 600; }
+input[type=text], input[type=number], input[type=password], input[type=url], select {
+  width: 100%; padding: 9px 11px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface); color: var(--ink); font: inherit; font-size: 14px; }
+input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+.hint { font-size: 12.5px; color: var(--muted); margin-top: 4px; line-height: 1.4; }
+.hint i { font-style: normal; opacity: .8; }
+.row { display: flex; gap: 8px; align-items: flex-end; }
+.row > .grow { flex: 1; min-width: 0; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; flex-wrap: wrap; }
+.seg label { margin: 0; padding: 8px 14px; cursor: pointer; font-size: 14px; font-weight: 500; color: var(--ink-2); background: var(--surface); }
+.seg input { display: none; }
+.seg label:has(input:checked) { background: var(--accent); color: var(--accent-ink); }
+.checks { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.checks label { display: flex; align-items: center; gap: 6px; font-weight: 400; color: var(--ink); margin: 0; font-size: 14px; }
+details.adv { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 12px; }
+summary { cursor: pointer; color: var(--ink-2); font-size: 14px; font-weight: 600; }
+details .grid { margin-top: 14px; }
+.group-title { grid-column: 1 / -1; font-size: 13px; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: .04em; margin-top: 6px; }
+
+button, a.btn { font: inherit; font-size: 14px; font-weight: 600; border-radius: 8px; padding: 10px 18px; cursor: pointer; border: 1px solid transparent; }
+.btn-primary { background: var(--accent); color: var(--accent-ink); }
+.btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+.btn-ghost { background: var(--surface); color: var(--ink); border-color: var(--border); }
+.btn-danger { background: var(--bad); color: #fff; }
+.actions { display: flex; gap: 10px; align-items: center; margin-top: 18px; flex-wrap: wrap; }
+a.btn { text-decoration: none; display: inline-block; }
+
+.status { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: var(--ink-2); }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--ref); flex: none; display: inline-block; }
+.dot.running { background: var(--accent); animation: pulse 1.2s infinite; }
+.dot.done, .dot.good { background: var(--good); } .dot.error, .dot.stopped, .dot.bad { background: var(--bad); }
+.dot.warn { background: var(--warn); } .dot.info { background: var(--info); }
+@keyframes pulse { 50% { opacity: .35; } }
+
+.steps { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+.step { flex: 1; min-width: 104px; padding: 8px 10px; border-radius: 8px; background: var(--surface-2); font-size: 13px; color: var(--muted); display: flex; gap: 8px; align-items: center; }
+.step b { font-weight: 600; }
+.step.active { background: var(--accent); color: var(--accent-ink); }
+.step.done { color: var(--ink); }
+.step.done::before { content: "✓"; color: var(--good); font-weight: 700; }
+.step.skip { opacity: .45; }
+.log { background: var(--log-bg); color: var(--log-ink); border-radius: 8px; padding: 12px 14px; height: 200px; overflow: auto;
+  font: 12.5px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; margin: 0; }
+
+.kpi { background: var(--surface-2); border-radius: 10px; padding: 14px 16px; }
+.kpi .v { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.kpi .l { font-size: 13.5px; font-weight: 600; color: var(--ink); margin-top: 4px; }
+.kpi .m { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+.ok { color: var(--good); } .bad { color: var(--bad); } .warn { color: var(--warn); }
+
+.explain { background: var(--panel); border-radius: 10px; padding: 16px 18px; font-size: 14px; }
+.explain h4 { margin: 0 0 4px; font-size: 13px; color: var(--accent); text-transform: uppercase; letter-spacing: .04em; }
+.explain p { margin: 0 0 14px; } .explain p:last-child { margin-bottom: 0; }
+.tech { font-size: 12px; color: var(--muted); margin-top: 10px; font-style: italic; }
+.q { font-size: 19px; }
+
+.chart { position: relative; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.chart .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12.5px; color: var(--ink-2); margin-top: 4px; }
+.chart .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
+.chart .legend i.dash { background: repeating-linear-gradient(90deg, var(--ref) 0 4px, transparent 4px 7px) !important; }
+.tip { position: absolute; pointer-events: none; background: var(--ink); color: var(--surface); font-size: 12px; padding: 7px 9px; border-radius: 6px;
+  white-space: nowrap; transform: translate(-50%, -100%); margin-top: -8px; opacity: 0; transition: opacity .08s; z-index: 5; }
+.tip .sw { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
+.empty { color: var(--muted); font-size: 14px; padding: 24px 0; text-align: center; }
+
+.ampel { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; align-items: center; }
+.ampel span.a { display: inline-flex; align-items: center; justify-content: center; min-width: 38px; height: 38px; padding: 0 6px; border-radius: 19px;
+  color: #fff; font-weight: 700; font-size: 13px; font-variant-numeric: tabular-nums; }
+.a.good { background: var(--good); } .a.warn { background: var(--warn); } .a.bad { background: var(--bad); }
+.ampel .cap { font-size: 12.5px; color: var(--muted); margin-left: 6px; }
+
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+th, td { padding: 7px 10px; text-align: right; border-bottom: 1px solid var(--border); }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .03em; }
+.tag { display: inline-flex; align-items: center; gap: 6px; }
+.tag::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+
+.qual { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 24px; }
+@media (max-width: 760px) { .qual { grid-template-columns: minmax(0, 1fr); } }
+.qitem { display: grid; grid-template-columns: 14px 1fr; gap: 10px; }
+.qitem .dot { margin-top: 5px; width: 12px; height: 12px; }
+.qitem b { font-size: 14.5px; } .qitem .val { color: var(--muted); margin-left: 6px; font-size: 13.5px; }
+.qitem p { margin: 2px 0 0; font-size: 13.5px; color: var(--ink-2); }
+.qbadge { display: inline-flex; align-items: center; gap: 10px; background: var(--surface-2); border-radius: 10px; padding: 10px 16px; font-weight: 700; font-size: 18px; }
+.qbadge .dot { width: 14px; height: 14px; }
+
+.gloss { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 20px; margin-top: 12px; }
+@media (max-width: 760px) { .gloss { grid-template-columns: minmax(0, 1fr); } }
+.gloss div { background: var(--surface-2); border-radius: 8px; padding: 10px 14px; font-size: 14px; }
+.gloss b { color: var(--accent); } .gloss small { display: block; color: var(--muted); font-style: italic; margin-top: 2px; }
+
+.verdict { border-radius: 12px; padding: 16px 20px; color: #fff; font-size: 22px; font-weight: 700; margin-bottom: 14px; }
+.verdict.good { background: var(--good, #16a06d); } .verdict.warn { background: var(--warn, #d99a00); } .verdict.bad { background: var(--bad, #d63d3c); }
+.reasons { list-style: none; margin: 12px 0 0; padding: 0; } .reasons li { display: flex; gap: 10px; align-items: baseline; margin-bottom: 6px; font-size: 14.5px; }
+.reasons .dot { flex: none; transform: translateY(1px); }
+.findings { margin: 0; padding-left: 20px; } .findings li { margin-bottom: 8px; font-size: 15px; }
+.banner { border-radius: 10px; padding: 12px 14px; margin-bottom: 16px; font-size: 14px; display: none; }
+.banner.err { display: block; background: color-mix(in srgb, var(--bad) 12%, var(--surface)); color: var(--ink); border: 1px solid color-mix(in srgb, var(--bad) 35%, transparent); }
+.hidden { display: none !important; }
+.runs td { font-size: 13px; }
+.runs a { color: var(--accent); text-decoration: none; margin-left: 10px; }
+.runs button.link { background: none; border: 0; padding: 0; color: var(--accent); font-weight: 500; font-size: 13px; }
+code { font-size: 12.5px; background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Wie belastbar ist unser KI-Server?</h1>
+      <div class="sub">Belastungstest für Sprachmodell-Server (vLLM, SGLang, llama.cpp, Ollama)</div>
+    </div>
+    <div class="status"><span class="dot" id="stDot"></span><span id="stText">Bereit</span></div>
+  </header>
+
+  <div class="banner" id="banner"></div>
+
+  <!-- ─── Formular ─── -->
+  <form class="card" id="form" autocomplete="on">
+    <h2>1. Was soll getestet werden?</h2>
+    <p class="lead">Adresse eintragen und Enter drücken. Alles andere ist schon sinnvoll voreingestellt.</p>
+    <div class="grid g3">
+      <div>
+        <label for="base_url">Adresse des Servers</label>
+        <input type="url" id="base_url" name="base_url" required placeholder="http://spark-im-buero:8000/v1">
+        <div class="hint">Wie im Browser, endet auf <code>/v1</code>.</div>
+      </div>
+      <div>
+        <label for="model">Welches Modell?</label>
+        <div class="row">
+          <div class="grow"><input type="text" id="model" name="model" list="modelList" placeholder="automatisch"></div>
+          <button type="button" class="btn-ghost" id="loadModels" title="Beim Server nachfragen">Prüfen</button>
+        </div>
+        <datalist id="modelList"></datalist>
+        <div class="hint" id="modelHint">Leer lassen = das Modell, das der Server anbietet. „Prüfen“ testet die Verbindung.</div>
+      </div>
+      <div>
+        <label for="api_key">Passwort (API-Key)</label>
+        <input type="password" id="api_key" name="api_key" placeholder="meist nicht nötig">
+        <div class="hint">Nur ausfüllen, wenn der Server eins verlangt.</div>
+      </div>
+    </div>
+
+    <div class="grid g2" style="margin-top:18px">
+      <div>
+        <label>Wie gründlich?</label>
+        <div class="seg" role="radiogroup">
+          <label><input type="radio" name="profile" value="quick" checked><span>Schnell · ~15 min</span></label>
+          <label><input type="radio" name="profile" value="full"><span>Gründlich · ~50 min</span></label>
+        </div>
+        <div class="hint">Schnell = erster Eindruck. Gründlich = verlässliche Zahlen für Entscheidungen.</div>
+      </div>
+      <div>
+        <label>Welche Tests?</label>
+        <div class="checks" id="testChecks">
+          <label title="Wie schnell ist er, wenn nur einer fragt?"><input type="checkbox" value="baseline" checked>Einer allein</label>
+          <label title="Immer mehr Fragen gleichzeitig"><input type="checkbox" value="ramp" checked>Immer mehr gleichzeitig</label>
+          <label title="Fragen kommen zufällig, wie im Alltag"><input type="checkbox" value="rate" checked>Echter Andrang</label>
+          <label title="Wie viel Text kann er lesen?"><input type="checkbox" value="context" checked>Lange Texte</label>
+          <label title="Alle auf einmal"><input type="checkbox" value="spike" checked>Großer Ansturm</label>
+          <label title="Dauerbetrieb"><input type="checkbox" value="soak" checked>Ausdauer</label>
+        </div>
+        <div class="hint">Im Zweifel alle anlassen. „Einer allein“ wird am Ende zur Kontrolle wiederholt.</div>
+      </div>
+    </div>
+
+    <div class="grid g3" style="margin-top:18px">
+      <div><label for="slo_ttft">Wie lange darf man höchstens warten?</label><input type="number" step="0.1" min="0.1" id="slo_ttft" name="slo_ttft">
+        <div class="hint">Sekunden, bis das erste Wort kommt – für 95 von 100 Fragen. <i>(TTFT p95)</i></div></div>
+      <div><label for="slo_user_tps">Wie schnell soll jeder mindestens bekommen?</label><input type="number" step="1" min="1" id="slo_user_tps" name="slo_user_tps">
+        <div class="hint">Tokens pro Sekunde. 10 ≈ 7 Wörter/s – schneller als man liest.</div></div>
+      <div><label for="think_time">Wie oft fragt eine Person?</label><input type="number" step="5" min="1" id="think_time" name="think_time">
+        <div class="hint">Sekunden Pause zwischen zwei Fragen (Lesen, Nachdenken, Tippen). Daraus wird die Zahl der Nutzer berechnet.</div></div>
+      <div><label for="soak_minutes">Ausdauer: wie viele Minuten?</label><input type="number" step="1" min="0" id="soak_minutes" name="soak_minutes">
+        <div class="hint">Länger = man sieht eher, ob er warm wird und langsamer.</div></div>
+      <div><label for="disable_thinking">Soll das Modell vorher „nachdenken“?</label>
+        <select id="disable_thinking" name="disable_thinking"><option value="">ja (so wie eingestellt)</option><option value="1">nein, direkt antworten</option></select>
+        <div class="hint">Qwen3 kann erst still überlegen. „Nein“ misst die reine Schreibgeschwindigkeit.</div></div>
+      <div><label for="target_users">Wie viele sollen ihn gleichzeitig nutzen?</label><input type="number" min="0" id="target_users" name="target_users" placeholder="unbekannt">
+        <div class="hint">Personen, die zu Spitzenzeiten gleichzeitig aktiv damit arbeiten. Daran misst sich die Empfehlung. 0 = unbekannt.</div></div>
+      <div><label for="length_mix">Wie lang sind die Fragen?</label>
+        <select id="length_mix" name="length_mix"><option value="fixed">alle gleich lang (vergleichbar)</option><option value="mixed">gemischt wie im Alltag</option></select>
+        <div class="hint">„Gemischt“: viele kurze, einige sehr lange Fragen und Antworten – realistischer, schwankt aber mehr.</div></div>
+    </div>
+
+    <details class="adv">
+      <summary>Erweiterte Einstellungen – für Feintuning, meistens nicht nötig</summary>
+      <div class="grid g4">
+        <div class="group-title">Die Fragen selbst</div>
+        <div><label for="input_len">Wie lang ist jede Frage?</label><input type="number" id="input_len" name="input_len">
+          <div class="hint">In Tokens. 1.000 ≈ 750 Wörter ≈ 2½ Buchseiten.</div></div>
+        <div><label for="output_len">Wie lang ist jede Antwort?</label><input type="number" id="output_len" name="output_len">
+          <div class="hint">In Tokens. 256 ≈ 190 Wörter ≈ ein langer Absatz.</div></div>
+        <div><label for="no_ignore_eos">Alle Antworten gleich lang machen?</label>
+          <select id="no_ignore_eos" name="no_ignore_eos"><option value="">ja (empfohlen)</option><option value="1">nein</option></select>
+          <div class="hint">Macht die Stufen fair vergleichbar. Kann der Server das nicht, merkt das Tool es selbst.</div></div>
+        <div><label for="baseline_requests">Fragen bei „Einer allein“</label><input type="number" id="baseline_requests" name="baseline_requests">
+          <div class="hint">Auch für die Kontrollmessung am Ende. Mehr = genauer.</div></div>
+        <div><label for="shared_prefix">Gleicher Einleitungstext vor jeder Frage</label><input type="number" min="0" id="shared_prefix" name="shared_prefix">
+          <div class="hint">In Tokens, 0 = aus. Wie ein fester System-Prompt: Der Server kann ihn sich merken (Prefix-Cache). Zeigt, wie viel das bringt.</div></div>
+        <div><label for="seed">Zufallszahl für die Texte</label><input type="number" id="seed" name="seed" placeholder="zufällig">
+          <div class="hint">Gleiche Zahl = gleiche Texte, z. B. um vorher/nachher zu vergleichen. Wird bei jedem Lauf gespeichert.</div></div>
+
+        <div class="group-title">Immer mehr gleichzeitig</div>
+        <div><label for="levels">Stufen: wie viele gleichzeitig?</label><input type="text" id="levels" name="levels">
+          <div class="hint">Mit Komma getrennt. Der Test fängt links an und hört auf, sobald es kaputt geht.</div></div>
+        <div><label for="level_seconds">Wie lange jede Stufe messen?</label><input type="number" id="level_seconds" name="level_seconds">
+          <div class="hint">Sekunden. Länger = ruhigere, verlässlichere Zahlen.</div></div>
+        <div><label for="warmup_seconds">Anlaufzeit, die nicht zählt</label><input type="number" id="warmup_seconds" name="warmup_seconds">
+          <div class="hint">Sekunden. Wie beim Sport: Die ersten Momente sind noch nicht typisch.</div></div>
+        <div><label for="min_samples">Mindestens so viele Antworten pro Stufe</label><input type="number" id="min_samples" name="min_samples">
+          <div class="hint">Reicht die Zeit nicht, misst das Tool automatisch etwas länger.</div></div>
+        <div><label for="fine_steps">Zwischenstufen für die genaue Grenze</label><input type="number" min="0" id="fine_steps" name="fine_steps">
+          <div class="hint">Ist 16 gut und 32 zu viel, testet es z. B. noch 24. 0 = aus.</div></div>
+        <div><label for="soak_concurrency">Wie viele gleichzeitig bei „Ausdauer“?</label><input type="number" id="soak_concurrency" name="soak_concurrency">
+          <div class="hint">0 = automatisch so viele, wie vorher als „gut nutzbar“ herauskam.</div></div>
+        <div><label for="saturation_pct">Früher aufhören, wenn es nicht mehr schneller wird</label><input type="number" step="1" min="0" max="50" id="saturation_pct">
+          <div class="hint">Prozent. Wächst die Leistung zwei Stufen lang um weniger als diesen Wert und die Ziele sind verfehlt, endet der Test. 0 = aus.</div></div>
+
+        <div class="group-title">Echter Andrang</div>
+        <div><label for="rates">Wie viele Fragen pro Minute?</label><input type="text" id="rates" name="rates">
+          <div class="hint">Mit Komma getrennt, oder <code>auto</code> = passend zu dem, was „Immer mehr gleichzeitig“ ergeben hat.</div></div>
+        <div><label for="rate_seconds">Wie lange jede Menge messen?</label><input type="number" id="rate_seconds" name="rate_seconds">
+          <div class="hint">Sekunden. Die Fragen kommen zufällig verteilt – wie im Alltag.</div></div>
+
+        <div class="group-title">Lange Texte &amp; Ansturm</div>
+        <div><label for="context_lengths">Welche Textlängen?</label><input type="text" id="context_lengths" name="context_lengths">
+          <div class="hint">Tokens, mit Komma. 8.192 ≈ 20 Seiten, 32.768 ≈ 80 Seiten. Zu lange werden automatisch weggelassen.</div></div>
+        <div><label for="context_requests">Fragen pro Textlänge</label><input type="number" id="context_requests" name="context_requests">
+          <div class="hint">Jeweils eine nach der anderen.</div></div>
+        <div><label for="context_concurrency">Wie viele lange Texte gleichzeitig?</label><input type="number" id="context_concurrency" name="context_concurrency">
+          <div class="hint">Prüft, ob der Speicher reicht, wenn mehrere lange Texte auf einmal kommen. 1 = aus.</div></div>
+        <div><label for="max_context">Längster Text, den das Modell kann</label><input type="number" id="max_context" name="max_context" placeholder="automatisch">
+          <div class="hint">Nur ausfüllen, wenn der Server es nicht selbst verrät (z. B. Ollama).</div></div>
+        <div><label for="spike_size">Ansturm: wie viele auf einmal?</label><input type="number" id="spike_size" name="spike_size">
+          <div class="hint">So viele Fragen kommen in derselben Sekunde.</div></div>
+
+        <div class="group-title">Wann gilt der Server als kaputt?</div>
+        <div><label for="break_ttft">Wartezeit, ab der er „kaputt“ ist</label><input type="number" id="break_ttft" name="break_ttft">
+          <div class="hint">Sekunden (für 95 von 100). Dann wird die nächste Stufe nicht mehr getestet.</div></div>
+        <div><label for="max_error_pct">Fehler, ab denen er „kaputt“ ist</label><input type="number" step="1" min="0" max="100" id="max_error_pct">
+          <div class="hint">Prozent der Fragen, die mit Fehler zurückkommen.</div></div>
+        <div><label for="timeout">Wie lange höchstens auf eine Antwort warten?</label><input type="number" id="timeout" name="timeout">
+          <div class="hint">Sekunden. Wer länger wartet, gibt auf – das zählt als Fehler.</div></div>
+
+        <div class="group-title">Kosten (Annahmen für die Wirtschaftlichkeit)</div>
+        <div><label for="hw_price">Kaufpreis des Servers (€)</label><input type="number" step="100" min="0" id="hw_price" name="hw_price">
+          <div class="hint">Wird über die folgende Zeit abgeschrieben.</div></div>
+        <div><label for="amort_months">Abschreibung (Monate)</label><input type="number" min="1" id="amort_months" name="amort_months"></div>
+        <div><label for="server_watts">Stromverbrauch unter Last (W)</label><input type="number" min="0" id="server_watts" name="server_watts">
+          <div class="hint">Aus der Ferne nicht messbar – bitte schätzen oder am Gerät ablesen.</div></div>
+        <div><label for="power_price">Strompreis (€/kWh)</label><input type="number" step="0.01" min="0" id="power_price" name="power_price"></div>
+        <div><label for="cloud_price_in">Cloud: € je Mio. Tokens rein</label><input type="number" step="0.01" min="0" id="cloud_price_in" name="cloud_price_in">
+          <div class="hint">Preis des Cloud-Modells, mit dem verglichen werden soll (Preisliste des Anbieters).</div></div>
+        <div><label for="cloud_price_out">Cloud: € je Mio. Tokens raus</label><input type="number" step="0.01" min="0" id="cloud_price_out" name="cloud_price_out"></div>
+        <div><label for="work_hours">Nutzungsstunden pro Monat</label><input type="number" min="1" id="work_hours" name="work_hours">
+          <div class="hint">168 ≈ 8 Stunden an 21 Arbeitstagen.</div></div>
+
+        <div class="group-title">Antwortqualität</div>
+        <div><label for="probe_interval">Kontrollfrage alle … Sekunden</label><input type="number" step="1" min="0" id="probe_interval" name="probe_interval">
+          <div class="hint">Während der Lasttests nebenher eine Frage mit bekannter Antwort (Rechnen, Sortieren, Wissen, JSON). 0 = aus.</div></div>
+        <div><label for="probe_count">Kontrollfragen ohne Last</label><input type="number" min="0" id="probe_count" name="probe_count">
+          <div class="hint">Vergleichswert: So gut antwortet er, wenn sonst nichts los ist.</div></div>
+
+        <div class="group-title">Messwerte vom Server</div>
+        <div><label for="metrics_url">Adresse der Server-Messwerte</label><input type="text" id="metrics_url" name="metrics_url" placeholder="automatisch">
+          <div class="hint">Für „Notizblock“ und „Warteschlange“. Leer = automatisch, <code>off</code> = aus.</div></div>
+        <div><label for="local_monitor">Grafikkarte dieses Rechners mitmessen?</label>
+          <select id="local_monitor" name="local_monitor"><option value="auto">automatisch</option><option value="on">ja</option><option value="off">nein</option></select>
+          <div class="hint">Nur sinnvoll, wenn der Test auf dem Server selbst läuft.</div></div>
+      </div>
+    </details>
+
+    <div class="actions">
+      <button type="submit" class="btn-primary" id="startBtn">Test starten ↵</button>
+      <button type="button" class="btn-danger hidden" id="stopBtn">Abbrechen</button>
+      <span class="sub" id="formMsg"></span>
+    </div>
+  </form>
+
+  <!-- ─── Fortschritt ─── -->
+  <section class="card hidden" id="progress">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap">
+      <h2 id="runTitle">2. Der Test läuft</h2>
+      <div class="actions" style="margin:0" id="downloads"></div>
+    </div>
+    <div class="steps" id="steps" style="margin-top:12px"></div>
+    <pre class="log" id="log"></pre>
+  </section>
+
+  <!-- ─── Ergebnisse ─── -->
+  <div id="results" class="hidden">
+    <section class="card hidden" id="secVerdict">
+      <h2>Unsere Empfehlung</h2>
+      <div class="verdict" id="verdict"></div>
+      <div class="grid g4" id="verdictKpis"></div>
+      <ul class="reasons" id="reasons"></ul>
+    </section>
+
+    <section class="card">
+      <h2>Das Wichtigste auf einen Blick</h2>
+      <p class="lead">Stell dir den Server als Geschichtenerzähler vor. Jede Frage ist ein Kind, das ihn etwas fragt – er antwortet Wort für Wort.</p>
+      <div class="grid g3" id="kpis"></div>
+      <div id="qualShort" style="margin-top:16px"></div>
+      <details style="margin-top:14px">
+        <summary>Kleines Wörterbuch: Was bedeuten die Begriffe?</summary>
+        <div class="gloss">
+          <div><b>Token</b> – ein Wortstück. Ein Wort besteht meist aus 1–2 Tokens. 100 Tokens ≈ 75 Wörter.<small>Fachbegriff: Token</small></div>
+          <div><b>Wartezeit</b> – wie lange es dauert, bis das erste Wort der Antwort kommt.<small>Fachbegriff: Time to First Token (TTFT)</small></div>
+          <div><b>Tempo</b> – wie viele Tokens pro Sekunde eine Person bekommt, sobald die Antwort läuft.<small>Fachbegriff: Decode-Rate pro Nutzer</small></div>
+          <div><b>Gesamtleistung</b> – alle Tokens pro Sekunde zusammen, für alle Personen.<small>Fachbegriff: Durchsatz (Throughput)</small></div>
+          <div><b>gleichzeitig</b> – wie viele Fragen der Server im selben Moment bearbeitet.<small>Fachbegriff: Concurrency</small></div>
+          <div><b>„normal“ und „fast alle“</b> – normal: die Hälfte war schneller. Fast alle: 95 von 100 waren schneller.<small>Fachbegriff: Median (p50) und p95</small></div>
+          <div><b>Notizblock</b> – hier merkt sich der Server die laufenden Gespräche. Ist er voll, müssen andere warten.<small>Fachbegriff: KV-Cache</small></div>
+          <div><b>Bruchpunkt</b> – ab hier gibt es Fehler, oder man wartet viel zu lange.<small>Fachbegriff: Überlast / Sättigung</small></div>
+        </div>
+      </details>
+    </section>
+
+    <section class="card hidden" id="secBase">
+      <h2 class="q">Wie schnell ist er, wenn nur einer fragt?</h2>
+      <p class="lead" id="baseLead"></p>
+      <div class="grid g3" id="baseKpis"></div>
+      <div class="tech" id="baseTech"></div>
+    </section>
+
+    <section class="card hidden" id="secRampA">
+      <h2 class="q">Wie viel schafft er insgesamt?</h2>
+      <p class="lead" id="rampALead"></p>
+      <div class="split">
+        <div class="chart" id="chRampTps"></div>
+        <div class="explain" id="exRampA"></div>
+      </div>
+    </section>
+
+    <section class="card hidden" id="secRampB">
+      <h2 class="q">Wie schnell ist es für jeden Einzelnen?</h2>
+      <p class="lead" id="rampBLead"></p>
+      <div class="split">
+        <div class="chart" id="chRampUser"></div>
+        <div class="explain" id="exRampB"></div>
+      </div>
+    </section>
+
+    <section class="card hidden" id="secRampC">
+      <h2 class="q">Wie lange muss man warten, bis die Antwort beginnt?</h2>
+      <p class="lead" id="rampCLead"></p>
+      <div class="split">
+        <div><div class="chart" id="chRampTtft"></div><div class="ampel" id="ampel"></div></div>
+        <div class="explain" id="exRampC"></div>
+      </div>
+    </section>
+
+    <section class="card hidden" id="secRate">
+      <h2 class="q">Was passiert, wenn die Fragen zufällig kommen?</h2>
+      <p class="lead" id="rateLead"></p>
+      <div class="split">
+        <div class="chart" id="chRate"></div>
+        <div class="explain" id="exRate"></div>
+      </div>
+      <details style="margin-top:14px">
+        <summary>Alle Zahlen zu „Echter Andrang“</summary>
+        <div style="overflow-x:auto;margin-top:10px"><table id="rateTable"></table></div>
+        <div class="tech">Ziele erfüllt = Anteil der Fragen, die beide Ziele einhalten (Goodput) · Schlange × = Wartezeit der letzten Ankünfte geteilt durch die der ersten (&gt; 2 = sie wächst) · max. gleichz. = so viele Fragen waren höchstens gleichzeitig offen</div>
+      </details>
+    </section>
+
+    <section class="card hidden" id="secCtx">
+      <h2 class="q">Wie viel Text kann er auf einmal lesen?</h2>
+      <p class="lead" id="ctxLead"></p>
+      <div class="split">
+        <div class="chart" id="chCtx"></div>
+        <div class="explain" id="exCtx"></div>
+      </div>
+    </section>
+
+    <section class="card hidden" id="secSpike">
+      <h2 class="q">Was passiert beim großen Ansturm?</h2>
+      <p class="lead" id="spikeLead"></p>
+      <div class="split">
+        <div class="chart" id="chSpike"></div>
+        <div class="explain" id="exSpike"></div>
+      </div>
+    </section>
+
+    <section class="card hidden" id="secSoak">
+      <h2 class="q">Wird er mit der Zeit müde?</h2>
+      <p class="lead" id="soakLead"></p>
+      <div class="split">
+        <div class="chart" id="chSoak"></div>
+        <div class="explain" id="exSoak"></div>
+      </div>
+    </section>
+
+    <section class="card hidden" id="secProbe">
+      <h2 class="q">Bleiben die Antworten richtig, wenn viel los ist?</h2>
+      <p class="lead" id="probeLead"></p>
+      <div class="split">
+        <div class="chart" id="chProbe"></div>
+        <div class="explain" id="exProbe"></div>
+      </div>
+      <details style="margin-top:14px" id="probeWrongBox">
+        <summary>Beispiele für nicht richtige Antworten</summary>
+        <div style="overflow-x:auto;margin-top:10px"><table id="probeWrong"></table></div>
+      </details>
+    </section>
+
+    <section class="card hidden" id="secEco">
+      <h2 class="q">Was kostet uns das?</h2>
+      <p class="lead" id="ecoLead"></p>
+      <div class="split">
+        <div class="chart" id="chEco"></div>
+        <div class="explain" id="exEco"></div>
+      </div>
+    </section>
+
+    <section class="card hidden" id="secSys">
+      <h2 class="q">Ein Blick in den Maschinenraum</h2>
+      <p class="lead" id="sysSub"></p>
+      <div class="grid g2" id="sysCharts"></div>
+      <div class="tech">Der „Notizblock“ ist der KV-Cache. Dort merkt sich der Server die laufenden Gespräche. Ist er voll, müssen neue Fragen in der Schlange warten.</div>
+    </section>
+
+    <section class="card hidden" id="secQual">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">
+        <div><h2 class="q">Wie sehr können wir den Zahlen trauen?</h2>
+          <p class="lead">Wir haben nicht nur den Server geprüft, sondern auch die Messung selbst.</p></div>
+        <div class="qbadge" id="qBadge"></div>
+      </div>
+      <div class="qual" id="qual"></div>
+      <div class="tech">Grün = in Ordnung · Gelb = mit Vorsicht lesen · Rot = Ergebnis verfälscht · Grau = Hinweis</div>
+    </section>
+
+    <section class="card hidden" id="secFindings">
+      <h2 class="q">Was heißt das für uns?</h2>
+      <ul class="findings" id="findings" style="margin-top:10px"></ul>
+      <details style="margin-top:16px">
+        <summary>Alle Zahlen für Technik-Interessierte</summary>
+        <div style="overflow-x:auto;margin-top:10px"><table id="rampTable"></table></div>
+        <div class="tech">* = Zwischenstufe aus der Feinsuche · Ziele erfüllt = Anteil der Fragen, die beide Ziele einhalten (Goodput) · Stocken = längste Pause in einer Antwort · Verdrängt = Antworten, die der Server wegen vollem KV-Cache neu beginnen musste · Schwankung = Unterschied zwischen den drei Dritteln des Messfensters · Verzug = wie sehr der Messrechner hinterherhing</div>
+      </details>
+    </section>
+  </div>
+
+  <!-- ─── Frühere Läufe ─── -->
+  <section class="card">
+    <div style="display:flex;justify-content:space-between;align-items:baseline">
+      <h2>Frühere Tests</h2>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn-ghost" type="button" id="compareBtn" style="padding:6px 12px" disabled>Zwei Tests ankreuzen zum Vergleichen</button>
+      <button class="btn-ghost" type="button" id="reloadRuns" style="padding:6px 12px">Aktualisieren</button></div>
+    </div>
+    <div style="overflow-x:auto;margin-top:8px"><table class="runs" id="runs"></table></div>
+  </section>
+</div>
+
+<script>
+"use strict";
+const $ = (s, el = document) => el.querySelector(s);
+const TESTS = [["baseline", "Einer allein"], ["ramp", "Immer mehr"], ["rate", "Echter Andrang"], ["context", "Lange Texte"], ["spike", "Ansturm"], ["soak", "Ausdauer"], ["control", "Kontrolle"]];
+const FIELDS = ["base_url", "model", "api_key", "slo_ttft", "slo_user_tps", "soak_minutes", "disable_thinking", "levels", "input_len",
+  "output_len", "baseline_requests", "level_seconds", "warmup_seconds", "min_samples", "fine_steps", "context_lengths", "context_requests",
+  "context_concurrency", "max_context", "spike_size", "soak_concurrency", "break_ttft", "timeout", "metrics_url", "local_monitor", "no_ignore_eos",
+  "think_time", "length_mix", "shared_prefix", "seed", "rates", "rate_seconds", "target_users", "hw_price", "amort_months",
+  "server_watts", "power_price", "cloud_price_in", "cloud_price_out", "work_hours", "probe_interval", "probe_count"];
+const PROFILE_KEYS = ["levels", "level_seconds", "warmup_seconds", "min_samples", "fine_steps", "context_lengths", "context_requests",
+  "spike_size", "soak_minutes", "baseline_requests", "rate_seconds", "probe_count"];
+let DEFAULTS = {}, QUICK = {};
+let live = { summary: null, samples: [], state: "idle", run: "", report: false };
+let viewing = null;
+
+// ── Zahlen und Alltags-Übersetzungen ──
+const nf = (v, d = 1) => v == null || isNaN(v) ? "–" : Number(v).toLocaleString("de-DE", { minimumFractionDigits: d, maximumFractionDigits: d });
+const n0 = v => nf(v, 0);
+const secs = v => v == null ? "–" : nf(v, v < 1 ? 2 : v < 10 ? 1 : 0) + " s";
+const words = t => t == null ? null : t / 1.33;
+const pages = t => t == null ? null : t / 400;
+const cap = t => t ? t[0].toUpperCase() + t.slice(1) : t;
+function timeFeel(s) {
+  if (s == null) return "–";
+  if (s < 0.3) return "schneller als ein Wimpernschlag";
+  if (s < 1) return "fast sofort";
+  if (s < 2.5) return "kurz – so lange wie einmal Luft holen";
+  if (s < 6) return "merklich – man wartet ein paar Atemzüge";
+  if (s < 20) return "lang – man wird ungeduldig";
+  return "sehr lang – viele würden aufgeben";
+}
+function speedFeel(t) {
+  if (t == null) return "–";
+  if (t >= 25) return "viel schneller, als man lesen kann";
+  if (t >= 8) return "schneller, als man lesen kann";
+  if (t >= 4) return "etwa so schnell, wie man liest";
+  return "langsamer, als man liest – zäh";
+}
+const approx = v => { if (v == null) return "–"; const st = v >= 1000 ? 100 : v >= 100 ? 10 : v >= 30 ? 5 : 1; return n0(v >= 1 ? Math.max(st, Math.round(v / st) * st) : v); };
+const perMin = r => r == null ? "–" : nf(r * 60, r * 60 >= 10 ? 0 : 1);
+function stallFeel(s) { return s == null ? "–" : s < 0.3 ? "fällt nicht auf" : s < 1 ? "kaum spürbar" : s < 3 ? "man merkt kurze Hänger" : "deutliche Hänger – wirkt wie eingefroren"; }
+const ctxLabel = t => (t >= 1000 ? Math.round(t / 1000) + "k" : t) + ` (≈${nf(pages(t), pages(t) >= 2 ? 0 : 1)} S.)`;
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+function esc(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+function explainHtml(how, meaning, tech) {
+  return `<h4>So liest du das Bild</h4><p>${how}</p><h4>Was das bedeutet</h4><p>${meaning}</p>${tech ? `<div class="tech">Fachbegriff: ${tech}</div>` : ""}`;
+}
+
+// ── Formular ──
+function setField(k, v) { const el = document.getElementById(k); if (el && v != null) el.value = v; }
+function applyProfile(p) { for (const k of PROFILE_KEYS) setField(k, p === "quick" && k in QUICK ? QUICK[k] : DEFAULTS[k]); }
+async function init() {
+  const r = await fetch("/api/defaults").then(r => r.json());
+  DEFAULTS = r.defaults; QUICK = r.quick;
+  for (const k of FIELDS) if (DEFAULTS[k] != null && typeof DEFAULTS[k] !== "boolean") setField(k, DEFAULTS[k]);
+  setField("max_error_pct", Math.round((DEFAULTS.max_error_rate ?? 0.05) * 100));
+  setField("saturation_pct", Math.round((DEFAULTS.saturation_stop ?? 0.05) * 100));
+  setField("base_url", "");
+  let hadSaved = false;
+  try {
+    const raw = localStorage.getItem("llmst.form2"); hadSaved = !!raw;
+    const saved = JSON.parse(raw || "{}");
+    for (const [k, v] of Object.entries(saved)) if (k !== "api_key") setField(k, v);
+    if (saved.profile) document.querySelector(`input[name=profile][value=${saved.profile}]`).checked = true;
+    // Neue Tests sind bei gespeicherten Formularen erst einmal an
+    if (saved.tests) for (const cb of document.querySelectorAll("#testChecks input")) cb.checked = saved.tests.includes(cb.value) || (cb.value === "rate" && !saved.knowsRate);
+  } catch (e) {}
+  if (!$("#base_url").value) setField("base_url", DEFAULTS.base_url || "http://localhost:8000/v1");
+  if (!hadSaved) applyProfile(document.querySelector("input[name=profile]:checked").value);
+  document.querySelectorAll("input[name=profile]").forEach(r => r.addEventListener("change", e => applyProfile(e.target.value)));
+  connect(); loadRuns();
+}
+function formData() {
+  const d = {};
+  for (const k of FIELDS) d[k] = document.getElementById(k).value;
+  d.tests = [...document.querySelectorAll("#testChecks input:checked")].map(c => c.value).join(",");
+  d.disable_thinking = !!d.disable_thinking; d.no_ignore_eos = !!d.no_ignore_eos;
+  d.max_error_rate = (Number($("#max_error_pct").value) || 5) / 100;
+  d.saturation_stop = (Number($("#saturation_pct").value) || 0) / 100;
+  d.soak_bucket = d.soak_minutes && Number(d.soak_minutes) <= 3 ? 20 : 60;
+  return d;
+}
+$("#form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const d = formData();
+  if (!d.tests) return showBanner("Bitte mindestens einen Test auswählen.", "err");
+  try { const save = { ...d, max_error_pct: $("#max_error_pct").value, saturation_pct: $("#saturation_pct").value, knowsRate: true, profile: document.querySelector("input[name=profile]:checked").value };
+    delete save.api_key; localStorage.setItem("llmst.form2", JSON.stringify(save)); } catch (e) {}
+  $("#startBtn").disabled = true; $("#formMsg").textContent = "Starte …";
+  const r = await fetch("/api/start", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(d) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { $("#startBtn").disabled = false; $("#formMsg").textContent = ""; return showBanner(esc(j.error || "Start fehlgeschlagen"), "err"); }
+  viewing = null; hideBanner(); $("#formMsg").textContent = "";
+  $("#progress").scrollIntoView({ behavior: "smooth", block: "start" });
+});
+$("#stopBtn").addEventListener("click", () => { if (confirm("Test abbrechen? Der Bericht wird mit den bisherigen Daten erstellt.")) fetch("/api/stop", { method: "POST" }); });
+$("#loadModels").addEventListener("click", async () => {
+  const q = new URLSearchParams({ base_url: $("#base_url").value, api_key: $("#api_key").value });
+  $("#modelHint").textContent = "Frage beim Server nach …";
+  const r = await fetch("/api/models?" + q); const j = await r.json();
+  if (!r.ok) { $("#modelHint").innerHTML = `<span class="bad">✗ ${esc(j.error)}</span>`; return; }
+  $("#modelList").innerHTML = j.models.map(m => `<option value="${esc(m.id)}">`).join("");
+  if (j.models.length) {
+    if (!$("#model").value) $("#model").value = j.models[0].id;
+    const m = j.models[0];
+    $("#modelHint").innerHTML = `<span class="ok">✓ Verbunden</span> · ${j.models.length} Modell(e)` + (m.max_len ? ` · kann Texte bis ${n0(m.max_len)} Tokens (≈ ${n0(pages(m.max_len))} Seiten)` : "");
+  } else $("#modelHint").textContent = "Server erreichbar, meldet aber kein Modell.";
+});
+function showBanner(t, cls) { const b = $("#banner"); b.className = "banner " + cls; b.innerHTML = t; }
+function hideBanner() { $("#banner").className = "banner"; }
+
+// ── Live-Verbindung ──
+function connect() {
+  const es = new EventSource("/api/events");
+  es.onmessage = ev => {
+    const m = JSON.parse(ev.data);
+    if (m.type === "reset") { live = { summary: null, samples: [], state: "running", run: m.run, report: false }; $("#log").textContent = ""; }
+    else if (m.type === "log") { const el = $("#log"); const stick = el.scrollTop + el.clientHeight >= el.scrollHeight - 30;
+      el.textContent += m.lines.join("\n") + "\n"; if (stick) el.scrollTop = el.scrollHeight; }
+    else if (m.type === "samples") { live.samples.push(...m.samples); if (!viewing) renderSystem(live.summary, live.samples); }
+    else if (m.type === "state") {
+      Object.assign(live, { state: m.state, run: m.run, report: m.report, pdf: m.pdf, summary: m.summary });
+      if (m.error) showBanner("<b>Fehler:</b> " + esc(m.error), "err");
+      if (["done", "stopped", "error"].includes(m.state)) loadRuns();
+      if (!viewing) renderAll();
+      renderStatus();
+    }
+  };
+  es.onerror = () => { $("#stText").textContent = "Verbindung zum Test-Programm unterbrochen …"; $("#stDot").className = "dot error"; };
+}
+function renderStatus() {
+  const st = live.state, running = st === "running";
+  $("#stText").textContent = { idle: "Bereit", running: "Test läuft", done: "Fertig", stopped: "Abgebrochen", error: "Fehler" }[st] || st;
+  $("#stDot").className = "dot " + st;
+  $("#startBtn").disabled = running; $("#stopBtn").classList.toggle("hidden", !running);
+}
+
+// ── Auswertung (gleiche Logik wie im PowerPoint-Bericht) ──
+function meets(x, t, u) { return x.error_rate === 0 && x.ttft_p95 != null && x.ttft_p95 <= t && x.user_tps_p50 != null && x.user_tps_p50 >= u; }
+function derive(s) {
+  const cfg = s.config || {}, sloT = cfg.slo_ttft ?? 2, sloU = cfg.slo_user_tps ?? 10;
+  const steps = [...((s.ramp || {}).steps || [])].sort((a, b) => a.concurrency - b.concurrency);
+  let rec = null, max = null, sat = null;
+  for (const x of steps) { if (meets(x, sloT, sloU)) rec = x.concurrency; if (!max || (x.out_tps || 0) > (max.out_tps || 0)) max = x; }
+  if (max) for (const x of steps) if ((x.out_tps || 0) >= 0.9 * max.out_tps) { sat = x.concurrency; break; }
+  const cap = s.capacity || {}, rate = s.rate || {};
+  const rstages = [...(rate.stages || [])].sort((a, b) => a.rate - b.rate);
+  return { sloT, sloU, steps, rec, max, sat, brk: (s.ramp || {}).break, saturated: (s.ramp || {}).saturated,
+    recStep: steps.find(x => x.concurrency === rec), cap, users: cap.users, think: cap.think_time ?? cfg.think_time ?? 60, rstages, rbrk: rate.break };
+}
+function rateOk(x, D) { return meets(x, D.sloT, D.sloU) && !x.overloaded; }
+function ampelClass(x, D) { return meets(x, D.sloT, D.sloU) ? "good" : (x.error_rate > 0 || (D.brk && D.brk.concurrency === x.concurrency)) ? "bad" : "warn"; }
+
+function renderAll() {
+  const s = viewing ? viewing.summary : live.summary;
+  const samples = viewing ? viewing.samples : live.samples;
+  $("#progress").classList.toggle("hidden", !s && !viewing);
+  $("#results").classList.toggle("hidden", !s);
+  if (!s) return;
+  const meta = s.meta || {}, cfg = s.config || {};
+  $("#runTitle").textContent = (viewing ? "Gespeicherter Test · " : (live.state === "running" ? "2. Der Test läuft · " : "Test · ")) + (cfg.model || "") +
+    (meta.started ? " · " + meta.started.replace("T", " ").slice(0, 16) : "");
+  $("#log").classList.toggle("hidden", !!viewing);
+  renderSteps(s); renderDownloads();
+  const D = derive(s);
+  renderKpis(s, D); renderBase(s); renderRamp(s, D); renderRate(s, D); renderCtx(s); renderSpike(s); renderSoak(s);
+  renderVerdict(s); renderProbe(s); renderEco(s);
+  sysTimer = null; renderSystem(s, samples); renderQuality(s); renderFindings(s, D);
+}
+const eur = (v, d = 0) => v == null ? "–" : nf(v, d) + " €";
+const KINDS = { rechnen: "Rechnen", sortieren: "Sortieren", wissen: "Wissen", json: "Format (JSON)" };
+function renderVerdict(s) {
+  const v = s.verdict; $("#secVerdict").classList.toggle("hidden", !v || (live.state === "running" && !viewing)); if (!v) return;
+  $("#verdict").className = "verdict " + v.status; $("#verdict").textContent = v.headline;
+  const cap = s.capacity || {}, eco = s.economics, pr = s.probes, target = (s.config || {}).target_users || 0, out = [];
+  const u = cap.users;
+  out.push(kpi(u ? "≈ " + approx(u) : "0", "aktive Nutzer gleichzeitig", target ? `gebraucht: ${target}` : `bei ${n0(cap.think_time ?? 60)} s Pause zwischen zwei Fragen`,
+    !u ? "bad" : !target || u >= target ? "ok" : u >= 0.7 * target ? "warn" : "bad"));
+  if (eco) {
+    out.push(kpi(eur(eco.own_month), "Kosten pro Monat", `eigener Server; die Cloud würde bei voller Nutzung ${eur(eco.cloud_full_month)} kosten`));
+    const be = eco.breakeven_pct;
+    out.push(kpi(be == null ? "–" : be <= 100 ? n0(be) + " %" : "nie", "günstiger als die Cloud ab", "so viel Auslastung während der Arbeitszeit", be != null && be <= 60 ? "ok" : be != null && be <= 100 ? "warn" : "bad"));
+  }
+  if (pr && pr.load_pct != null) out.push(kpi(n0(pr.load_pct) + " %", "richtige Antworten unter Last", pr.alone_pct != null ? `ohne Last: ${n0(pr.alone_pct)} %` : "",
+    pr.load_pct >= (pr.alone_pct ?? 100) - 3 ? "ok" : "warn"));
+  $("#verdictKpis").innerHTML = out.join("");
+  $("#reasons").innerHTML = v.reasons.map(([st, t]) => `<li><span class="dot ${st}"></span>${esc(t)}</li>`).join("");
+}
+function renderProbe(s) {
+  const pr = s.probes, has = pr && pr.groups && pr.groups.length;
+  $("#secProbe").classList.toggle("hidden", !has); if (!has) return;
+  const drop = pr.alone_pct != null && pr.load_pct != null ? pr.alone_pct - pr.load_pct : null;
+  $("#probeLead").textContent = drop == null ? "Bisher nur Kontrollfragen ohne Last." : drop <= 3 ? "Kurz gesagt: Ja – unter Last genauso gut wie allein."
+    : `Kurz gesagt: Nein – unter Last nur ${n0(pr.load_pct)} % richtig statt ${n0(pr.alone_pct)} %.`;
+  lineChart($("#chProbe"), { x: pr.groups.map(g => g.label), xLabel: "Phase", yLabel: "richtig beantwortet (%)", d: 0,
+    series: [{ name: "richtig beantwortet", color: "--s3", values: pr.groups.map(g => g.pct) }] });
+  const kinds = Object.entries(pr.by_kind || {}).map(([k, v]) => `${KINDS[k] || k} ${n0(v)} %`).join(", ");
+  $("#exProbe").innerHTML = explainHtml("Während der Lasttests haben wir nebenher einfache Kontrollfragen gestellt, deren Antwort feststeht: Rechnen, Sortieren, Hauptstädte und eine Antwort im festen Format (JSON). Jeder Punkt zeigt, wie viele davon richtig waren – links ohne Last.",
+    (drop == null || drop <= 3 ? "Viel Andrang macht den Erzähler langsamer, aber nicht schlechter. " : "Unter Last macht der Erzähler mehr Fehler – Einstellungen prüfen (z. B. Kompression des Notizblocks). ") + `Nach Art: ${kinds}.`,
+    `${pr.n_alone + pr.n_load} Kontrollfragen, Temperatur 0`);
+  const w = pr.wrong || [];
+  $("#probeWrongBox").classList.toggle("hidden", !w.length);
+  $("#probeWrong").innerHTML = `<thead><tr><th>Phase</th><th>Frage</th><th>Antwort</th><th>Ergebnis</th></tr></thead><tbody>` +
+    w.map(x => `<tr><td>${esc(x.label)}</td><td style="text-align:left">${esc(x.frage)}</td><td style="text-align:left">${esc(x.antwort)}</td><td>${esc(x.status)}</td></tr>`).join("") + "</tbody>";
+}
+function renderEco(s) {
+  const e = s.economics; $("#secEco").classList.toggle("hidden", !e); if (!e) return;
+  const be = e.breakeven_pct;
+  $("#ecoLead").textContent = be == null ? "" : be <= 100 ? `Kurz gesagt: Ab ${n0(be)} % Auslastung ist der eigene Server günstiger als die Cloud.` : "Kurz gesagt: Bei den eingetragenen Preisen wäre die Cloud günstiger.";
+  const lv = [0.25, 0.5, 0.75, 1];
+  lineChart($("#chEco"), { x: lv.map(f => f * 100 + " %"), xLabel: "Auslastung während der Arbeitszeit", yLabel: "Euro pro Monat", d: 0, series: [
+    { name: "eigener Server", color: "--s1", values: lv.map(() => e.own_month) },
+    { name: "Cloud, gleiche Menge", color: "--s2", values: lv.map(f => e.cloud_full_month * f) }] });
+  $("#exEco").innerHTML = explainHtml("Der eigene Server kostet jeden Monat gleich viel, egal wie viel er arbeitet (Abschreibung und Strom). Die Cloud kostet pro Wort. Die Linien zeigen beides für unterschiedlich starke Nutzung.",
+    `Bei voller Nutzung beantwortet er ≈ ${n0(e.answers_month)} Fragen im Monat. 1.000 Antworten kosten dann ${eur(e.own_per_1000, 2)} statt ${eur(e.cloud_per_1000, 2)} in der Cloud` +
+    (e.own_per_user ? `, pro aktivem Nutzer ${eur(e.own_per_user, 2)} im Monat.` : ".") + " Nicht eingerechnet: Wartung, Einrichtung und der Vorteil, dass keine Daten das Haus verlassen.",
+    `Annahmen: ${eur(e.hw_price)} über ${n0(e.amort_months)} Monate · ${n0(e.server_watts)} W zu ${nf(e.power_price, 2)} €/kWh · Cloud ${nf(e.cloud_price_in, 2)} / ${nf(e.cloud_price_out, 2)} € je Mio. Tokens · ${n0(e.work_hours)} h/Monat`);
+}
+function renderDownloads() {
+  const name = viewing ? viewing.name : live.run, rep = viewing ? viewing.report : live.report, pdf = viewing ? viewing.pdf : live.pdf;
+  let h = "";
+  if (viewing) h += `<button class="btn-ghost" type="button" id="backLive">Zurück zum aktuellen Test</button>`;
+  if (name && rep) h += `<a class="btn btn-primary" href="/api/runs/${name}/report.pptx">PowerPoint herunterladen</a>`;
+  if (name && pdf) h += `<a class="btn btn-ghost" href="/api/runs/${name}/report.pdf">Kurzbericht (PDF, 1 Seite)</a>`;
+  if (name && (viewing || live.state !== "running")) h += `<a class="btn btn-ghost" href="/api/runs/${name}/summary.json" download>Rohdaten (JSON)</a>`;
+  $("#downloads").innerHTML = h;
+  const b = $("#backLive"); if (b) b.onclick = () => { viewing = null; renderAll(); };
+}
+function renderSteps(s) {
+  const sel = ((s.config || {}).tests || "").split(",");
+  const cur = (s.meta || {}).current_test;
+  $("#steps").innerHTML = TESTS.map(([k, n], i) => {
+    let cls = "step";
+    const selected = k === "control" ? sel.includes("baseline") : sel.includes(k);
+    if (!selected || (s.skipped || []).includes(k)) cls += " skip";
+    else if (cur === k && !viewing && live.state === "running") cls += " active";
+    else if (s[k]) cls += " done";
+    return `<div class="${cls}"><b>${i + 1}</b>${n}</div>`;
+  }).join("");
+}
+function kpi(v, l, m, cls = "") { return `<div class="kpi"><div class="v ${cls}">${v}</div><div class="l">${l}</div>${m ? `<div class="m">${m}</div>` : ""}</div>`; }
+function renderKpis(s, D) {
+  const b = s.baseline, c = s.context, out = [];
+  out.push(b ? kpi(nf(b.user_tps_p50), "Tokens pro Sekunde für eine Person", `≈ ${n0(words(b.user_tps_p50))} Wörter/s – ${speedFeel(b.user_tps_p50)}`, "")
+    : kpi("–", "Tokens pro Sekunde für eine Person", "kommt nach Test 1"));
+  out.push(b ? kpi(secs(b.ttft_p50), "bis die Antwort beginnt (ohne Andrang)", cap(timeFeel(b.ttft_p50))) : kpi("–", "bis die Antwort beginnt", "kommt nach Test 1"));
+  const tested = D.steps.length || D.rstages.length;
+  out.push(kpi(D.users ? "≈ " + approx(D.users) : tested ? "0" : "–", "aktive Nutzer – ohne dass es zäh wird",
+    D.users ? `bei ${n0(D.think)} s Denkpause zwischen zwei Fragen` + (D.rec ? ` · ${D.rec} Fragen gleichzeitig in Arbeit` : "")
+      : `Ziel: erstes Wort nach ≤ ${nf(D.sloT)} s, Tempo ≥ ${n0(D.sloU)} Tokens/s`, D.users ? "ok" : tested ? "bad" : ""));
+  const lastC = D.steps.length ? D.steps[D.steps.length - 1].concurrency : null;
+  if (D.brk) out.push(kpi(D.brk.concurrency, "Fragen gleichzeitig – ab hier geht es kaputt", "Grund: " + esc(D.brk.reason), "bad"));
+  else if (D.saturated) out.push(kpi(D.saturated, "Fragen gleichzeitig – mehr bringt nichts", "Die Leistung stieg nicht mehr, die Ziele waren verfehlt.", "warn"));
+  else out.push(kpi(lastC ? "> " + lastC : "–", "Fragen gleichzeitig – noch nicht kaputt", lastC ? "Die Grenze liegt höher als getestet." : "kommt nach Test 2", lastC ? "ok" : ""));
+  out.push(kpi(D.max ? n0(D.max.out_tps) : "–", "Tokens/s für alle zusammen (maximal)", D.max ? `≈ ${n0(words(D.max.out_tps) * 60 / 300)} Buchseiten pro Minute` : ""));
+  out.push(kpi(c && c.max_ok ? "≈ " + n0(pages(c.max_ok)) + " Seiten" : "–", "längster Text, den er lesen konnte", c && c.max_ok ? n0(c.max_ok) + " Tokens" : "kommt nach Test 3"));
+  $("#kpis").innerHTML = out.join("");
+  const q = s.quality;
+  $("#qualShort").innerHTML = q ? `<div class="qbadge" style="font-size:15px"><span class="dot ${{ hoch: "good", mittel: "warn", niedrig: "bad" }[q.overall]}"></span>
+    Verlässlichkeit der Messung: ${esc(q.overall)} <span class="sub" style="font-weight:400">– Details unten bei „Wie sehr können wir den Zahlen trauen?“</span></div>` : "";
+}
+function renderBase(s) {
+  const b = s.baseline; $("#secBase").classList.toggle("hidden", !b); if (!b) return;
+  const cfg = s.config || {};
+  $("#baseLead").textContent = `Kurz gesagt: Er antwortet ${speedFeel(b.user_tps_p50)}. Das ist der Bestwert – alle anderen Tests zeigen, wie viel davon übrig bleibt, wenn mehr los ist.`;
+  $("#baseKpis").innerHTML = kpi(nf(b.user_tps_p50), "Tokens pro Sekunde", `≈ ${n0(words(b.user_tps_p50))} Wörter/s. Ein Mensch liest etwa 4–5 Wörter pro Sekunde.`)
+    + kpi(secs(b.ttft_p50), "bis das erste Wort kommt", cap(timeFeel(b.ttft_p50)) + "." + (b.ttfc_p50 != null ? ` Er denkt erst nach – die eigentliche Antwort beginnt nach ${secs(b.ttfc_p50)}.` : ""))
+    + kpi(secs(b.e2e_p50), "für eine ganze Antwort", `${n0(cfg.output_len)} Tokens ≈ ${n0(words(cfg.output_len))} Wörter, etwa ein Absatz.`);
+  const pc = b.prefix_compare;
+  $("#baseTech").textContent = `Fachbegriffe: Decode-Rate (Median) ${nf(b.user_tps_p50)} tok/s · TTFT p50 ${nf(b.ttft_p50, 3)} s / p95 ${nf(b.ttft_p95, 3)} s · ${b.n} Anfragen · Fehler ${b.errors}` +
+    (pc && pc.ttft_unique ? ` · Gleicher Einleitungstext (${n0(pc.prefix_tokens)} Tokens): erstes Wort nach ${nf(pc.ttft_shared, 3)} s statt ${nf(pc.ttft_unique, 3)} s` : "") +
+    (b.prefix_hit_pct != null ? ` · Prefix-Cache-Treffer ${n0(b.prefix_hit_pct)} %` : "");
+}
+function renderRamp(s, D) {
+  const st = D.steps, has = st.length > 0;
+  ["#secRampA", "#secRampB", "#secRampC"].forEach(id => $(id).classList.toggle("hidden", !has));
+  if (!has) { $("#rampTable").innerHTML = ""; return; }
+  const x = st.map(v => v.concurrency), top = D.max, first = st[0], last = st[st.length - 1];
+  const gain = first.out_tps ? top.out_tps / first.out_tps : null;
+  $("#rampALead").textContent = gain ? `Kurz gesagt: Mit mehr Fragen gleichzeitig schafft er bis zu ${nf(gain, gain >= 10 ? 0 : 1)}-mal so viel – dann ist Schluss.` : "";
+  lineChart($("#chRampTps"), { x, xLabel: "Fragen gleichzeitig", yLabel: "Tokens pro Sekunde (alle zusammen)", d: 0,
+    series: [{ name: "Gesamtleistung", color: "--s1", values: st.map(v => v.out_tps) }] });
+  $("#exRampA").innerHTML = explainHtml("Jeder Punkt ist eine Stufe: links wenige Fragen gleichzeitig, rechts viele. Je höher der Punkt, desto mehr Text schreibt der Server insgesamt pro Sekunde.",
+    `Anfangs steigt die Linie: Der Erzähler kann mehreren Kindern gleichzeitig antworten. Ab etwa ${D.sat ?? top.concurrency} gleichzeitig wird sie flach – mehr als ≈ ${n0(top.out_tps)} Tokens pro Sekunde schafft er nicht.`,
+    "Durchsatz (Output-Tokens/s) im eingeschwungenen Zustand");
+
+  $("#rampBLead").textContent = D.rec ? `Kurz gesagt: Bis ${D.rec} gleichzeitig bekommt jeder genug Tempo.` : "Kurz gesagt: Schon bei wenigen gleichzeitig wird es für jeden zäh.";
+  lineChart($("#chRampUser"), { x, xLabel: "Fragen gleichzeitig", yLabel: "Tokens pro Sekunde für eine Person", series: [
+    { name: "Tempo pro Person", color: "--s2", values: st.map(v => v.user_tps_p50) },
+    { name: `Ziel: mindestens ${n0(D.sloU)}`, color: "--ref", dash: true, values: x.map(() => D.sloU) }] });
+  $("#exRampB").innerHTML = explainHtml("Die orange Linie zeigt, wie schnell die Antwort für eine einzelne Person läuft. Die gestrichelte Linie ist unser Ziel. Solange Orange darüber liegt, ist alles flüssig.",
+    `Der Erzähler teilt seine Kraft auf alle auf. Allein bekommt man ${n0(first.user_tps_p50)} Tokens/s, bei ${last.concurrency} gleichzeitig nur noch ${n0(last.user_tps_p50)} – das ist ${speedFeel(last.user_tps_p50)}.` +
+    ((D.recStep || first).stall_p95 != null ? ` Stocken: Bei ${(D.recStep || first).concurrency} gleichzeitig hängt die Antwort höchstens ${secs((D.recStep || first).stall_p95)} am Stück (${stallFeel((D.recStep || first).stall_p95)}).` : ""),
+    "Decode-Rate pro Nutzer (Median); Stocken = längste Pause zwischen zwei Textstücken (p95)");
+
+  $("#rampCLead").textContent = D.brk ? `Kurz gesagt: Ab ${D.brk.concurrency} gleichzeitig ist Schluss – ${D.brk.reason}.` : "Kurz gesagt: Kein Zusammenbruch im getesteten Bereich.";
+  lineChart($("#chRampTtft"), { x, xLabel: "Fragen gleichzeitig", yLabel: "Sekunden bis zum ersten Wort", d: 2, series: [
+    { name: "normal (die Hälfte wartet kürzer)", color: "--s1", values: st.map(v => v.ttft_p50) },
+    { name: "fast alle (95 von 100 warten kürzer)", color: "--s2", values: st.map(v => v.ttft_p95) },
+    { name: `Ziel: höchstens ${nf(D.sloT)} s`, color: "--ref", dash: true, values: x.map(() => D.sloT) }] });
+  $("#ampel").innerHTML = st.map(v => `<span class="a ${ampelClass(v, D)}" title="${v.concurrency} gleichzeitig">${v.concurrency}</span>`).join("") +
+    `<span class="cap">Ampel je Stufe · Grün = gut · Gelb = zu langsam · Rot = kaputt</span>`;
+  $("#exRampC").innerHTML = explainHtml("Blau: wie lange man normalerweise wartet. Orange: wie lange die Pechvögel warten. Die Ampel darunter fasst jede Stufe zusammen.",
+    "Solange der Erzähler noch Platz hat, fängt er sofort an. Ist sein Kopf voll, müssen neue Kinder in einer Schlange warten – dann steigt die Wartezeit steil an." +
+    (D.rec ? ` <b>Empfehlung: höchstens ${D.rec} gleichzeitig.</b>` : ""), "TTFT p50 / p95");
+
+  $("#rampTable").innerHTML = `<thead><tr><th>Gleichzeitig</th><th>Durchsatz tok/s</th><th>tok/s pro Nutzer</th><th>TTFT p50</th><th>TTFT p95</th>
+    <th>Anfragen/s</th><th>Ziele erfüllt</th><th>Stocken p95</th><th>Verdrängt</th><th>Messungen</th><th>Fehler</th><th>Schwankung</th><th>Verzug</th></tr></thead><tbody>` +
+    st.map(v => `<tr><td><span class="tag ${ampelClass(v, D) === "good" ? "ok" : ampelClass(v, D)}">${v.concurrency}${v.fine ? " *" : ""}</span></td>
+      <td>${n0(v.out_tps)}</td><td>${nf(v.user_tps_p50)}</td><td>${nf(v.ttft_p50, 2)} s</td><td>${nf(v.ttft_p95, 2)} s</td><td>${nf(v.req_s, 2)}</td>
+      <td>${n0(v.goodput_pct)} %</td><td>${nf(v.stall_p95, 2)} s</td><td>${v.preemptions ?? "–"}</td><td>${v.n_window ?? v.n}</td><td>${n0(v.error_rate * 100)} %</td><td>${n0(v.stability_pct)} %</td><td>${n0(v.client_lag_ms)} ms</td></tr>`).join("") + "</tbody>";
+}
+function renderRate(s, D) {
+  const st = D.rstages, has = st.length > 0;
+  $("#secRate").classList.toggle("hidden", !has); if (!has) return;
+  const ok = D.cap.rate_ok;
+  $("#rateLead").textContent = ok ? `Kurz gesagt: Bis ${perMin(ok)} Fragen pro Minute bleibt es flüssig – das reicht für ≈ ${approx(D.cap.users_rate)} aktive Nutzer.`
+    : "Kurz gesagt: Schon bei der kleinsten getesteten Menge wird es zu langsam.";
+  const x = st.map(v => perMin(v.rate));
+  lineChart($("#chRate"), { x, xLabel: "Fragen pro Minute (zufällig verteilt)", yLabel: "Sekunden bis zum ersten Wort", d: 2, series: [
+    { name: "normal (die Hälfte wartet kürzer)", color: "--s1", values: st.map(v => v.ttft_p50) },
+    { name: "fast alle (95 von 100 warten kürzer)", color: "--s2", values: st.map(v => v.ttft_p95) },
+    { name: `Ziel: höchstens ${nf(D.sloT)} s`, color: "--ref", dash: true, values: x.map(() => D.sloT) }] });
+  $("#exRate").innerHTML = explainHtml("Im Alltag kommen Fragen nicht im Takt, sondern zufällig: mal drei auf einmal, dann eine Weile keine. Genau so haben wir hier gefragt. Nach rechts kommen mehr Fragen pro Minute.",
+    "Solange der Erzähler schneller antwortet, als neue Kinder kommen, bleibt die Linie flach. Kommen mehr, als er schafft, wird die Schlange immer länger – die Wartezeit schießt nach oben." +
+    (D.rbrk ? ` <b>Das passierte ab ${perMin(D.rbrk.rate)} Fragen pro Minute.</b>` : "") + ` Annahme: Jede Person macht ${n0(D.think)} s Pause zwischen zwei Fragen.`,
+    "offene Last (Poisson-Ankünfte), Gesetz von Little");
+  $("#rateTable").innerHTML = `<thead><tr><th>Fragen/min</th><th>tatsächlich</th><th>TTFT p50</th><th>TTFT p95</th><th>tok/s pro Nutzer</th><th>Durchsatz tok/s</th>
+    <th>Ziele erfüllt</th><th>Stocken p95</th><th>max. gleichz.</th><th>Schlange ×</th><th>Verdrängt</th><th>Fehler</th></tr></thead><tbody>` +
+    st.map(v => { const c = rateOk(v, D) ? "ok" : (v.overloaded || v.error_rate > 0) ? "bad" : "warn";
+      return `<tr><td><span class="tag ${c}">${perMin(v.rate)}</span></td><td>${perMin(v.rate_actual)}</td><td>${nf(v.ttft_p50, 2)} s</td><td>${nf(v.ttft_p95, 2)} s</td>
+      <td>${nf(v.user_tps_p50)}</td><td>${n0(v.out_tps)}</td><td>${n0(v.goodput_pct)} %</td><td>${nf(v.stall_p95, 2)} s</td><td>${v.max_inflight ?? "–"}</td>
+      <td>${nf(v.queue_growth)}</td><td>${v.preemptions ?? "–"}</td><td>${n0(v.error_rate * 100)} %</td></tr>`; }).join("") + "</tbody>";
+}
+function renderCtx(s) {
+  const c = s.context; $("#secCtx").classList.toggle("hidden", !c); if (!c) return;
+  const st = c.steps.filter(v => v.single.ok > 0), lim = c.limit, cc = (s.config || {}).context_concurrency;
+  const maxOk = c.max_ok ?? (st.length ? st[st.length - 1].input_len : null);
+  $("#ctxLead").textContent = maxOk ? `Kurz gesagt: Bis ≈ ${n0(pages(maxOk))} Buchseiten klappt es` +
+    (lim && lim.mode !== "einzeln" ? `, mehrere lange Texte gleichzeitig überfordern ihn ab ≈ ${n0(pages(lim.input_len))} Seiten.` : ".") : "läuft …";
+  if (!st.length) { $("#chCtx").innerHTML = `<div class="empty">Noch keine Daten</div>`; $("#exCtx").innerHTML = ""; return; }
+  const series = [{ name: "einer allein", color: "--s1", values: st.map(v => v.single.ttft_p50) }];
+  if (st.some(v => v.parallel)) series.push({ name: `${cc} gleichzeitig (fast alle)`, color: "--s2", values: st.map(v => v.parallel && v.parallel.ok ? v.parallel.ttft_p95 : null) });
+  lineChart($("#chCtx"), { x: st.map(v => ctxLabel(v.input_len)), xLabel: "Länge des Textes (Tokens, ≈ Buchseiten)", yLabel: "Sekunden bis zum ersten Wort", series, d: 2 });
+  const pre = st.map(v => v.prefill_tps).filter(Boolean);
+  $("#exCtx").innerHTML = explainHtml("Nach rechts werden die Texte länger, die wir dem Server zum Lesen geben. Nach oben: wie lange er liest, bevor er antwortet.",
+    `Er liest etwa ${n0(pages(Math.max(...pre)))} Buchseiten pro Sekunde. Lange Texte brauchen viel Platz auf seinem Notizblock. Kommen mehrere davon gleichzeitig, kann der Platz ausgehen – dann gibt es Fehler.` +
+    (lim ? ` <b>Das passierte bei ≈ ${n0(pages(lim.input_len))} Seiten (${esc(lim.mode)}).</b>` : ""),
+    "Kontextlänge, Prefill-Geschwindigkeit, KV-Cache. 1 Seite ≈ 400 Tokens (Faustregel)");
+}
+function renderSpike(s) {
+  const sp = s.spike; $("#secSpike").classList.toggle("hidden", !sp); if (!sp) return;
+  const b = sp.burst;
+  $("#spikeLead").textContent = `Kurz gesagt: ${sp.size} Fragen auf einmal – ` + (b.errors ? `${b.errors} gingen verloren` : "alle wurden beantwortet") +
+    (sp.recovered ? ", danach war er wieder normal." : ", danach war er nicht wieder normal.");
+  barChart($("#chSpike"), sp.ttft_sorted || [], "--s2");
+  $("#exSpike").innerHTML = explainHtml("Jeder Balken ist eine Frage. Je höher der Balken, desto länger musste sie warten. Sie sind der Größe nach sortiert.",
+    `Siehst du Treppenstufen, nimmt der Erzähler immer eine Gruppe dran – die anderen warten auf die nächste Runde. Die längste Wartezeit war ${secs(b.ttft_max)} – ${timeFeel(b.ttft_max)}.`,
+    "Burst-/Spike-Test mit Erholungsprüfung");
+}
+function renderSoak(s) {
+  const so = s.soak; $("#secSoak").classList.toggle("hidden", !so); if (!so) return;
+  const bk = so.buckets.filter(b => b.s), dg = (so.degradation || {}).tps_change_pct ?? 0, tired = dg < -10;
+  const m = nf(so.minutes, so.minutes % 1 ? 1 : 0) + (so.minutes == 1 ? " Minute" : " Minuten");
+  const change = Math.abs(dg) < 2 ? "genauso schnell wie am Anfang" : `${n0(Math.abs(dg))} % ${dg < 0 ? "langsamer" : "schneller"} als am Anfang`;
+  $("#soakLead").textContent = `Kurz gesagt: ${tired ? "Ja" : "Nein"} – nach ${m} Dauerbetrieb ist er ${change}.`;
+  lineChart($("#chSoak"), { x: bk.map(b => b.t_min), num: true, xLabel: "Minuten seit Start", yLabel: "Tokens pro Sekunde (alle zusammen)", d: 0,
+    series: [{ name: "Gesamtleistung", color: "--s1", values: bk.map(b => b.s.out_tps) }] });
+  $("#exSoak").innerHTML = explainHtml(`Wir haben den Server ${m} lang mit ${so.concurrency} Fragen gleichzeitig beschäftigt. Die Linie zeigt seine Leistung über die Zeit. Bleibt sie flach, ist alles gut.`,
+    (tired ? "Die Leistung sinkt mit der Zeit. Das deutet auf Hitze hin: Wird der Chip zu warm, bremst er sich selbst. Kühlung und Aufstellort prüfen."
+      : "Die Leistung bleibt gleich. Der Server wird bei dieser Last nicht müde – kein Hitzeproblem, kein Speicherleck.") + ` Insgesamt ${n0(so.total.ok)} Antworten, ${so.total.errors} Fehler.`,
+    "Soak-Test, thermische Drosselung, Memory Leak");
+}
+const SYS_PANELS = [
+  { key: ["kv"], names: ["belegt"], colors: ["--s3"], title: "Wie voll ist sein Notizblock? (%)", d: 0 },
+  { key: ["running", "waiting"], names: ["wird bedient", "wartet in der Schlange"], colors: ["--s1", "--s2"], title: "Wie viele werden bedient – wie viele warten?", d: 0 },
+  { key: ["gpu_temp"], names: ["Temperatur"], colors: ["--s2"], title: "Wie warm ist der Chip? (°C)", d: 0 },
+  { key: ["gpu_clock"], names: ["Takt"], colors: ["--s4"], title: "Wie schnell arbeitet der Chip? (MHz)", d: 0 },
+  { key: ["gpu_util"], names: ["Auslastung"], colors: ["--s1"], title: "Wie beschäftigt ist der Chip? (%)", d: 0 },
+  { key: ["ram_used_gb"], names: ["belegt"], colors: ["--s1"], title: "Wie viel Speicher ist belegt? (GB)", d: 1 }];
+let sysTimer = null;
+function renderSystem(s, samples) {
+  if (sysTimer) return;
+  sysTimer = setTimeout(() => { sysTimer = null; }, 2000);
+  const avail = SYS_PANELS.filter(p => samples.some(x => x[p.key[0]] != null)).slice(0, 4);
+  $("#secSys").classList.toggle("hidden", !samples.length); if (!samples.length) return;
+  const local = s && s.meta && s.meta.local_monitor;
+  $("#sysSub").textContent = avail.length ? "Was im Server passierte, während wir getestet haben." + (local ? "" : " Die Werte kommen direkt vom Server über das Netzwerk.")
+    : "Der Server verrät keine Messwerte (z. B. bei Ollama). Bei vLLM und SGLang ist das normalerweise eingeschaltet.";
+  const host = $("#sysCharts"), sig = avail.map(p => p.title).join();
+  if (host.dataset.sig !== sig) { host.innerHTML = avail.map((p, i) => `<div><h3>${p.title}</h3><div class="chart" id="sys${i}"></div></div>`).join(""); host.dataset.sig = sig; }
+  const step = Math.max(1, Math.ceil(samples.length / 300)), pts = samples.filter((_, i) => i % step === 0);
+  avail.forEach((p, i) => lineChart(document.getElementById("sys" + i), { num: true, x: pts.map(v => v.t / 60), xLabel: "Minuten seit Start", d: p.d, noMarkers: true,
+    series: p.key.map((k, j) => ({ name: p.names[j], color: p.colors[j], values: pts.map(v => v[k] ?? null) })) }));
+}
+function renderQuality(s) {
+  const q = s.quality; $("#secQual").classList.toggle("hidden", !q); if (!q) return;
+  const cls = { hoch: "good", mittel: "warn", niedrig: "bad" }[q.overall];
+  $("#qBadge").innerHTML = `<span class="dot ${cls}"></span>Verlässlichkeit: ${esc(q.overall.toUpperCase())}`;
+  $("#qual").innerHTML = q.items.map(i => `<div class="qitem"><span class="dot ${i.status}"></span><div><b>${esc(i.title)}</b><span class="val">${esc(i.value)}</span><p>${esc(i.text)}</p></div></div>`).join("");
+}
+function renderFindings(s, D) {
+  const b = s.baseline, c = s.context, sp = s.spike, so = s.soak, f = [];
+  const done = live.state !== "running" || viewing;
+  $("#secFindings").classList.toggle("hidden", !done); if (!done) return;
+  if (b) f.push(`<b>Einer allein:</b> ${speedFeel(b.user_tps_p50)}, erstes Wort nach ${secs(b.ttft_p50)}.`);
+  if (D.steps.length || D.rstages.length)
+    f.push(D.users ? `<b>Gut nutzbar:</b> für ≈ ${approx(D.users)} aktive Nutzer` + (D.rec ? ` (${D.rec} Fragen gleichzeitig).` : ".") + ` <span class="sub">Annahme: ${n0(D.think)} s Pause zwischen zwei Fragen einer Person.</span>`
+      : `<b>Gut nutzbar:</b> keine Stufe erreicht die Ziele – Ziele, Modell oder Einstellungen prüfen.`);
+  if (D.rstages.length && D.rbrk) f.push(`<b>Echter Andrang:</b> ab ${perMin(D.rbrk.rate)} Fragen pro Minute wächst die Schlange.`);
+  if (D.steps.length) {
+    f.push(D.brk ? `<b>Grenze:</b> ab ${D.brk.concurrency} gleichzeitig geht es kaputt (${esc(D.brk.reason)}).`
+      : D.saturated ? `<b>Grenze:</b> ab ${D.saturated} gleichzeitig steigt die Leistung nicht mehr.`
+      : `<b>Grenze:</b> bis ${D.steps[D.steps.length - 1].concurrency} gleichzeitig nicht kaputt gegangen.`);
+    if (D.recStep && D.recStep.stall_p95 != null) f.push(`<b>Flüssig:</b> Antworten hängen höchstens ${secs(D.recStep.stall_p95)} am Stück – ${stallFeel(D.recStep.stall_p95)}.`);
+    const pre = D.steps.filter(x => x.preemptions && (!D.rec || x.concurrency <= D.rec));
+    if (pre.length) f.push(`<b>Notizblock:</b> läuft schon bei ${pre[0].concurrency} gleichzeitig über – angefangene Antworten werden verworfen. Speicher für den KV-Cache vergrößern. <span class="sub">(vLLM: <code>--gpu-memory-utilization</code>, KV-Cache fp8)</span>`);
+    if (D.rec) f.push(`<b>Empfehlung:</b> Den Server auf höchstens ${D.sat && D.sat > D.rec ? D.rec + "–" + D.sat : D.rec} gleichzeitige Fragen einstellen. Wer später kommt, wartet kurz, statt alle auszubremsen. <span class="sub">(vLLM: <code>--max-num-seqs</code>)</span>`);
+  }
+  if (c && c.max_ok) f.push(`<b>Lange Texte:</b> bis ≈ ${n0(pages(c.max_ok))} Buchseiten.` + (c.limit && c.limit.mode !== "einzeln" ? ` Mehrere lange Texte gleichzeitig: Probleme ab ≈ ${n0(pages(c.limit.input_len))} Seiten.` : ""));
+  if (sp) f.push(`<b>Ansturm:</b> ${sp.recovered && !sp.burst.errors ? "gut überstanden." : "nicht sauber überstanden."}`);
+  if (so && so.degradation) f.push(`<b>Ausdauer:</b> ${(so.degradation.tps_change_pct || 0) > -10 ? "wird nicht müde." : "wird mit der Zeit langsamer – Kühlung prüfen."}`);
+  if (s.quality) f.push(`<b>Messung:</b> Verlässlichkeit ${esc(s.quality.overall)}.`);
+  $("#findings").innerHTML = f.map(x => `<li>${x}</li>`).join("");
+}
+
+// ── Diagramme (SVG, ohne externe Bibliothek) ──
+function niceStep(v) { const e = Math.pow(10, Math.floor(Math.log10(v))); const m = v / e; return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 2.5 ? 2.5 : m <= 5 ? 5 : 10) * e; }
+function axis(max) {
+  if (!(max > 0)) max = 1;
+  const step = niceStep(max / 4), n = Math.ceil(max / step - 1e-9);
+  const dec = step >= 1 ? (step % 1 ? 1 : 0) : Math.min(3, Math.ceil(-Math.log10(step)) + (step * Math.pow(10, Math.ceil(-Math.log10(step))) % 1 ? 1 : 0));
+  return { max: step * n, step, n, dec };
+}
+function lineChart(el, o) {
+  const W = 560, H = 270, L = 58, R = 14, T = 12, B = 40;
+  const n = o.x.length, all = o.series.flatMap(s => s.values).filter(v => v != null);
+  if (!n || !all.length) { el.innerHTML = `<div class="empty">Noch keine Daten</div>`; return; }
+  const ax = axis(Math.max(...all) * 1.02), ymax = ax.max;
+  let xs;
+  if (o.num) { const x0 = Math.min(...o.x), x1 = Math.max(...o.x) || 1; xs = v => L + (x1 === x0 ? 0.5 : (v - x0) / (x1 - x0)) * (W - L - R); }
+  else xs = i => L + (n === 1 ? 0.5 : i / (n - 1)) * (W - L - R);
+  const px = i => o.num ? xs(o.x[i]) : xs(i), py = v => T + (1 - v / ymax) * (H - T - B);
+  const ink2 = css("--muted"), grid = css("--grid");
+  let g = "";
+  for (let k = 0; k <= ax.n; k++) { const v = ax.step * k, y = py(v);
+    g += `<line x1="${L}" x2="${W - R}" y1="${y}" y2="${y}" stroke="${grid}"/><text x="${L - 7}" y="${y + 4}" text-anchor="end" font-size="11" fill="${ink2}">${nf(v, ax.dec)}</text>`; }
+  const labEvery = Math.max(1, Math.ceil(n / 8));
+  if (o.num) { const x0 = Math.min(...o.x), x1 = Math.max(...o.x); for (let k = 0; k <= 5; k++) { const v = x0 + (x1 - x0) * k / 5;
+      g += `<text x="${xs(v)}" y="${H - B + 16}" text-anchor="middle" font-size="11" fill="${ink2}">${nf(v, x1 - x0 < 5 ? 1 : 0)}</text>`; } }
+  else o.x.forEach((v, i) => { if (i % labEvery === 0 || i === n - 1) g += `<text x="${px(i)}" y="${H - B + 16}" text-anchor="middle" font-size="11" fill="${ink2}">${esc(v)}</text>`; });
+  g += `<line x1="${L}" x2="${W - R}" y1="${H - B}" y2="${H - B}" stroke="${ink2}" stroke-opacity=".5"/>`;
+  if (o.xLabel) g += `<text x="${(L + W - R) / 2}" y="${H - 4}" text-anchor="middle" font-size="11.5" fill="${ink2}">${esc(o.xLabel)}</text>`;
+  if (o.yLabel) g += `<text transform="translate(13 ${(T + H - B) / 2}) rotate(-90)" text-anchor="middle" font-size="11.5" fill="${ink2}">${esc(o.yLabel)}</text>`;
+  for (const s of o.series) {
+    const col = css(s.color); let d = "", pen = false;
+    s.values.forEach((v, i) => { if (v == null) { pen = false; return; } d += (pen ? "L" : "M") + px(i).toFixed(1) + "," + py(v).toFixed(1); pen = true; });
+    g += `<path d="${d}" fill="none" stroke="${col}" stroke-width="${s.dash ? 1.5 : 2.5}" ${s.dash ? 'stroke-dasharray="5 4"' : ""} stroke-linejoin="round" stroke-linecap="round"/>`;
+    if (!s.dash && !o.noMarkers && n <= 30) s.values.forEach((v, i) => { if (v != null) g += `<circle cx="${px(i)}" cy="${py(v)}" r="4.5" fill="${col}" stroke="${css("--surface")}" stroke-width="2"/>`; });
+  }
+  g += `<line class="xh" x1="0" x2="0" y1="${T}" y2="${H - B}" stroke="${ink2}" stroke-dasharray="3 3" opacity="0"/>`;
+  const legend = o.series.length > 1 ? `<div class="legend">${o.series.map(s => `<span><i class="${s.dash ? "dash" : ""}" style="background:${css(s.color)}"></i>${esc(s.name)}</span>`).join("")}</div>` : "";
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img">${g}<rect x="${L}" y="${T}" width="${W - L - R}" height="${H - T - B}" fill="transparent"/></svg>${legend}<div class="tip"></div>`;
+  const svg = el.querySelector("svg"), tip = el.querySelector(".tip"), xh = el.querySelector(".xh");
+  svg.addEventListener("pointermove", ev => {
+    const r = svg.getBoundingClientRect(), sx = (ev.clientX - r.left) * W / r.width;
+    let best = 0, bd = 1e9; for (let i = 0; i < n; i++) { const dd = Math.abs(px(i) - sx); if (dd < bd) { bd = dd; best = i; } }
+    const xv = px(best); xh.setAttribute("x1", xv); xh.setAttribute("x2", xv); xh.setAttribute("opacity", ".6");
+    const head = o.num ? `${nf(o.x[best], 1)} ${o.xLabel || ""}` : `${o.x[best]} · ${o.xLabel || ""}`;
+    tip.innerHTML = `<b>${esc(head)}</b><br>` + o.series.map(s => `<span class="sw" style="background:${css(s.color)}"></span>${esc(s.name)}: ${nf(s.values[best], o.d ?? 1)}`).join("<br>");
+    tip.style.left = Math.min(Math.max(xv / W * r.width, 90), r.width - 90) + "px"; tip.style.top = "10px"; tip.style.opacity = 1;
+  });
+  svg.addEventListener("pointerleave", () => { tip.style.opacity = 0; xh.setAttribute("opacity", "0"); });
+}
+function barChart(el, vals, color) {
+  const W = 560, H = 270, L = 58, R = 14, T = 12, B = 40, n = vals.length;
+  if (!n) { el.innerHTML = `<div class="empty">Keine erfolgreichen Antworten</div>`; return; }
+  const ax = axis(Math.max(...vals) * 1.02), ymax = ax.max, bw = (W - L - R) / n, ink2 = css("--muted"), grid = css("--grid");
+  const py = v => T + (1 - v / ymax) * (H - T - B);
+  let g = "";
+  for (let k = 0; k <= ax.n; k++) { const v = ax.step * k, y = py(v);
+    g += `<line x1="${L}" x2="${W - R}" y1="${y}" y2="${y}" stroke="${grid}"/><text x="${L - 7}" y="${y + 4}" text-anchor="end" font-size="11" fill="${ink2}">${nf(v, ax.dec)}</text>`; }
+  const gap = n > 60 ? 0.5 : 2;
+  vals.forEach((v, i) => { const x = L + i * bw + gap / 2, h = Math.max(1, H - B - py(v));
+    g += `<rect x="${x}" y="${H - B - h}" width="${Math.max(0.5, bw - gap)}" height="${h}" rx="${bw > 8 ? 2 : 0}" fill="${css(color)}"><title>Frage ${i + 1}: ${nf(v, 2)} s gewartet</title></rect>`; });
+  g += `<line x1="${L}" x2="${W - R}" y1="${H - B}" y2="${H - B}" stroke="${ink2}" stroke-opacity=".5"/>`;
+  g += `<text x="${L}" y="${H - B + 16}" font-size="11" fill="${ink2}">schnellste</text><text x="${W - R}" y="${H - B + 16}" text-anchor="end" font-size="11" fill="${ink2}">langsamste</text>`;
+  g += `<text x="${(L + W - R) / 2}" y="${H - 4}" text-anchor="middle" font-size="11.5" fill="${ink2}">jede Frage ein Balken, sortiert</text>`;
+  g += `<text transform="translate(13 ${(T + H - B) / 2}) rotate(-90)" text-anchor="middle" font-size="11.5" fill="${ink2}">Sekunden bis zum ersten Wort</text>`;
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img">${g}</svg>`;
+}
+
+// ── Frühere Tests ──
+async function loadRuns() {
+  const j = await fetch("/api/runs").then(r => r.json()).catch(() => ({ runs: [] }));
+  const names = { baseline: "Einer allein", ramp: "Immer mehr", rate: "Echter Andrang", context: "Lange Texte", spike: "Ansturm", soak: "Ausdauer" };
+  $("#runs").innerHTML = j.runs.length ? `<thead><tr><th title="Zum Vergleichen auswählen">⇄</th><th>Wann</th><th>Modell</th><th>Server</th><th>Tests</th><th></th></tr></thead><tbody>` +
+    j.runs.map(r => `<tr><td><input type="checkbox" class="cmp" value="${esc(r.name)}" aria-label="zum Vergleich auswählen"></td><td>${esc((r.started || "").replace("T", " ").slice(0, 16))}</td><td>${esc(r.model)}</td><td>${esc(r.base_url)}</td>
+      <td>${r.tests.map(t => names[t]).join(", ")}</td><td style="white-space:nowrap"><button class="link" type="button" data-view="${esc(r.name)}">Ansehen</button>
+      ${r.report ? `<a href="/api/runs/${esc(r.name)}/report.pptx">PowerPoint</a>` : ""} ${r.pdf ? `<a href="/api/runs/${esc(r.name)}/report.pdf">PDF</a>` : ""}</td></tr>`).join("") + "</tbody>"
+    : `<tbody><tr><td class="sub">Noch keine Tests</td></tr></tbody>`;
+  $("#runs").querySelectorAll("[data-view]").forEach(b => b.onclick = () => viewRun(b.dataset.view, j.runs.find(r => r.name === b.dataset.view)));
+  $("#runs").querySelectorAll(".cmp").forEach(c => c.onchange = updateCompare);
+  updateCompare();
+}
+function updateCompare() {
+  const sel = [...document.querySelectorAll("#runs .cmp:checked")].map(c => c.value);
+  const b = $("#compareBtn"); b.disabled = sel.length < 2;
+  b.textContent = sel.length < 2 ? "Zwei Tests ankreuzen zum Vergleichen" : `${sel.length} Tests vergleichen (PowerPoint)`;
+  b.onclick = () => { if (sel.length >= 2) location.href = "/api/compare?runs=" + encodeURIComponent(sel.join(",")); };
+}
+async function viewRun(name, info) {
+  const s = await fetch(`/api/runs/${name}/summary.json`).then(r => r.json());
+  viewing = { name, summary: s, samples: s.monitor || [], report: info && info.report, pdf: info && info.pdf };
+  renderAll(); $("#progress").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+$("#reloadRuns").onclick = loadRuns;
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => renderAll());
+init();
+</script>
+</body>
+</html>

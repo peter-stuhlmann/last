@@ -1,0 +1,23 @@
+# Starten:  docker compose up --build      → http://localhost:8090
+# Beenden:  docker compose down
+#
+# Linux: Gehören die Dateien in ./results sonst root oder einem fremden Benutzer, so starten:
+#   LOCAL_UID=$(id -u) LOCAL_GID=$(id -g) docker compose up --build
+
+services:
+  llm-stresstest:
+    build: .
+    image: llm-stresstest
+    ports:
+      # Nur von diesem Rechner aus erreichbar – die Oberfläche hat keinen Passwortschutz.
+      - "127.0.0.1:8090:8090"
+    volumes:
+      # Alle Läufe, PowerPoints und PDFs landen im Ordner results neben dieser Datei.
+      - ./results:/app/results
+    extra_hosts:
+      # Auf Linux fehlt host.docker.internal sonst (Windows/macOS haben es von Haus aus).
+      - "host.docker.internal:host-gateway"
+    environment:
+      # Zeitzone für die Uhrzeiten in Berichten und Protokoll
+      TZ: "${TZ:-Europe/Berlin}"
+    user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
