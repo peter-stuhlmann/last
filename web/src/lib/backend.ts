@@ -26,6 +26,7 @@ export interface Defaults {
   /** Standardwerte für Website-Tests; fehlt bei einem älteren Backend */
   web?: { defaults: Record<string, unknown>; quick: Record<string, unknown> };
   api?: { defaults: Record<string, unknown>; quick: Record<string, unknown> };
+  flow?: { defaults: Record<string, unknown>; quick: Record<string, unknown> };
 }
 
 export const getDefaults = () => backendJson<Defaults>("/api/defaults");

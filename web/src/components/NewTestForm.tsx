@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
-import { FALLBACK_API, FALLBACK_WEB } from "@/lib/profile";
+import { FALLBACK_API, FALLBACK_FLOW, FALLBACK_WEB } from "@/lib/profile";
 import type { ModelInfo, RunKind } from "@/lib/types";
 import { METHODS, parseBaseUrl, parseHeaderLines } from "@/lib/validation";
 
@@ -32,7 +32,41 @@ const REMEMBERED = [
   "api_slo",
   "expect_status",
   "method",
+  "flow_url",
+  "flow_users",
+  "flow_slo",
+  "flow_think",
+  // Die Schritte enthalten nur Platzhalter – die Werte dazu werden nie gemerkt
+  "flow_steps",
 ] as const;
+
+const PLACEHOLDER_RE = /\{([a-zA-Z][a-zA-Z0-9_]{0,31})\}/g;
+
+/** Alle {platzhalter} in den Schritten, in Reihenfolge des ersten Auftretens. */
+export function findPlaceholders(steps: string): string[] {
+  return [...new Set([...steps.matchAll(PLACEHOLDER_RE)].map((m) => m[1]))];
+}
+
+const STEP_EXAMPLE = `tippe in "E-Mail" {email}
+tippe in "Passwort" {passwort}
+klicke "Anmelden"
+warte auf Text "Willkommen"
+messen ab hier
+tippe in "Nachricht" "Was ist ein Lasttest?"
+drücke Enter
+warte bis ".antwort" fertig ist (2 s ruhig)`;
+
+const STEP_WORDS: [string, string][] = [
+  ['tippe in "Feld" Text', "Feld = Beschriftung, Platzhaltertext oder CSS-Selektor; {name} wird zum Passwortfeld"],
+  ['klicke "Knopf"', "Knopf, Link oder Selektor"],
+  ["drücke Enter", "oder Tab, Escape …"],
+  ['warte auf Text "…"', "bis der Text irgendwo auf der Seite steht"],
+  ['warte auf "…"', "bis das Element da ist"],
+  ["warte 2 s", "einfach warten"],
+  ["messen ab hier", "ab hier wird mitgeschnitten – genau einmal, danach mindestens ein Schritt"],
+  ['warte auf erste Antwort in "…"', "misst, wann das erste Wort erscheint"],
+  ['warte bis "…" fertig ist (2 s ruhig)', "fertig, wenn sich der Text so lange nicht mehr ändert"],
+];
 
 const COST_FIELDS = [
   { name: "hw_price", label: "Kaufpreis Server", unit: "€" },
@@ -60,13 +94,41 @@ const TARGETS: Record<RunKind, Target[]> = {
     { name: "api_slo", label: "Antwort nach höchstens", unit: "Sekunden", step: "0.05", min: "0.05", placeholder: "0,5" },
     { name: "expect_status", label: "Erwarteter Status", unit: "z. B. 2xx", step: "1", min: "0", placeholder: "2xx", text: true },
   ],
+  flow: [
+    { name: "flow_users", label: "Nutzer gleichzeitig", unit: "erwartet", step: "1", min: "0", placeholder: "?" },
+    { name: "flow_slo", label: "Antwort fertig nach höchstens", unit: "Sekunden", step: "0.5", min: "0.5", placeholder: "10" },
+    { name: "flow_think", label: "Pause zwischen zwei Durchläufen", unit: "Sekunden", step: "1", min: "1", placeholder: "60" },
+  ],
 };
 
-const KINDS: { value: RunKind | "api"; icon: string; label: string; soon: boolean }[] = [
+const KINDS: { value: RunKind; icon: string; label: string; soon: boolean }[] = [
   { value: "llm", icon: "✦", label: "KI-Server", soon: false },
   { value: "api", icon: "{ }", label: "HTTP-API", soon: false },
   { value: "web", icon: "▦", label: "Website", soon: false },
+  { value: "flow", icon: "⇶", label: "Ablauf", soon: false },
 ];
+
+const THING: Record<RunKind, string> = { llm: "Server", web: "Website", api: "API", flow: "Anwendung" };
+const THINGS: Record<RunKind, string> = { llm: "Server", web: "Websites", api: "APIs", flow: "Anwendungen" };
+const URL_LABEL: Record<RunKind, string> = {
+  llm: "Adresse des Servers",
+  web: "Adresse der Website",
+  api: "Adresse der API",
+  flow: "Adresse der Startseite",
+};
+const URL_EXAMPLE: Record<RunKind, string> = {
+  llm: "http://spark.buero.lan:8000/v1",
+  web: "https://www.example.de/",
+  api: "https://api.example.de/v1/items",
+  flow: "https://chat.example.de/login",
+};
+const URL_HELP: Record<RunKind, string> = {
+  llm: "Adresse eines OpenAI-kompatiblen Servers, beginnend mit http:// oder https://. Enter startet den Test.",
+  web: "Adresse der Seite, die die simulierten Besucher aufrufen, beginnend mit http:// oder https://. Enter startet den Test.",
+  api: "Adresse des Endpunkts, den die simulierten Aufrufer ansprechen, beginnend mit http:// oder https://. Enter startet den Test.",
+  flow: "Die Seite, auf der der Ablauf beginnt – meist die Anmeldeseite –, beginnend mit http:// oder https://.",
+};
+const URL_FIELD: Record<RunKind, string> = { llm: "base_url", web: "web_url", api: "api_url", flow: "flow_url" };
 
 type Check = { state: "idle" | "busy" } | { state: "ok"; models: ModelInfo[] } | { state: "fail"; message: string };
 
@@ -83,9 +145,12 @@ function levelsInfo(levels: unknown): string {
 }
 
 function minutes(v: Values, kind: RunKind): string {
-  // Faustregel: Schnell ≈ 15 min, Gründlich ≈ 50 min; Websites und APIs haben keinen Test mit langen Texten
+  // Faustregel: Schnell ≈ 15 min, Gründlich ≈ 50 min; Websites und APIs haben keinen Test mit langen Texten,
+  // Abläufe brauchen die Aufzeichnung im Browser und lange Antworten
   const quick = Number(v.soak_minutes) <= 5;
-  return kind === "llm" ? (quick ? "~15 min" : "~50 min") : quick ? "~10 min" : "~35 min";
+  if (kind === "llm") return quick ? "~15 min" : "~50 min";
+  if (kind === "flow") return quick ? "~15 min" : "~40 min";
+  return quick ? "~10 min" : "~35 min";
 }
 
 /** Werte des gewählten Profils: „Schnell“ kommt fertig vom Backend, „Gründlich“ sind die Standardwerte. */
@@ -98,11 +163,13 @@ export function NewTestForm({
   quick,
   web = FALLBACK_WEB,
   api = FALLBACK_API,
+  flow = FALLBACK_FLOW,
 }: {
   defaults: Values;
   quick: Values;
   web?: { defaults: Values; quick: Values };
   api?: { defaults: Values; quick: Values };
+  flow?: { defaults: Values; quick: Values };
 }) {
   const router = useRouter();
   const urlRef = useRef<HTMLInputElement>(null);
@@ -129,7 +196,14 @@ export function NewTestForm({
     // Kopfzeilen und Body werden bewusst nicht gemerkt – sie enthalten oft Zugangsdaten
     headers_text: "",
     body_text: "",
+    flow_url: "",
+    flow_users: "",
+    flow_slo: text(flow.defaults.slo_load ?? 10),
+    flow_think: text(flow.defaults.think_time ?? 60),
+    flow_steps: "",
   }));
+  // Werte der Platzhalter: nur im Arbeitsspeicher, nie im localStorage
+  const [secrets, setSecrets] = useState<Record<string, string>>({});
   const [profile, setProfile] = useState<Profile>("quick");
   const [includeAssets, setIncludeAssets] = useState(true);
   const [confirmed, setConfirmed] = useState(false);
@@ -142,8 +216,11 @@ export function NewTestForm({
 
   const isWeb = kind === "web";
   const isApi = kind === "api";
-  const urlField = isApi ? "api_url" : isWeb ? "web_url" : "base_url";
+  const isFlow = kind === "flow";
+  const isLlm = kind === "llm";
+  const urlField = URL_FIELD[kind];
   const writes = isApi && form.method !== "GET";
+  const placeholders = isFlow ? findPlaceholders(form.flow_steps) : [];
 
   // Gemerkte Eingaben erst nach dem ersten Rendern einsetzen, damit Server- und Browser-HTML übereinstimmen.
   useEffect(() => {
@@ -154,7 +231,7 @@ export function NewTestForm({
       // eslint-disable-next-line react-hooks/set-state-in-effect -- einmalige Übernahme aus localStorage
       setForm((f) => ({ ...f, ...Object.fromEntries(Object.entries(rest).filter(([, v]) => typeof v === "string" && v)) }));
       if (savedProfile === "full" || savedProfile === "quick") setProfile(savedProfile);
-      if (savedKind === "web" || savedKind === "llm" || savedKind === "api") setKind(savedKind);
+      if (savedKind === "web" || savedKind === "llm" || savedKind === "api" || savedKind === "flow") setKind(savedKind);
     } catch {
       // Gesperrter oder kaputter Speicher: einfach mit den Standardwerten weitermachen.
     }
@@ -179,13 +256,7 @@ export function NewTestForm({
   function validUrl(): string | null {
     const url = parseBaseUrl(form[urlField]);
     if (!url) {
-      setUrlError(
-        isApi
-          ? "Die Adresse muss mit http:// oder https:// beginnen, zum Beispiel https://api.example.de/v1/items"
-          : isWeb
-            ? "Die Adresse muss mit http:// oder https:// beginnen, zum Beispiel https://www.example.de/"
-            : "Die Adresse muss mit http:// oder https:// beginnen, zum Beispiel http://spark.buero.lan:8000/v1",
-      );
+      setUrlError(`Die Adresse muss mit http:// oder https:// beginnen, zum Beispiel ${URL_EXAMPLE[kind]}`);
       urlRef.current?.focus();
     }
     return url;
@@ -222,10 +293,25 @@ export function NewTestForm({
     setConfirmError(false);
     const base_url = validUrl();
     if (!base_url) return;
-    if ((isWeb || isApi) && !confirmed) {
+    if (!isLlm && !confirmed) {
       setConfirmError(true);
       confirmRef.current?.focus();
       return;
+    }
+    let steps = "";
+    if (isFlow) {
+      const own = form.flow_steps.trim();
+      if (!own) {
+        setFormError("Bitte die Schritte aufschreiben – mindestens „messen ab hier“ und einen Schritt danach.");
+        return;
+      }
+      const missing = placeholders.filter((p) => !secrets[p]);
+      if (missing.length) {
+        setFormError(`Bitte den Wert für {${missing[0]}} eintragen.`);
+        return;
+      }
+      // Die Startseite steht oben – wer selbst mit „öffne“ anfängt, behält seine Zeile
+      steps = /^öffne\s/i.test(own) ? own : `öffne ${base_url}\n${own}`;
     }
 
     const number = (name: string) => (form[name] === "" ? undefined : Number(form[name].replace(",", ".")));
@@ -238,7 +324,20 @@ export function NewTestForm({
         return;
       }
     }
-    const payload = isApi
+    const payload = isFlow
+      ? {
+          ...profileValues(profile, flow.quick, flow.defaults),
+          kind: "flow",
+          base_url,
+          steps,
+          secrets: Object.fromEntries(placeholders.map((p) => [p, secrets[p]])),
+          confirm_owner: true,
+          tests: String(flow.defaults.tests ?? "baseline,ramp,rate,spike,soak"),
+          target_users: number("flow_users") ?? 0,
+          slo_load: number("flow_slo"),
+          think_time: number("flow_think"),
+        }
+      : isApi
       ? {
           ...profileValues(profile, api.quick, api.defaults),
           kind: "api",
@@ -291,13 +390,13 @@ export function NewTestForm({
     router.push("/lauf");
   }
 
-  const source = isApi ? api : isWeb ? web : { defaults, quick };
+  const source = isFlow ? flow : isApi ? api : isWeb ? web : { defaults, quick };
   const profiles: { key: Profile; title: string; values: Values; hint: string }[] = [
     { key: "quick", title: "Schnell", values: source.quick, hint: "für einen ersten Eindruck" },
     { key: "full", title: "Gründlich", values: source.defaults, hint: "für die Entscheidung" },
   ];
-  const urlLabel = isApi ? "Adresse der API" : isWeb ? "Adresse der Website" : "Adresse des Servers";
-  const thing = isApi ? "API" : "Website";
+  const urlLabel = URL_LABEL[kind];
+  const thing = THING[kind];
   const legend = "mb-2 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-white/65";
   const focusRing =
     "has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-cyan";
@@ -343,14 +442,14 @@ export function NewTestForm({
               autoCapitalize="none"
               spellCheck={false}
               required
-              placeholder={isApi ? "https://api.example.de/v1/items" : isWeb ? "https://www.example.de/" : "http://spark.buero.lan:8000/v1"}
+              placeholder={URL_EXAMPLE[kind]}
               value={form[urlField]}
               onChange={set(urlField)}
               aria-invalid={urlError ? true : undefined}
               aria-describedby="base_url-hilfe base_url-status"
               className="min-w-0 flex-1 basis-56 bg-transparent py-2 font-mono text-base font-medium caret-cyan placeholder:text-white/45 focus:outline-none"
             />
-            {!isWeb && !isApi && (
+            {isLlm && (
               <button
                 type="button"
                 onClick={checkConnection}
@@ -364,13 +463,13 @@ export function NewTestForm({
           </div>
         </div>
         <div id="base_url-status" role="status" className="mt-2 min-h-5 font-mono text-xs">
-          {!isWeb && !isApi && check.state === "ok" && (
+          {isLlm && check.state === "ok" && (
             <span className="text-mint-soft">
               ✓ erreichbar · {check.models[0]?.id ?? "kein Modell gemeldet"}
               {check.models.length > 1 ? ` (+${check.models.length - 1} weitere)` : ""}
             </span>
           )}
-          {!isWeb && !isApi && check.state === "fail" && <span className="text-rose-soft">✗ {check.message}</span>}
+          {isLlm && check.state === "fail" && <span className="text-rose-soft">✗ {check.message}</span>}
         </div>
         {urlError && (
           <p role="alert" className="mt-1 text-sm text-rose-soft">
@@ -378,11 +477,7 @@ export function NewTestForm({
           </p>
         )}
         <p id="base_url-hilfe" className="sr-only">
-          {isApi
-            ? "Adresse des Endpunkts, den die simulierten Aufrufer ansprechen, beginnend mit http:// oder https://. Enter startet den Test."
-            : isWeb
-              ? "Adresse der Seite, die die simulierten Besucher aufrufen, beginnend mit http:// oder https://. Enter startet den Test."
-              : "Adresse eines OpenAI-kompatiblen Servers, beginnend mit http:// oder https://. Enter startet den Test."}
+          {URL_HELP[kind]}
         </p>
       </div>
 
@@ -419,6 +514,58 @@ export function NewTestForm({
           })}
         </div>
       </fieldset>
+
+      {isFlow && (
+        <fieldset>
+          <legend className={legend}>Was passiert auf der Seite?</legend>
+          <label htmlFor="flow_steps" className="mb-1 block text-xs font-medium text-white/70">
+            Die Schritte
+          </label>
+          <textarea
+            id="flow_steps"
+            name="flow_steps"
+            rows={9}
+            autoComplete="off"
+            autoCapitalize="none"
+            spellCheck={false}
+            placeholder={STEP_EXAMPLE}
+            value={form.flow_steps}
+            onChange={set("flow_steps")}
+            aria-describedby="flow_steps-hilfe"
+            className="field font-mono text-[13px] leading-relaxed"
+          />
+          <p id="flow_steps-hilfe" className="mt-1.5 text-xs text-white/60">
+            Ein Schritt je Zeile, so wie ein Mensch es tun würde. Die Startseite oben wird zuerst geöffnet. Ab „messen ab hier“ zeichnet ein
+            unsichtbarer Browser auf, was die Seite an den Server schickt – unter Last wird genau das hunderte Male abgespielt. Zugangsdaten
+            als {"{platzhalter}"} schreiben, dann erscheinen unten Felder dafür.
+          </p>
+          {placeholders.length > 0 && (
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              {placeholders.map((p) => (
+                <div key={p}>
+                  <label htmlFor={`secret-${p}`} className="mb-1 block text-xs font-medium text-white/70">
+                    Wert für {`{${p}}`}
+                  </label>
+                  <input
+                    id={`secret-${p}`}
+                    name={`secret-${p}`}
+                    type="password"
+                    autoComplete="off"
+                    spellCheck={false}
+                    value={secrets[p] ?? ""}
+                    onChange={(e) => setSecrets((s) => ({ ...s, [p]: e.target.value }))}
+                    aria-describedby="secrets-hilfe"
+                    className="field font-mono"
+                  />
+                </div>
+              ))}
+              <p id="secrets-hilfe" className="text-xs text-white/60 sm:col-span-2">
+                Wird nur für diesen Start benutzt – nicht gemerkt, nicht gespeichert, nicht im Bericht.
+              </p>
+            </div>
+          )}
+        </fieldset>
+      )}
 
       <fieldset>
         <legend className={legend}>Wie gründlich?</legend>
@@ -505,7 +652,24 @@ export function NewTestForm({
           </span>
           Weitere Einstellungen
         </summary>
-        {isApi ? (
+        {isFlow ? (
+          <div role="group" aria-labelledby={moreId} className="px-5 pt-1">
+            <h3 className="mb-2 text-xs font-medium text-white/70">So schreibt man Schritte</h3>
+            <dl className="grid gap-x-4 gap-y-2 text-xs sm:grid-cols-[auto_1fr]">
+              {STEP_WORDS.map(([word, meaning]) => (
+                <div key={word} className="contents">
+                  <dt className="font-mono text-[12px] text-cyan">{word}</dt>
+                  <dd className="text-white/70">{meaning}</dd>
+                </div>
+              ))}
+            </dl>
+            <p className="mt-3 text-xs text-white/60">
+              Grenzen: Alle simulierten Nutzer teilen sich die Sitzung der Aufzeichnung (ein Konto). Seiten mit Dauerverbindung
+              (WebSocket) im Messbereich lassen sich so nicht abspielen. Veränderliche Werte wie eine Chat-ID erkennt der Test selbst und
+              holt sie bei jeder Wiederholung frisch.
+            </p>
+          </div>
+        ) : isApi ? (
           <div role="group" aria-labelledby={moreId} className="grid gap-4 px-5 pt-1">
             <div>
               <label htmlFor="headers_text" className="mb-1 block text-xs font-medium text-white/70">
@@ -642,7 +806,7 @@ export function NewTestForm({
             Testumgebung richten.
           </p>
         )}
-        {(isWeb || isApi) && (
+        {!isLlm && (
           <div
             className={`mb-4 rounded-xl border px-4 py-3 ${confirmError ? "border-rose/60 bg-rose/10" : "border-amber/35 bg-amber/[0.07]"}`}
           >
@@ -662,7 +826,7 @@ export function NewTestForm({
               <span>Das ist unsere eigene {thing} – oder ich habe die Erlaubnis, sie zu testen.</span>
             </label>
             <p id="bestaetigung-hilfe" className="mt-1.5 pl-8 text-xs text-white/65">
-              Für fremde {isApi ? "APIs" : "Websites"} sieht ein Lasttest aus wie ein Angriff und kann strafbar sein. Der Test gibt sich als
+              Für fremde {THINGS[kind]} sieht ein Lasttest aus wie ein Angriff und kann strafbar sein. Der Test gibt sich als
               „LAST-Lasttest“ zu erkennen.
             </p>
             {confirmError && (
@@ -691,8 +855,8 @@ export function NewTestForm({
           </kbd>
         </button>
         <p className="mt-5 text-xs text-white/60">
-          {isApi ? "Nur eigene APIs testen." : isWeb ? "Nur eigene Websites testen." : "Nur gegen eigene Server testen."} · Läuft im
-          Hintergrund weiter – du kannst die Seite schließen.
+          {isLlm ? "Nur gegen eigene Server testen." : `Nur eigene ${THINGS[kind]} testen.`} · Läuft im Hintergrund weiter – du kannst die
+          Seite schließen.
         </p>
       </div>
     </form>

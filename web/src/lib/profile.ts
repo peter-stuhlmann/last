@@ -68,6 +68,12 @@ export const FALLBACK_WEB = {
   },
 };
 
+// Abläufe: ein Nutzer macht den Ablauf etwa jede Minute; eine Chat-Antwort darf 10 s dauern (FLOW_DEFAULTS).
+export const FALLBACK_FLOW = {
+  defaults: { ...FALLBACK_WEB.defaults, levels: "1,2,4,8,16,32", slo_load: 10, spike_size: 16, think_time: 60 },
+  quick: { ...FALLBACK_WEB.quick, levels: "1,2,4,8,16", spike_size: 8 },
+};
+
 // HTTP-API-Tests: wie Websites, aber eine einzelne Anfrage; Ziel 0,5 s Antwortzeit.
 export const FALLBACK_API = {
   defaults: { ...FALLBACK_WEB.defaults, slo_load: 0.5 },

@@ -18,7 +18,8 @@ services:
 
   testsite:
     image: python:3.12-slim
-    command: ["python", "-m", "http.server", "8000", "--directory", "/site"]
+    # Statische Test-Website plus Anmeldung und Chat-Attrappe für den Ablauf-Test
+    command: ["python", "/site/server.py", "8000"]
     volumes:
       - ./web/e2e/testsite:/site:ro
     read_only: true

@@ -189,3 +189,51 @@ export function apiSummary(over: Partial<Summary> = {}): Summary {
     ...over,
   };
 }
+
+export const FLOW_STEPS = `öffne https://chat.example/login
+tippe in "E-Mail" {email}
+tippe in "Passwort" {passwort}
+klicke "Anmelden"
+warte auf Text "Willkommen"
+messen ab hier
+tippe in "Nachricht" "Was ist ein Lasttest?"
+drücke Enter
+warte bis ".antwort" fertig ist (2 s ruhig)`;
+
+/** Ein abgeschlossener Ablauf-Lauf: aufgezeichnet im Browser, abgespielt per HTTP. */
+export function flowSummary(over: Partial<Summary> = {}): Summary {
+  const s = webSummary();
+  const slow = { ttft_p50: 0.9, ttft_p95: 1.2, e2e_p50: 4, e2e_p95: 5.5, e2e_mean: 4.2 };
+  const steps = s.ramp!.steps.map((st, i) => ({ ...st, ...slow, req_s: [0.25, 3.5, 6, 6.4][i], e2e_p95: [5.5, 6, 8, 14][i] }));
+  const lines = FLOW_STEPS.split("\n");
+  return {
+    ...s,
+    config: {
+      ...s.config,
+      kind: "flow",
+      base_url: "https://chat.example/login",
+      steps_text: FLOW_STEPS,
+      placeholders: ["email", "passwort"],
+      slo_load: 10,
+      think_time: 60,
+      target_users: 200,
+      levels: "1,16,32,64",
+    },
+    prechecks: {
+      rtt_ms: 900, busy: null, status: 200, assets: 2, bytes: 1800, total_bytes: 2000, final_url: "https://chat.example/chat",
+      requests: [
+        { method: "POST", host: "chat.example", path: "/api/conversations", query: "", status: 201, stream: false, body_bytes: 2, header_names: ["content-type"], dynamic: [] },
+        { method: "POST", host: "chat.example", path: "/api/conversations/{{v1}}/messages", query: "", status: 200, stream: true, body_bytes: 32, header_names: ["content-type"], dynamic: ["v1"] },
+      ],
+      main: 1,
+      steps: lines.map((text, i) => ({ line: i + 1, text, screenshot: `schritt_${String(i + 1).padStart(2, "0")}.png`, ms: 300 })),
+      measured_ms: 4200,
+    },
+    baseline: { ...s.baseline!, ...slow, req_s: 0.25 },
+    ramp: { steps, break: null, saturated: null },
+    rate: { stages: [{ ...s.baseline!, ...slow, rate: 0.5, rate_actual: 0.5, overloaded: false }], break: null, think_time: 60 },
+    capacity: { think_time: 60, rec_concurrency: 32, rate_ok: 0.5, users: 32, source: "rate" },
+    verdict: { status: "bad", headline: "Die Anwendung schafft die erwartete Nutzerzahl nicht.", reasons: [["bad", "Reicht für ≈ 32 Nutzer gleichzeitig – erwartet werden 200."]] },
+    ...over,
+  };
+}

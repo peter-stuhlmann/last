@@ -33,6 +33,7 @@ except ImportError:
 
 import llm_stresstest as lt
 import web_stresstest as ws
+import flow_stresstest as flow
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPORT_NAME = "LLM-Haertetest.pptx"
@@ -82,7 +83,7 @@ class Runner:
         self.error = None
         self.report = None
         self.pdf = None
-        self.st = (ws.WebStressTest if a.kind in ("web", "api") else lt.StressTest)(a, self.outdir)
+        self.st = (flow.FlowStressTest if a.kind == "flow" else ws.WebStressTest if a.kind == "api" or a.kind == "web" else lt.StressTest)(a, self.outdir)
         self.st.on_update = self.bump
         self.bump()
         self.task = asyncio.create_task(self._run())
@@ -110,14 +111,14 @@ class Runner:
                 run = asyncio.get_running_loop().run_in_executor
                 try:
                     lt.log("Erstelle PowerPoint-Bericht …")
-                    if self.args.kind in ("web", "api"):
+                    if self.args.kind in ("web", "api", "flow"):
                         import report_web
                         await run(None, report_web.build_report, s, path)
                     else:
                         await run(None, lt.build_report, s, path, self.args)
                     self.report = path
                     lt.log("✓ Bericht fertig.")
-                    if self.args.kind in ("web", "api"):
+                    if self.args.kind in ("web", "api", "flow"):
                         pdf = await run(None, report_web.build_pdf, s, pdf_path)
                     else:
                         pdf = await run(None, lt.build_pdf_report, s, pdf_path)
@@ -138,11 +139,11 @@ class Runner:
 def build_args(cfg):
     """JSON aus dem Formular → argparse-Namespace mit denselben Defaults wie die CLI."""
     kind = cfg.get("kind") or "llm"
-    if kind in ("web", "api"):
+    if kind in ("web", "api", "flow"):
         # Ein Lasttest sieht für fremde Websites und APIs aus wie ein Angriff – ohne ausdrückliche
         # Bestätigung startet er nicht.
         if cfg.get("confirm_owner") is not True:
-            raise ValueError("Bitte bestätigen, dass ihr diese " + ("API" if kind == "api" else "Website") + " testen dürft.")
+            raise ValueError("Bitte bestätigen, dass ihr diese " + {"api": "API", "flow": "Anwendung"}.get(kind, "Website") + " testen dürft.")
         return ws.build_args(cfg)
     if kind != "llm":
         raise ValueError(f"Unbekannte Art von Test: {kind!r}")
@@ -194,7 +195,7 @@ def run_kind(path):
 
 
 def report_filename(path, name, ext):
-    prefix = {"web": "Lasttest-Website", "api": "Lasttest-API"}.get(run_kind(path), "LLM-Haertetest")
+    prefix = {"web": "Lasttest-Website", "api": "Lasttest-API", "flow": "Lasttest-Ablauf"}.get(run_kind(path), "LLM-Haertetest")
     return f"{prefix}_{name[8:]}.{ext}"
 
 
@@ -203,7 +204,7 @@ def comparison_builder(kinds):
     Verschiedenes und lassen sich nicht miteinander vergleichen."""
     if len(set(kinds)) > 1:
         raise ValueError("Bitte nur Läufe gleicher Art vergleichen: entweder Websites oder KI-Server.")
-    if kinds and kinds[0] in ("web", "api"):
+    if kinds and kinds[0] in ("web", "api", "flow"):
         import report_web
         return report_web.build_comparison
     return lt.build_comparison
@@ -236,7 +237,9 @@ async def defaults(req):
     a.pop("api_key", None)
     return web.json_response({"defaults": a, "quick": lt.QUICK_PROFILE,
                               "web": {"defaults": ws.DEFAULTS, "quick": ws.QUICK_PROFILE},
-                              "api": {"defaults": {**ws.DEFAULTS, **ws.API_DEFAULTS}, "quick": ws.QUICK_PROFILE}})
+                              "api": {"defaults": {**ws.DEFAULTS, **ws.API_DEFAULTS}, "quick": ws.QUICK_PROFILE},
+                              "flow": {"defaults": {**ws.DEFAULTS, **flow.FLOW_DEFAULTS},
+                                       "quick": {**ws.QUICK_PROFILE, "levels": "1,2,4,8,16", "spike_size": 8}}})
 
 
 @routes.get("/api/models")
@@ -368,7 +371,7 @@ async def run_summary(req):
     _, path = _run_dir(req)
     with open(os.path.join(path, "summary.json"), encoding="utf-8") as f:
         s = json.load(f)
-    if s.get("config", {}).get("kind") in ("web", "api"):
+    if s.get("config", {}).get("kind") in ("web", "api", "flow"):
         return web.json_response(s, dumps=lambda o: json.dumps(o, default=str))
     # Abgeleitete Kennzahlen immer frisch rechnen – auch für Läufe aus älteren Versionen
     s.setdefault("quality", lt.assess_quality(s))
@@ -417,6 +420,16 @@ async def compare(req):
         return web.json_response({"error": f"Vergleich fehlgeschlagen: {e}"}, status=500)
     return web.FileResponse(out, headers={
         "Content-Disposition": f'attachment; filename="{os.path.basename(out)}"'})
+
+
+@routes.get(r"/api/runs/{name}/{shot:schritt_(\d\d|fehler)\.png}")
+async def run_screenshot(req):
+    """Bildschirmfotos der Aufzeichnung eines Ablaufs."""
+    _, path = _run_dir(req)
+    f = os.path.join(path, req.match_info["shot"])
+    if not os.path.isfile(f):
+        raise web.HTTPNotFound()
+    return web.FileResponse(f, headers={"Cache-Control": "no-store"})
 
 
 @routes.get("/api/runs/{name}/raw_requests.jsonl")

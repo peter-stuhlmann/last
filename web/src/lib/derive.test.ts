@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { apiSummary, config, finishedSummary, stats, step, webSummary } from "@/test/fixtures";
+import { apiSummary, config, finishedSummary, flowSummary, stats, step, webSummary } from "@/test/fixtures";
 import {
   ampelRows,
   capacityView,
@@ -14,6 +14,7 @@ import {
   phaseOfSample,
   phaseSteps,
   progress,
+  sloSeconds,
   stageTimer,
   verdictView,
 } from "./derive";
@@ -386,5 +387,44 @@ describe("HTTP-API-Läufe", () => {
     expect(steps[0].detail).toBe("Erreichbar, Status 200 nach 40 ms");
     expect(steps[1].detail).toBe("Bestwert: Antwort nach 0,05 s");
     expect(costView(apiSummary())).toBeNull();
+  });
+});
+
+describe("Ablauf-Läufe", () => {
+  it("spricht von Nutzern, Durchläufen und Antwortzeit", () => {
+    const t = terms(flowSummary().config);
+    expect(t.people).toBe("Nutzer");
+    expect(t.capacityUnit).toBe("Nutzer");
+    expect(t.throughput).toBe("Durchläufe pro Sekunde");
+    expect(t.throughputUnit).toBe("Durchl./s");
+    expect(t.wait).toBe("Antwortzeit");
+    expect(t.goal(10)).toBe("Ziel: Antwort nach höchstens 10 s");
+  });
+
+  it("misst das Ziel an der Antwortzeit des Ablaufs", () => {
+    expect(sloSeconds(flowSummary().config)).toBe(10);
+    expect(deriveRamp(flowSummary()).rec?.concurrency).toBe(32);
+    expect(curvePoints(flowSummary()).map((p) => p.ok)).toEqual([true, true, true, false]);
+  });
+
+  it("zeigt live und im Ergebnis die Ablauf-Begriffe", () => {
+    const h = liveHeadline(flowSummary());
+    expect(h.tone).toBe("warn");
+    expect(h.text).toContain("64 Nutzer machen den Ablauf gleichzeitig");
+    expect(h.kpis.map((k) => k.label)).toEqual(["Antwort nach", "Erste Antwort", "Durchläufe pro Sekunde", "Fehler"]);
+    expect(kpiCards(flowSummary()).map((k) => `${k.label}: ${k.value} ${k.unit}`)).toEqual([
+      "Einer allein: 4,0 s", "Sweet Spot: 32 gleichzeitig", "Höchstleistung: 6,4 Durchl./s", "Erste Antwort: 0,90 s",
+    ]);
+    expect(kpiCards(flowSummary())[2].text).toContain("Durchläufe pro Minute");
+    const rows = ampelRows(flowSummary());
+    expect(rows[0].label).toBe("Antwortzeit bei normaler Last");
+    expect(rows[2].value).toBe("bis 30 Durchläufe/min");
+    expect(rows.map((r) => r.label)).not.toContain("Lange Texte");
+    const steps = phaseSteps(flowSummary(), [], false);
+    expect(steps[0].detail).toBe("Aufgezeichnet: 9 Schritte, 2 Anfragen");
+    expect(steps[1].detail).toBe("Bestwert: Antwort nach 4,0 s");
+    expect(costView(flowSummary())).toBeNull();
+    const all = JSON.stringify([h, kpiCards(flowSummary()), rows, steps]);
+    expect(all).not.toMatch(/Besucher|Seite |Website/);
   });
 });

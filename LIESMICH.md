@@ -1,6 +1,7 @@
 # LLM-Härtetest
 
-Lasttest für OpenAI-kompatible Modellserver (vLLM, SGLang, llama.cpp, Ollama), Websites und HTTP-APIs, mit Weboberfläche
+Lasttest für OpenAI-kompatible Modellserver (vLLM, SGLang, llama.cpp, Ollama), Websites, HTTP-APIs und ganze Abläufe
+(Anmelden, dann z. B. einen KI-Chat benutzen), mit Weboberfläche
 („LAST“, Next.js) und PowerPoint-Bericht.
 
 ## Mit Docker (Windows, macOS, Linux – ohne Python-Installation)
@@ -93,7 +94,7 @@ die Bilder, Styles und Skripte derselben Website (ohne Cache, mit eigenen Verbin
   User-Agent als `LAST-Lasttest` zu erkennen. Für fremde Betreiber sieht ein Lasttest aus wie ein Angriff
   und kann strafbar sein. Läuft die Website bei einem Hoster oder hinter einem CDN, vorher dort Bescheid geben –
   sonst sperrt deren Schutz den Test (oder euch) aus.
-- Tests des Website-Moduls: `docker run --rm -v "$PWD":/src -w /src llm-stresstest python -m unittest discover -s tests`
+- Tests des Website-Moduls: `docker run --rm --tmpfs /tmp -v "$PWD":/src -w /src llm-stresstest python -m unittest discover -s tests`
 
 ## HTTP-APIs testen
 
@@ -115,6 +116,51 @@ wenn der Status zur Erwartung passt (Standard „2xx“).
 - **Schreibende Methoden verändern Daten** – hunderte Male pro Minute. Nur gegen eine Testumgebung richten.
 - Nur eigene APIs testen; der Start verlangt dieselbe Bestätigung wie beim Website-Test.
 
+## Abläufe testen (Anmelden, dann z. B. einen KI-Chat benutzen)
+
+Für alles, was aus mehreren Schritten besteht oder eine Anmeldung braucht: Unter „Was wird getestet?“
+**Ablauf** wählen, die Startseite eintragen (meist die Anmeldeseite) und die Schritte aufschreiben – ein
+Schritt je Zeile, so wie ein Mensch es tun würde:
+
+    tippe in "E-Mail" {email}
+    tippe in "Passwort" {passwort}
+    klicke "Anmelden"
+    warte auf Text "Willkommen"
+    messen ab hier
+    tippe in "Nachricht" "Was ist ein Lasttest?"
+    drücke Enter
+    warte auf erste Antwort in ".antwort"
+    warte bis ".antwort" fertig ist (2 s ruhig)
+
+So funktioniert es: Der Ablauf wird **einmal in einem echten, unsichtbaren Browser** (Chromium) im Container
+ausgeführt. Ab „messen ab hier“ wird mitgeschnitten, was die Seite an den Server schickt. Unter Last werden
+genau diese Anfragen **ohne Browser** abgespielt – deshalb sind auch hunderte gleichzeitige Nutzer möglich,
+ohne dass auf deinem Rechner Browserfenster aufgehen. Veränderliche Werte (etwa eine Chat-ID aus einer
+früheren Antwort) erkennt der Test selbst und holt sie bei jeder Wiederholung frisch.
+
+| Schritt | Bedeutung |
+|---|---|
+| `tippe in "Feld" Text` | Feld = Beschriftung, Platzhaltertext oder CSS-Selektor; `{name}` wird im Formular zum Passwortfeld |
+| `klicke "Knopf"` | Knopf, Link oder Selektor |
+| `drücke Enter` | oder Tab, Escape … |
+| `warte auf Text "…"` / `warte auf "…"` | bis der Text da ist / bis das Element da ist |
+| `warte 2 s` | einfach warten |
+| `messen ab hier` | ab hier wird mitgeschnitten – genau einmal, danach mindestens ein Schritt |
+| `warte auf erste Antwort in "…"` | misst, wann das erste Wort erscheint (bei einem KI-Chat die wichtigste Zahl) |
+| `warte bis "…" fertig ist (2 s ruhig)` | fertig, wenn sich der Text so lange nicht mehr ändert |
+
+- Gemessen werden **Antwortzeit** des Ablaufs (Ziel standardmäßig 10 s) und **erste Antwort**; die Kapazität
+  wird in **Nutzern gleichzeitig** angegeben, bei standardmäßig 60 s Pause zwischen zwei Durchläufen.
+- Der Bericht zeigt die Schritte, **Bildschirmfotos** aus der Aufzeichnung (`schritt_NN.png` im
+  Ergebnisordner) und die aufgezeichneten Anfragen. Scheitert ein Schritt, nennt die Fehlermeldung die
+  Zeile und legt `schritt_fehler.png` ab.
+- **Platzhalter-Werte (Passwörter) und Sitzungs-Cookies werden nirgends gespeichert** – nicht im Browser,
+  nicht in `summary.json`, nicht im Bericht. Der aufgezeichnete Plan lebt nur im Arbeitsspeicher des Tests.
+- Grenzen: Alle simulierten Nutzer teilen sich **eine Sitzung** (das Konto der Aufzeichnung); Seiten mit
+  **Dauerverbindung (WebSocket)** im Messbereich lassen sich so nicht abspielen; die Darstellung im Browser
+  wird nicht gemessen. Das Docker-Image ist wegen Chromium rund 2 GB groß.
+- Nur eigene Anwendungen testen; der Start verlangt dieselbe Bestätigung wie beim Website-Test.
+
 - **Systemwerte vom Spark (KV-Cache, Warteschlange)** kommen über `/metrics` des Modellservers
   (bei vLLM und SGLang standardmäßig an). GPU-Temperatur/Takt des Spark lassen sich aus der
   Ferne nicht messen – dafür müsste das Skript auf dem Spark selbst laufen.
@@ -130,8 +176,9 @@ wenn der Status zur Erwartung passt (Standard „2xx“).
 | `stresstest_web.py` | Python-Backend: startet Tests, liefert Ergebnisse und Berichte |
 | `stresstest_ui.html` | alte, einfache Oberfläche – nur noch beim Start ohne Docker (`python stresstest_web.py`) |
 | `web_stresstest.py` | Lasttest für Websites und HTTP-APIs (nutzt die Lastgeneratoren aus `llm_stresstest.py`) |
-| `report_web.py` | PowerPoint, PDF und Vergleichsbericht für Website- und API-Läufe |
-| `tests/` | Tests für den Website-Lasttest und seine Berichte |
+| `flow_stresstest.py`, `flow_recorder.py` | Abläufe: Schritt-Sprache, Aufzeichnung im Browser (Playwright), Abspielen per HTTP |
+| `report_web.py` | PowerPoint, PDF und Vergleichsbericht für Website-, API- und Ablauf-Läufe |
+| `tests/` | Tests für Website-, API- und Ablauf-Lasttest und ihre Berichte |
 | `llm_stresstest.py` | Testlogik und Prüfung der Messqualität (auch allein nutzbar) |
 | `report_pptx.py` | PowerPoint-Bericht in einfacher Sprache |
 | `report_pdf.py` | Kurzbericht als PDF auf einer A4-Seite (braucht `reportlab`, sonst wird er übersprungen) |

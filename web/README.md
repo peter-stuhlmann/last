@@ -1,6 +1,6 @@
 # LAST – Weboberfläche (Next.js)
 
-Oberfläche für den Lasttest von KI-Servern, Websites und HTTP-APIs. Design: Figma-Datei „email“, Screens „00 · Neuer Test“,
+Oberfläche für den Lasttest von KI-Servern, Websites, HTTP-APIs und Abläufen (Anmelden + Chat). Design: Figma-Datei „email“, Screens „00 · Neuer Test“,
 „01 · Test läuft“, „02 · Ergebnis“. Die Testlogik bleibt im Python-Backend (`../stresstest_web.py`);
 diese App ist das einzige, was der Browser zu sehen bekommt.
 
@@ -25,8 +25,8 @@ Zum Entwickeln:
 
     npm test            # Vitest: Logik, API-Routen, Komponenten inkl. axe-Barrierefreiheitsprüfung
     npm run e2e:up      # eigene Docker-Instanz für die Durchlauf-Tests (Port 8099, eigene Ergebnisse)
-    npm run e2e         # Playwright: echter Website-Test von der Eingabe bis zum Bericht, Abbruch,
-                        # Schutz vor fremden Seiten, axe im echten Browser (inkl. Farbkontrast)
+    npm run e2e         # Playwright: echte Website-, API- und Ablauf-Tests von der Eingabe bis zum Bericht,
+                        # Abbruch, Schutz vor fremden Seiten, axe im echten Browser (inkl. Farbkontrast)
     npm run e2e:down    # Instanz wieder entfernen
     npm run typecheck
     npm run lint

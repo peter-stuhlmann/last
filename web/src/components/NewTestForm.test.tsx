@@ -260,3 +260,67 @@ describe("NewTestForm für HTTP-APIs", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+describe("NewTestForm für Abläufe", () => {
+  const flow = {
+    defaults: { levels: "1,2,4,8,16,32", level_seconds: 60, soak_minutes: 15, slo_load: 10, think_time: 60, tests: "baseline,ramp,rate,spike,soak" },
+    quick: { levels: "1,2,4,8,16", level_seconds: 30, soak_minutes: 3 },
+  };
+  const steps = 'tippe in "E-Mail" {email}\ntippe in "Passwort" {passwort}\nklicke "Anmelden"\nmessen ab hier\nklicke "Senden"';
+
+  function setupFlow() {
+    const user = userEvent.setup();
+    render(<NewTestForm defaults={defaults} quick={quick} flow={flow} />);
+    return user;
+  }
+
+  it("bietet Schritte an und macht aus Platzhaltern Passwortfelder", async () => {
+    const user = setupFlow();
+    await user.click(screen.getByRole("radio", { name: /Ablauf/ }));
+    expect(screen.getByRole("textbox", { name: "Adresse der Startseite" })).toBeInTheDocument();
+    expect(screen.getByRole("spinbutton", { name: /Nutzer gleichzeitig/ })).toBeInTheDocument();
+    expect(screen.getByRole("spinbutton", { name: /Antwort fertig nach höchstens/ })).toHaveValue(10);
+    expect(screen.getByRole("spinbutton", { name: /Pause zwischen zwei Durchläufen/ })).toHaveValue(60);
+    const area = screen.getByRole("textbox", { name: "Die Schritte" });
+    expect(screen.queryByLabelText(/Wert für/)).not.toBeInTheDocument();
+    await user.type(area, steps.replaceAll("{", "{{"));
+    expect(screen.getByLabelText("Wert für {email}")).toHaveAttribute("type", "password");
+    expect(screen.getByLabelText("Wert für {passwort}")).toHaveAttribute("type", "password");
+  });
+
+  it("schickt Schritte und Platzhalter-Werte, merkt sich aber keine Werte", async () => {
+    fetchMock.mockResolvedValue(Response.json({ ok: true, run: "results_1" }));
+    const user = setupFlow();
+    await user.click(screen.getByRole("radio", { name: /Ablauf/ }));
+    await user.type(screen.getByRole("textbox", { name: "Adresse der Startseite" }), "https://chat.example/login");
+    await user.type(screen.getByRole("textbox", { name: "Die Schritte" }), steps.replaceAll("{", "{{"));
+    await user.type(screen.getByLabelText("Wert für {email}"), "tester@example.de");
+    await user.type(screen.getByLabelText("Wert für {passwort}"), "sehr-geheim");
+    await user.click(screen.getByRole("checkbox", { name: /eigene Anwendung/ }));
+    await user.click(screen.getByRole("button", { name: /Test starten/ }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/lauf"));
+
+    expect(sentBody()).toMatchObject({
+      kind: "flow", base_url: "https://chat.example/login", steps: `öffne https://chat.example/login\n${steps}`,
+      secrets: { email: "tester@example.de", passwort: "sehr-geheim" }, confirm_owner: true,
+      slo_load: 10, think_time: 60, levels: "1,2,4,8,16", tests: "baseline,ramp,rate,spike,soak",
+    });
+    const stored = JSON.stringify({ ...localStorage });
+    expect(stored).not.toContain("geheim");
+    expect(stored).not.toContain("tester@");
+    expect(stored).toContain("klicke");
+  });
+
+  it("verlangt Schritte und Platzhalter-Werte vor dem Start", async () => {
+    const user = setupFlow();
+    await user.click(screen.getByRole("radio", { name: /Ablauf/ }));
+    await user.type(screen.getByRole("textbox", { name: "Adresse der Startseite" }), "https://chat.example/login");
+    await user.click(screen.getByRole("checkbox", { name: /eigene Anwendung/ }));
+    await user.click(screen.getByRole("button", { name: /Test starten/ }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Schritt/);
+    await user.type(screen.getByRole("textbox", { name: "Die Schritte" }), 'tippe in "Passwort" {{passwort}\nmessen ab hier\nklicke "Senden"');
+    await user.click(screen.getByRole("button", { name: /Test starten/ }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/passwort/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});

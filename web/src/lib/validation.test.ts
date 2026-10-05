@@ -109,3 +109,24 @@ describe("parseHeaderLines", () => {
     expect(() => parseHeaderLines("kaputt")).toThrow(/Name: Wert/);
   });
 });
+
+describe("startSchema für Abläufe", () => {
+  const steps = 'öffne https://chat.example/login\ntippe in "Passwort" {passwort}\nmessen ab hier\nklicke "Senden"';
+  const flow = { kind: "flow", base_url: "https://chat.example/login", confirm_owner: true, steps };
+
+  it("nimmt Schritte und Platzhalter-Werte an", () => {
+    const r = startSchema.safeParse({ ...flow, secrets: { passwort: "sehr-geheim" }, slo_load: 10, think_time: 60 });
+    expect(r.success).toBe(true);
+    expect(r.data).toMatchObject({ kind: "flow", steps, secrets: { passwort: "sehr-geheim" } });
+  });
+
+  it("verlangt Schritte, Bestätigung und saubere Platzhalter-Namen", () => {
+    expect(startSchema.safeParse({ ...flow, steps: undefined }).success).toBe(false);
+    expect(startSchema.safeParse({ ...flow, steps: "   " }).success).toBe(false);
+    expect(startSchema.safeParse({ ...flow, confirm_owner: false }).success).toBe(false);
+    expect(startSchema.safeParse({ ...flow, steps: "x".repeat(21_000) }).success).toBe(false);
+    expect(startSchema.safeParse({ ...flow, secrets: { "böse name": "a" } }).success).toBe(false);
+    expect(startSchema.safeParse({ ...flow, secrets: { pw: "a".repeat(2000) } }).success).toBe(false);
+    expect(startSchema.safeParse({ ...flow, secrets: Object.fromEntries(Array.from({ length: 25 }, (_, i) => [`p${i}`, "a"])) }).success).toBe(false);
+  });
+});

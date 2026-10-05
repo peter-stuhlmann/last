@@ -11,52 +11,147 @@ type Cfg = Pick<RunConfig, "kind" | "slo_ttft" | "slo_user_tps" | "slo_load">;
 
 const isWeb = (cfg: Pick<RunConfig, "kind">) => cfg.kind === "web";
 const isApi = (cfg: Pick<RunConfig, "kind">) => cfg.kind === "api";
-/** Website und API messen Lade- bzw. Antwortzeiten statt Tokens. */
-const isTimed = (cfg: Pick<RunConfig, "kind">) => isWeb(cfg) || isApi(cfg);
+const isFlow = (cfg: Pick<RunConfig, "kind">) => cfg.kind === "flow";
+/** Website, API und Ablauf messen Lade- bzw. Antwortzeiten statt Tokens. */
+const isTimed = (cfg: Pick<RunConfig, "kind">) => isWeb(cfg) || isApi(cfg) || isFlow(cfg);
 
-/** Begriffe, die sich zwischen KI-Server, Website und HTTP-API unterscheiden. */
-export function terms(cfg: Pick<RunConfig, "kind">) {
+export interface Terms {
+  subject: string;
+  /** „Besucher“, „Anfragen“, „Nutzer“ – Mehrzahl */
+  people: string;
+  /** einer davon: „Besucher“, „Anfrage“, „Nutzer“, „Person“ */
+  one: string;
+  peopleLong: string;
+  capacityUnit: string;
+  throughput: string;
+  throughputUnit: string;
+  wait: string;
+  perMinute: string;
+  /** was eine Fehlerzahl zählt: „Aufrufen“, „Anfragen“, „Durchläufen“ */
+  errorsOf: string;
+  goal: (s: number) => string;
+  /** Live-Überschrift: einer allein / n gleichzeitig */
+  alone: string;
+  together: (n: number) => string;
+  /** Live-Kennzahl: wonach die Zielzeit gemessen wird */
+  waitLabel: string;
+  /** Ergebnis-Karte „Einer allein“ */
+  aloneText: string;
+  /** Ergebnis-Karte „Erste Antwort“ */
+  firstText: string;
+  /** Live-Texte je Zustand */
+  failText: string;
+  slowText: string;
+  goodAlone: string;
+  goodAll: string;
+  /** Zeitleiste: was der Vorab-Check klärt */
+  preQuestion: string;
+}
+
+/** Begriffe, die sich zwischen KI-Server, Website, HTTP-API und Ablauf unterscheiden. */
+export function terms(cfg: Pick<RunConfig, "kind">): Terms {
   if (isApi(cfg)) {
     return {
       subject: "Die API",
       people: "Anfragen",
+      one: "Anfrage",
       peopleLong: "Anfragen pro Minute, die flüssig durchgehen",
       capacityUnit: "Anfragen/min",
       throughput: "Anfragen pro Sekunde",
       throughputUnit: "Anfr./s",
       wait: "Antwortzeit",
       perMinute: "Anfragen",
+      errorsOf: "Anfragen",
       goal: (s: number) => `Ziel: Antwort nach höchstens ${secs(s)}`,
+      alone: "Eine Anfrage läuft allein",
+      together: (n) => `${n} Anfragen laufen gleichzeitig`,
+      waitLabel: "Antwort nach",
+      aloneText: "bis die Antwort komplett da ist, wenn sonst niemand fragt",
+      firstText: "so schnell reagiert der Server, bevor die Antwort kommt",
+      failText: "und manche enden mit einem Fehler.",
+      slowText: "die Antworten kommen, aber langsamer als gewünscht.",
+      goodAlone: "und wird schnell genug beantwortet.",
+      goodAll: "und alle werden schnell genug beantwortet.",
+      preQuestion: "Erreichbar? Antwortet sie wie erwartet?",
+    };
+  }
+  if (isFlow(cfg)) {
+    return {
+      subject: "Die Anwendung",
+      people: "Nutzer",
+      one: "Nutzer",
+      peopleLong: "Nutzer gleichzeitig in der Anwendung",
+      capacityUnit: "Nutzer",
+      throughput: "Durchläufe pro Sekunde",
+      throughputUnit: "Durchl./s",
+      wait: "Antwortzeit",
+      perMinute: "Durchläufe",
+      errorsOf: "Durchläufen",
+      goal: (s: number) => `Ziel: Antwort nach höchstens ${secs(s)}`,
+      alone: "Ein Nutzer macht den Ablauf allein",
+      together: (n) => `${n} Nutzer machen den Ablauf gleichzeitig`,
+      waitLabel: "Antwort nach",
+      aloneText: "bis die Antwort komplett da ist, wenn sonst niemand da ist",
+      firstText: "so schnell kommt das erste Lebenszeichen der Antwort",
+      failText: "und manche bekommen einen Fehler.",
+      slowText: "die Antworten kommen, aber langsamer als gewünscht.",
+      goodAlone: "und bekommt die Antwort schnell genug.",
+      goodAll: "und alle bekommen ihre Antwort schnell genug.",
+      preQuestion: "Schritte im Browser aufzeichnen",
     };
   }
   return isWeb(cfg)
     ? {
         subject: "Die Website",
         people: "Besucher",
+        one: "Besucher",
         peopleLong: "Besucher gleichzeitig auf der Website",
         capacityUnit: "Besucher",
         throughput: "Seiten pro Sekunde",
         throughputUnit: "Seiten/s",
         wait: "Ladezeit",
         perMinute: "Aufrufe",
+        errorsOf: "Aufrufen",
         goal: (s: number) => `Ziel: Seite nach höchstens ${secs(s)} da`,
+        alone: "Ein Besucher lädt die Seite allein",
+        together: (n) => `${n} Besucher laden die Seite gleichzeitig`,
+        waitLabel: "Seite geladen nach",
+        aloneText: "bis die Seite komplett geladen ist, wenn sonst niemand da ist",
+        firstText: "so schnell reagiert der Server, bevor die Seite lädt",
+        failText: "und manche bekommen eine Fehlerseite.",
+        slowText: "sie kommt an, aber langsamer als gewünscht.",
+        goodAlone: "und hat sie schnell genug vor sich.",
+        goodAll: "und alle haben sie schnell genug vor sich.",
+        preQuestion: "Erreichbar? Welche Dateien gehören dazu?",
       }
     : {
         subject: "Der Server",
         people: "Nutzer",
+        one: "Person",
         peopleLong: "aktive Nutzer im Team",
         capacityUnit: "Nutzer",
         throughput: "Gesamtleistung",
         throughputUnit: "tok/s",
         wait: "Wartezeit",
         perMinute: "Fragen",
+        errorsOf: "Fragen",
         goal: (s: number) => `Ziel: höchstens ${secs(s)} warten`,
+        alone: "Eine Person fragt allein",
+        together: (n) => `${n} Personen fragen gleichzeitig`,
+        waitLabel: "Warten aufs 1. Wort",
+        aloneText: "bis zum ersten Wort, wenn sonst niemand fragt",
+        firstText: "",
+        failText: "und manche bekommen keine Antwort.",
+        slowText: "die Antworten kommen, aber langsamer als gewünscht.",
+        goodAlone: "und bekommt die Antwort schnell genug.",
+        goodAll: "und alle bekommen ihre Antwort schnell genug.",
+        preQuestion: "Erreichbar? Frei? Zählt richtig?",
       };
 }
 
 /** Das Zeit-Ziel des Laufs: Ladezeit der Seite bzw. Warten aufs erste Wort. */
 export function sloSeconds(cfg: Cfg): number {
-  return isTimed(cfg) ? (cfg.slo_load ?? (isApi(cfg) ? 0.5 : 3)) : cfg.slo_ttft;
+  return isTimed(cfg) ? (cfg.slo_load ?? (isApi(cfg) ? 0.5 : isFlow(cfg) ? 10 : 3)) : cfg.slo_ttft;
 }
 
 /** Die Zeit, an der das Ziel gemessen wird (95 % sind schneller). */
@@ -170,7 +265,7 @@ export function phaseSteps(summary: Summary, samples: Sample[], running: boolean
       pending: "Wie schnell ohne Andrang?",
       done: !b
         ? ""
-        : api
+        : api || isFlow(cfg)
           ? `Bestwert: Antwort nach ${secs(b.e2e_p50)}`
           : web
             ? `Bestwert: Seite nach ${secs(b.e2e_p50)} geladen`
@@ -219,17 +314,15 @@ export function phaseSteps(summary: Summary, samples: Sample[], running: boolean
   const anyData = TEST_ORDER.some((k) => summary[k]) || active != null;
   const pre = summary.prechecks;
   const preDetail =
-    api && pre?.status != null
-      ? `Erreichbar, Status ${pre.status} nach ${nf(pre.rtt_ms, 0)} ms`
-      : web && !api && pre?.assets != null
-        ? `Erreichbar, ${pre.assets} Dateien gehören zur Seite`
-        : pre?.rtt_ms != null
-          ? `Erreichbar, ${nf(pre.rtt_ms, 0)} ms Netzweg`
-          : api
-            ? "Erreichbar? Antwortet sie wie erwartet?"
-            : web
-              ? "Erreichbar? Welche Dateien gehören dazu?"
-              : "Erreichbar? Frei? Zählt richtig?";
+    isFlow(cfg) && pre?.steps
+      ? `Aufgezeichnet: ${pre.steps.length} Schritte, ${pre.requests?.length ?? 0} Anfragen`
+      : api && pre?.status != null
+        ? `Erreichbar, Status ${pre.status} nach ${nf(pre.rtt_ms, 0)} ms`
+        : isWeb(cfg) && pre?.assets != null
+          ? `Erreichbar, ${pre.assets} Dateien gehören zur Seite`
+          : pre?.rtt_ms != null
+            ? `Erreichbar, ${nf(pre.rtt_ms, 0)} ms Netzweg`
+            : t.preQuestion;
   const steps: PhaseStep[] = [
     {
       key: "prechecks",
@@ -267,8 +360,8 @@ function estimates(summary: Summary): Record<StepKey, number> {
   const c = summary.config;
   const web = isTimed(c);
   return {
-    prechecks: 20,
-    baseline: c.baseline_requests * (web ? 2 : 8),
+    prechecks: isFlow(c) ? 60 : 20,
+    baseline: c.baseline_requests * (isFlow(c) ? 6 : web ? 2 : 8),
     ramp: numberList(c.levels).length * (c.warmup_seconds + c.level_seconds + c.cooldown),
     rate: 4 * (c.rate_seconds + c.cooldown),
     context: numberList(c.context_lengths).length * c.context_requests * 10,
@@ -307,7 +400,7 @@ export function liveFocus(summary: Summary, samples: Sample[]): Focus {
   const phase = lastSample(samples)?.phase ?? "";
   const test = summary.meta.current_test ?? phaseOfSample(phase);
   const cfg = summary.config;
-  const one = isApi(cfg) ? "Anfrage" : isWeb(cfg) ? "Besucher" : "Person";
+  const one = terms(cfg).one;
   switch (test) {
     case "baseline":
       return { label: "Einer allein", value: "1", unit: one, fraction: 0.1 };
@@ -381,7 +474,6 @@ export interface Headline {
 export function liveHeadline(summary: Summary): Headline {
   const cfg = summary.config;
   const web = isTimed(cfg);
-  const api = isApi(cfg);
   const t = terms(cfg);
   const steps = summary.ramp?.steps ?? [];
   const last: Stats | undefined = steps[steps.length - 1] ?? summary.baseline;
@@ -391,17 +483,7 @@ export function liveHeadline(summary: Summary): Headline {
   const n = steps.length ? steps[steps.length - 1].concurrency : 1;
   const prev = steps.length > 1 ? steps[steps.length - 2] : null;
   const alone = n === 1;
-  const who = api
-    ? alone
-      ? "Eine Anfrage läuft allein"
-      : `${n} Anfragen laufen gleichzeitig`
-    : web
-      ? alone
-        ? "Ein Besucher lädt die Seite allein"
-        : `${n} Besucher laden die Seite gleichzeitig`
-      : alone
-        ? "Eine Person fragt allein"
-        : `${n} Personen fragen gleichzeitig`;
+  const who = alone ? t.alone : t.together(n);
   const slo = sloSeconds(cfg);
   const waitValue = waitP95(last, cfg);
   const waitOk = waitValue != null && waitValue <= slo;
@@ -414,7 +496,7 @@ export function liveHeadline(summary: Summary): Headline {
 
   const kpis: LiveKpi[] = [
     {
-      label: api ? "Antwort nach" : web ? "Seite geladen nach" : "Warten aufs 1. Wort",
+      label: t.waitLabel,
       value: wait.value,
       unit: wait.unit,
       note: `${waitOk ? "✓" : "✗"} Ziel ≤ ${nf(slo, 1)} s`,
@@ -446,7 +528,7 @@ export function liveHeadline(summary: Summary): Headline {
       label: "Fehler",
       value: nf(last.error_rate * 100, 1),
       unit: "%",
-      note: last.error_rate === 0 ? "✓ keine einzige" : `✗ ${last.errors} von ${last.n} ${api ? "Anfragen" : web ? "Aufrufen" : "Fragen"}`,
+      note: last.error_rate === 0 ? "✓ keine einzige" : `✗ ${last.errors} von ${last.n} ${t.errorsOf}`,
       tone: last.error_rate === 0 ? "good" : "bad",
     },
   ];
@@ -455,11 +537,7 @@ export function liveHeadline(summary: Summary): Headline {
     return {
       tone: "bad",
       title: `${t.subject} kommt nicht mehr mit.`,
-      text: api
-        ? `${who} – und manche enden mit einem Fehler.`
-        : web
-          ? `${who} – und manche bekommen eine Fehlerseite.`
-          : `${who} – und manche bekommen keine Antwort.`,
+      text: `${who} – ${t.failText}`,
       kpis,
     };
   }
@@ -467,24 +545,11 @@ export function liveHeadline(summary: Summary): Headline {
     return {
       tone: "warn",
       title: "Es wird eng.",
-      text:
-        web && !api
-          ? `${who} – sie kommt an, aber langsamer als gewünscht.`
-          : `${who} – die Antworten kommen, aber langsamer als gewünscht.`,
+      text: `${who} – ${t.slowText}`,
       kpis,
     };
   }
-  const goodText = api
-    ? alone
-      ? `${who} und wird schnell genug beantwortet.`
-      : `${who} – und alle werden schnell genug beantwortet.`
-    : web
-      ? alone
-        ? `${who} und hat sie schnell genug vor sich.`
-        : `${who} – und alle haben sie schnell genug vor sich.`
-      : alone
-        ? `${who} und bekommt die Antwort schnell genug.`
-        : `${who} – und alle bekommen ihre Antwort schnell genug.`;
+  const goodText = alone ? `${who} ${t.goodAlone}` : `${who} – ${t.goodAll}`;
   return { tone: "good", title: `${t.subject} hält mit.`, text: goodText, kpis };
 }
 
@@ -565,11 +630,7 @@ export function kpiCards(summary: Summary): KpiCard[] {
         label: "Einer allein",
         value: alone.value,
         unit: alone.unit,
-        text: b
-          ? api
-            ? "bis die Antwort komplett da ist, wenn sonst niemand fragt"
-            : "bis die Seite komplett geladen ist, wenn sonst niemand da ist"
-          : "nicht getestet",
+        text: b ? t.aloneText : "nicht getestet",
       },
       sweet,
       {
@@ -577,14 +638,14 @@ export function kpiCards(summary: Summary): KpiCard[] {
         label: "Höchstleistung",
         value: nf(peak, peak != null && peak < 10 ? 1 : 0),
         unit: t.throughputUnit,
-        text: peak != null ? `≈ ${nf(peak * 60, 0)} ${api ? "Anfragen" : "Seitenaufrufe"} pro Minute für alle zusammen` : "nicht getestet",
+        text: peak != null ? `≈ ${nf(peak * 60, 0)} ${api ? "Anfragen" : isFlow(cfg) ? "Durchläufe" : "Seitenaufrufe"} pro Minute für alle zusammen` : "nicht getestet",
       },
       {
         key: "quality",
         label: "Erste Antwort",
         value: firstByte.value,
         unit: firstByte.unit,
-        text: b ? `so schnell reagiert der Server, bevor die ${api ? "Antwort kommt" : "Seite lädt"}` : "nicht getestet",
+        text: b ? t.firstText : "nicht getestet",
       },
     ];
   }

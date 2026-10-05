@@ -65,7 +65,7 @@ export function RunsList({ runs }: { runs: RunInfo[] }) {
         {runs.map((r) => {
           const id = `wahl-${r.name}`;
           const web = r.kind === "web";
-          const label = r.kind === "api" ? "HTTP-API" : web ? "Website" : "KI-Server";
+          const label = r.kind === "api" ? "HTTP-API" : r.kind === "flow" ? "Ablauf" : web ? "Website" : "KI-Server";
           const mismatch = pickedKind != null && (r.kind ?? "llm") !== pickedKind;
           return (
             <li key={r.name} className="flex flex-wrap items-center gap-x-4 gap-y-1 py-3">

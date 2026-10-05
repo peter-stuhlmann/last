@@ -1,6 +1,9 @@
 import { z } from "zod";
 
 const MAX_URL = 2048;
+export const MAX_STEPS = 20 * 1024;
+export const MAX_SECRET = 1024;
+const PLACEHOLDER = /^[a-zA-Z][a-zA-Z0-9_]{0,31}$/;
 const TEST_KEYS = ["baseline", "ramp", "rate", "context", "spike", "soak"];
 export const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
 export const MAX_API_BODY = 64 * 1024;
@@ -92,7 +95,7 @@ const int = (min: number, max: number) => z.coerce.number().int().min(min).max(m
  */
 export const startSchema = z
   .object({
-    kind: z.enum(["llm", "web", "api"]).optional(),
+    kind: z.enum(["llm", "web", "api", "flow"]).optional(),
     base_url: baseUrl,
     model: z.string().trim().max(200).optional(),
     api_key: z.string().max(512).optional(),
@@ -117,6 +120,12 @@ export const startSchema = z
       .trim()
       .toLowerCase()
       .regex(/^([1-5]xx|[1-5]\d\d)$/, "Erwarteter Status: z. B. 2xx oder 201")
+      .optional(),
+    // Ablauf: Schritte im Wortlaut; die Werte der Platzhalter gehen nur ans Backend, nie in eine Datei
+    steps: z.string().max(MAX_STEPS).optional(),
+    secrets: z
+      .record(z.string().regex(PLACEHOLDER, "Platzhalter: Buchstaben, Ziffern, Unterstrich"), z.string().max(MAX_SECRET))
+      .refine((r) => Object.keys(r).length <= 20, "Höchstens 20 Platzhalter")
       .optional(),
     level_seconds: int(5, 600).optional(),
     warmup_seconds: int(0, 120).optional(),
@@ -144,9 +153,13 @@ export const startSchema = z
     cloud_price_out: num(0, 10_000).optional(),
   })
   // Ein Lasttest sieht für fremde Websites und APIs aus wie ein Angriff – ohne Bestätigung kein Start.
-  .refine((v) => (v.kind !== "web" && v.kind !== "api") || v.confirm_owner === true, {
+  .refine((v) => !["web", "api", "flow"].includes(v.kind ?? "llm") || v.confirm_owner === true, {
     path: ["confirm_owner"],
     message: "Bitte bestätigen, dass ihr diese Website oder API testen dürft.",
+  })
+  .refine((v) => v.kind !== "flow" || (v.steps ?? "").trim().length > 0, {
+    path: ["steps"],
+    message: "Ein Ablauf braucht mindestens einen Schritt.",
   });
 
 export type StartPayload = z.infer<typeof startSchema>;

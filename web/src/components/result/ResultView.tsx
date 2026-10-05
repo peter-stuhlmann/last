@@ -2,7 +2,96 @@ import Link from "next/link";
 import { Meter } from "@/components/Meter";
 import { ampelRows, capacityView, costView, kpiCards, sloSeconds, terms, verdictView, type KpiCard, type Status } from "@/lib/derive";
 import { nf, secs, signedPct } from "@/lib/format";
-import type { Summary } from "@/lib/types";
+import type { RecordedStep, Summary } from "@/lib/types";
+
+const MEASURE_RE = /^messen\b/i;
+/** Im Plan heißen veränderliche Werte {{v1}} – für Menschen reicht {v1}. */
+const pretty = (path: string) => path.replace(/\{\{(\w+)\}\}/g, "{$1}");
+
+/** Ablauf: die Schritte mit den Bildschirmfotos der Aufzeichnung und die Anfragen, die abgespielt wurden. */
+function FlowMeasured({ name, summary }: { name: string; summary: Summary }) {
+  const cfg = summary.config;
+  const pre = summary.prechecks;
+  const steps: RecordedStep[] = pre?.steps ?? [];
+  const requests = pre?.requests ?? [];
+  const measureAt = steps.findIndex((s) => MEASURE_RE.test(s.text.trim()));
+  return (
+    <section aria-labelledby="gemessen-titel" className="card p-7">
+      <h2 id="gemessen-titel" className="font-display text-xl font-bold">
+        Was wurde gemessen?
+      </h2>
+      <p className="mt-1 text-[13px] text-white/65">
+        Einmal im echten Browser aufgezeichnet, dann unter Last ohne Browser abgespielt – Ziel: Antwort nach höchstens{" "}
+        {secs(sloSeconds(cfg))}, Pause zwischen zwei Durchläufen {nf(cfg.think_time, 0)} s.
+      </p>
+      {steps.length > 0 && (
+        <ol className="mt-4 flex flex-col gap-2">
+          {steps.map((s, i) => {
+            const measure = MEASURE_RE.test(s.text.trim());
+            const measured = measureAt >= 0 && i > measureAt;
+            return (
+              <li
+                key={s.line}
+                className={`grid grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-3 rounded-xl px-2 py-1.5 ${
+                  measure ? "bg-cyan/10 text-cyan" : measured ? "bg-white/[0.04]" : ""
+                }`}
+              >
+                <span className="font-mono text-[11px] text-white/55">{s.line}</span>
+                <span className={`truncate font-mono text-[13px] ${measure ? "font-bold" : "text-white/85"}`}>
+                  {measure ? "ab hier wird gemessen" : s.text}
+                </span>
+                {s.screenshot ? (
+                  <a href={`/api/runs/${name}/${s.screenshot}`} target="_blank" rel="noopener" className="rounded-md ring-offset-2 focus-visible:ring-2 focus-visible:ring-cyan">
+                    {/* eslint-disable-next-line @next/next/no-img-element -- next/image braucht Inline-Styles, die die CSP verbietet */}
+                    <img
+                      src={`/api/runs/${name}/${s.screenshot}`}
+                      alt={`Bildschirmfoto nach Zeile ${s.line}: ${s.text}`}
+                      width={96}
+                      height={60}
+                      loading="lazy"
+                      className="h-[60px] w-24 rounded-md border border-white/15 object-cover object-top"
+                    />
+                  </a>
+                ) : (
+                  <span aria-hidden="true" />
+                )}
+              </li>
+            );
+          })}
+        </ol>
+      )}
+      {requests.length > 0 && (
+        <>
+          <h3 className="mt-5 text-sm font-semibold text-white/85">Das schickt die Seite im Messbereich an den Server</h3>
+          <ul className="mt-2 flex flex-col gap-1.5 text-[13px]">
+            {requests.map((q, i) => (
+              <li key={i} className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <span className={`font-mono ${i === pre?.main ? "font-bold text-cyan" : "text-white/85"}`}>
+                  {q.method} {pretty(q.path)}
+                  {q.query ? `?${pretty(q.query)}` : ""}
+                </span>
+                <span className="font-mono text-[11px] text-white/55">Status {q.status}</span>
+                {q.stream && <span className="rounded-md bg-violet/25 px-1.5 font-mono text-[10px] uppercase tracking-wide">gestreamt</span>}
+                {q.dynamic.length > 0 && (
+                  <span className="font-mono text-[11px] text-white/55">veränderlich: {q.dynamic.join(", ")}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs text-white/60">
+            Blau: die Hauptanfrage, an der „erste Antwort“ gemessen wird. Veränderliche Werte kommen aus einer früheren Antwort und werden
+            bei jeder Wiederholung frisch geholt.
+          </p>
+        </>
+      )}
+      <ul className="mt-4 flex list-disc flex-col gap-2 pl-5 text-sm leading-[21px] text-white/80">
+        <li>Alle simulierten Nutzer teilen sich die Sitzung der Aufzeichnung – ein Konto, viele gleichzeitige Durchläufe.</li>
+        <li>Nicht gemessen: die Anmeldung selbst, die Darstellung im Browser und andere Seiten der Anwendung.</li>
+        <li>Zugangsdaten stehen nur in Platzhaltern und wurden nirgends gespeichert.</li>
+      </ul>
+    </section>
+  );
+}
 
 const TONE = {
   good: { word: "Grün", a: "#6EE7B7", b: "#059669", glow: "#34D399", text: "text-mint-soft", title: "to-mint-soft" },
@@ -104,9 +193,10 @@ function CapacityBar({ users, target }: { users: number; target: number }) {
 }
 
 /** Bei Websites statt des Kostenvergleichs: was der Test genau getan hat – und was nicht. */
-function MeasuredCard({ summary }: { summary: Summary }) {
+function MeasuredCard({ name, summary }: { name: string; summary: Summary }) {
   const pre = summary.prechecks;
   const cfg = summary.config;
+  if (cfg.kind === "flow") return <FlowMeasured name={name} summary={summary} />;
   if (cfg.kind === "api") {
     const method = cfg.method ?? "GET";
     let path = "/";
@@ -175,7 +265,7 @@ export function ResultView({ name, summary, report, pdf }: { name: string; summa
   const cap = capacityView(summary);
   const cost = costView(summary);
   const kind = summary.config.kind;
-  const web = kind === "web" || kind === "api";
+  const web = kind === "web" || kind === "api" || kind === "flow";
   const people = terms(summary.config).capacityUnit;
   const rows = ampelRows(summary);
   const tone = TONE[verdict.status];
@@ -239,9 +329,9 @@ export function ResultView({ name, summary, report, pdf }: { name: string; summa
                 {cap.users != null ? nf(cap.users, 0) : "–"}
               </span>
               <span className="text-[15px] font-medium leading-[22px] text-white/75">
-                {kind === "api" ? "Anfragen pro Minute" : web ? "Besucher gleichzeitig" : "aktive Nutzer"}
+                {kind === "api" ? "Anfragen pro Minute" : kind === "flow" ? "Nutzer gleichzeitig" : web ? "Besucher gleichzeitig" : "aktive Nutzer"}
                 <br />
-                {kind === "api" ? "gehen flüssig durch" : web ? "möglich" : "im Team möglich"}
+                {kind === "api" ? "gehen flüssig durch" : kind === "flow" ? "in der Anwendung möglich" : web ? "möglich" : "im Team möglich"}
               </span>
             </p>
             {cap.users != null && <CapacityBar users={cap.usersFraction} target={cap.targetFraction} />}
@@ -311,7 +401,7 @@ export function ResultView({ name, summary, report, pdf }: { name: string; summa
         </section>
 
         {web ? (
-          <MeasuredCard summary={summary} />
+          <MeasuredCard name={name} summary={summary} />
         ) : (
           <section aria-labelledby="kosten-titel" className="card p-7">
             <h2 id="kosten-titel" className="font-display text-xl font-bold">

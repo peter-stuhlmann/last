@@ -2,7 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { initialLive, normalizeSummary, type LiveState } from "@/lib/events";
-import { apiSummary, finishedSummary, webSummary } from "@/test/fixtures";
+import { apiSummary, finishedSummary, flowSummary, webSummary } from "@/test/fixtures";
 import { expectAccessible } from "@/test/setup";
 import { LiveView } from "./live/LiveView";
 import { ResultView } from "./result/ResultView";
@@ -300,5 +300,28 @@ describe("HTTP-API-Läufe in den Ansichten", () => {
   it("kennzeichnet API-Läufe in der Liste", () => {
     render(<RunsList runs={[{ name: "results_20261006_090000", kind: "api", model: null, base_url: "https://api.example/v1/items", started: null, tests: ["ramp"], report: true, pdf: true }]} />);
     expect(screen.getByText("HTTP-API")).toBeInTheDocument();
+  });
+});
+
+describe("Ablauf-Läufe in den Ansichten", () => {
+  it("zeigt Schritte mit Bildschirmfotos und die aufgezeichneten Anfragen", async () => {
+    const { container } = render(<ResultView name="results_20261006_120000" summary={flowSummary()} report pdf />);
+    expect(screen.getByRole("heading", { level: 1, name: "Rotes Licht." })).toBeInTheDocument();
+    expect(screen.getByText(/für 200 Nutzer geplant/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Was wurde gemessen?" })).toBeInTheDocument();
+    expect(screen.getByText("ab hier wird gemessen")).toBeInTheDocument();
+    expect(screen.getByText(/POST \/api\/conversations\/\{v1\}\/messages/)).toBeInTheDocument();
+    expect(screen.getByText(/gestreamt/)).toBeInTheDocument();
+    const img = screen.getByRole("img", { name: /Zeile 7/ });
+    expect(img).toHaveAttribute("src", "/api/runs/results_20261006_120000/schritt_07.png");
+    expect(screen.queryByText(/Besucher/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Dateien/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/\{passwort\}/)).toBeInTheDocument();
+    await expectAccessible(container);
+  });
+
+  it("kennzeichnet Abläufe in der Liste", () => {
+    render(<RunsList runs={[{ name: "results_20261006_120000", kind: "flow", model: null, base_url: "https://chat.example/login", started: null, tests: ["ramp"], report: true, pdf: true }]} />);
+    expect(screen.getByText("Ablauf")).toBeInTheDocument();
   });
 });

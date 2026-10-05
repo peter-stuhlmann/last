@@ -5,7 +5,7 @@ export type TestKey = "baseline" | "ramp" | "rate" | "context" | "spike" | "soak
 export type Tone = "good" | "warn" | "bad";
 export type RunState = "idle" | "running" | "done" | "stopped" | "error";
 
-export type RunKind = "llm" | "web" | "api";
+export type RunKind = "llm" | "web" | "api" | "flow";
 
 export interface RunConfig {
   /** fehlt bei Läufen aus älteren Versionen – dann ist es ein KI-Server-Lauf */
@@ -34,6 +34,9 @@ export interface RunConfig {
   expect_status?: string;
   header_names?: string[];
   body_bytes?: number;
+  /** nur Ablauf: die Schritte im Wortlaut (Platzhalter bleiben Platzhalter) und ihre Namen */
+  steps_text?: string;
+  placeholders?: string[];
   hw_price?: number;
   server_watts?: number;
   power_price?: number;
@@ -109,6 +112,11 @@ export interface Summary {
     final_url?: string;
     /** HTTP-API: Status der Antwort ohne Last */
     status?: number;
+    /** Ablauf: was der Browser im Messbereich an den Server geschickt hat */
+    requests?: RecordedRequest[];
+    main?: number;
+    steps?: RecordedStep[];
+    measured_ms?: number | null;
   };
   baseline?: Stats;
   ramp?: { steps: RampStep[]; break: { concurrency: number; reason: string } | null; saturated: number | null };
@@ -144,6 +152,26 @@ export interface Summary {
   economics: Economics | null;
   verdict: { status: Tone; headline: string; reasons: [Tone, string][] };
   monitor?: Sample[];
+}
+
+export interface RecordedRequest {
+  method: string;
+  host: string;
+  path: string;
+  query: string;
+  status: number;
+  stream: boolean;
+  body_bytes: number;
+  header_names: string[];
+  /** Namen der veränderlichen Werte (z. B. v1), die aus einer früheren Antwort kommen */
+  dynamic: string[];
+}
+
+export interface RecordedStep {
+  line: number;
+  text: string;
+  screenshot: string | null;
+  ms: number;
 }
 
 export interface Sample {

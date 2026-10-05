@@ -76,11 +76,14 @@ WORDS = {
             "one": "ein Besucher", "fail": "eine Fehlerseite", "stand": "dem Andrang"},
     "api": {"subject": "Die API", "subj": "die API", "units": "Anfragen", "time": "Antwortzeit", "events": "Anfragen",
             "one": "eine Anfrage", "fail": "einen Fehler", "stand": "der Last"},
+    "flow": {"subject": "Die Anwendung", "subj": "die Anwendung", "units": "Nutzer", "time": "Antwortzeit",
+             "events": "Durchläufe", "one": "ein Nutzer", "fail": "einen Fehler", "stand": "dem Andrang"},
 }
 
 
 def words(cfg):
-    return WORDS["api" if (cfg or {}).get("kind") == "api" else "web"]
+    kind = (cfg or {}).get("kind")
+    return WORDS[kind if kind in WORDS else "web"]
 
 
 def status_ok(status, expect):
@@ -112,10 +115,25 @@ def parse_headers(raw):
 
 def build_args(cfg):
     """JSON aus dem Formular → Namespace. Unbekannte Felder werden ignoriert."""
-    kind = "api" if cfg.get("kind") == "api" else "web"
-    defaults = {**DEFAULTS, **API_DEFAULTS} if kind == "api" else {**DEFAULTS, **API_DEFAULTS, "slo_load": DEFAULTS["slo_load"],
-                                                                     "include_assets": DEFAULTS["include_assets"]}
+    kind = cfg.get("kind") if cfg.get("kind") in ("api", "flow") else "web"
+    defaults = {**DEFAULTS, **API_DEFAULTS}
+    if kind == "web":
+        defaults.update(slo_load=DEFAULTS["slo_load"], include_assets=DEFAULTS["include_assets"])
+    elif kind == "flow":
+        from flow_stresstest import FLOW_DEFAULTS
+        defaults.update(FLOW_DEFAULTS)
     a = argparse.Namespace(kind=kind, **defaults)
+    if kind == "flow":
+        # Der Ablauf bestimmt die Adresse selbst (erste „öffne“-Zeile)
+        from flow_stresstest import parse_steps, placeholders
+        a.steps_text = str(cfg.get("steps") or "")
+        a.steps = parse_steps(a.steps_text)
+        raw_secrets = cfg.get("secrets") if isinstance(cfg.get("secrets"), dict) else {}
+        a.secrets = {str(k): str(v)[:1024] for k, v in raw_secrets.items()}
+        missing = [p for p in placeholders(a.steps) if p not in a.secrets]
+        if missing:
+            raise ValueError(f"Für den Platzhalter {{{missing[0]}}} fehlt ein Wert.")
+        cfg = {**cfg, "base_url": a.steps[0]["url"]}
     for key, default in DEFAULTS.items():
         val = cfg.get(key)
         if val is None or val == "":
@@ -155,6 +173,8 @@ def build_args(cfg):
         if not re.match(r"^([1-5]xx|[1-5]\d\d)$", a.expect_status):
             raise ValueError("Erwarteter Status: z. B. 2xx oder 201")
         a.slo_load = float(cfg.get("slo_load") or API_DEFAULTS["slo_load"])
+    if kind == "flow":
+        a.include_assets = False
     return a
 
 
@@ -505,8 +525,8 @@ def verdict(summary):
         have, what = "Schafft", "Anfragen pro Minute"
         too_slow = "Schon bei wenigen gleichzeitigen Anfragen antwortet die API langsamer als gewünscht."
     else:
-        have, what = "Reicht für", "Besucher gleichzeitig"
-        too_slow = "Schon bei wenigen Besuchern lädt die Seite langsamer als gewünscht."
+        have, what = "Reicht für", f"{w['units']} gleichzeitig"
+        too_slow = f"Schon bei wenigen {w['units']}n ist {w['subj']} langsamer als gewünscht."
     if tested:
         if not users:
             note("bad", too_slow)
@@ -877,12 +897,15 @@ class WebStressTest:
                                    "ttft_diff_pct": (c / b - 1) * 100 if b and c else None}
         log(f"  {self.w['time']} {fmt(c, 2)}s (Anfang: {fmt(b, 2)}s)")
 
+    def make_client(self):
+        return (ApiClient if self.a.kind == "api" else WebClient)(self.a)
+
     async def run(self):
         self.mon.start()
         lag_task = asyncio.create_task(self.lag_watch())
         tests = [t.strip() for t in self.a.tests.split(",")]
         try:
-            async with (ApiClient if self.a.kind == "api" else WebClient)(self.a) as client:
+            async with self.make_client() as client:
                 await self.preflight(client)
                 plan = [("baseline", self.baseline), ("ramp", self.ramp), ("rate", self.rate_test),
                         ("spike", self.spike), ("soak", self.soak), ("control", self.control)]

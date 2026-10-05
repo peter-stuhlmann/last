@@ -18,8 +18,10 @@ Bausteine kommen aus report_pptx.py und report_pdf.py, damit alle Berichte gleic
 import datetime as dt
 import json
 import os
+import re
 
 from pptx.enum.text import MSO_ANCHOR
+from pptx.util import Inches
 
 from llm_stresstest import IN_DOCKER, fmt, round_users
 from report_pptx import (BAD, CARD, DARK_BG, GOOD, INFO, INK, INK2, MUTED, PANEL, S1, S2, S3, S4,
@@ -54,6 +56,7 @@ TEXTS = {
         "capacity_note": "Besucherzahl nach dem Gesetz von Little bei {think} s Pause zwischen zwei Klicks – "
                          "eine Schätzung, keine Garantie.",
         "capacity_sub": "Wenn jeder etwa alle {think} s eine Seite aufruft.",
+        "pause": "zwischen zwei Klicks", "one": "Besucher",
         "gleichzeitig_note": "„Gleichzeitig“ heißt: so viele Seiten werden im selben Moment geladen – nicht so viele "
                              "Menschen sind auf der Website.",
         "rate_meaning_users": " Daraus ergibt sich: Es reicht für ≈ {users} Besucher, wenn jeder alle {think} s eine Seite aufruft.",
@@ -97,6 +100,71 @@ TEXTS = {
         "compare_more": "Eine höhere Linie bedeutet: Derselbe Server bedient mehr Besucher.",
         "little": "Kapazität nach dem Gesetz von Little: Besucher = Seiten/s × (mittlere Ladezeit + Pause zwischen "
                   "zwei Klicks); bevorzugt aus der offenen Last (Echter Andrang), sonst aus dem Stufentest.",
+    },
+    "flow": {
+        "title": "Wie viele Nutzer hält unsere Anwendung aus?",
+        "compare_title": "Ist die Anwendung schneller geworden?",
+        "subject": "die Anwendung", "Subject": "Die Anwendung",
+        "units": "Nutzer", "unit_label": "Nutzer gleichzeitig",
+        "capacity_label": "Nutzer gleichzeitig in der Anwendung",
+        "time": "Antwortzeit", "time_alone": "Antwortzeit ohne Andrang",
+        "time_long": "Antwortzeit des ganzen Ablaufs",
+        "y_axis": "Sekunden bis die Antwort da ist", "x_axis": "Nutzer, die gleichzeitig den Ablauf machen",
+        "rate_axis": "Durchläufe pro Minute", "per_min": "Durchläufe/min", "per_min_long": "Durchläufe pro Minute",
+        "throughput": "Durchläufe pro Sekunde", "throughput_short": "Durchl./s",
+        "done": "bis die Antwort komplett da ist", "ready": "haben ihre Antwort",
+        "served": "alle haben ihre Antwort bekommen", "fail": "bekamen einen Fehler",
+        "alone_sub": "So schnell antwortet die Anwendung, wenn sonst niemand da ist",
+        "ramp_sub": "Ab wann wird die Anwendung zäh?",
+        "rate_sub": "Nutzer kommen zufällig – mal zwei auf einmal, mal eine Weile keiner",
+        "spike_sub": "{n} Nutzer im selben Augenblick – wie zu Beginn einer Schulung",
+        "zaeh": "bis {c} Nutzer machen den Ablauf gleichzeitig, ohne dass es zäh wird",
+        "zaeh_none": "schon bei der kleinsten Stufe antwortet die Anwendung zu langsam",
+        "capacity_note": "Nutzerzahl nach dem Gesetz von Little bei {think} s Pause zwischen zwei Durchläufen eines "
+                         "Nutzers – eine Schätzung, keine Garantie.",
+        "capacity_sub": "Wenn jeder etwa alle {think} s den Ablauf einmal macht.",
+        "pause": "zwischen zwei Durchläufen", "one": "Nutzer",
+        "gleichzeitig_note": "„Gleichzeitig“ heißt: so viele Durchläufe laufen im selben Moment – nicht so viele "
+                             "Menschen sind angemeldet.",
+        "rate_meaning_users": " Daraus ergibt sich: Es reicht für ≈ {users} Nutzer, wenn jeder alle {think} s den Ablauf macht.",
+        "best_case": "Schneller als hier antwortet die Anwendung unter Last nie – das ist der beste Fall.",
+        "flat": "Danach steigt die Leistung nicht mehr: Zusätzliche Nutzer warten nur länger.",
+        "more_but_slow": "Mehr Durchläufe gehen zwar noch durch – aber nur, weil jeder Nutzer länger wartet als gewünscht.",
+        "soak_stable": "Die Anwendung blieb über die ganze Zeit gleich schnell.",
+        "control_intro": " Die Kontrollmessung ganz am Ende – wieder ein Nutzer allein: ",
+        "pointer_slow": ("Die Anwendung braucht schon ohne Andrang lange für die erste Antwort",
+                         "{t}, bevor überhaupt etwas kommt. Bei einem KI-Chat steckt die Zeit meist im Modell selbst "
+                         "oder in der Vorverarbeitung – dort zuerst messen."),
+        "pointer_few": ("Schon wenige Nutzer sind zu viel",
+                        "Bevor mehr Leistung gekauft wird, zuerst die Antwortzeit ohne Andrang senken – sie ist die "
+                        "Untergrenze für alles Weitere."),
+        "pointer_gap": ("Zwischen {a} und {b} gleichzeitig wird es eng",
+                        "Vor Schulungen, Einführungen oder Aktionen einplanen: mehr Leistung für den Dienst hinter dem "
+                        "Ablauf oder eine Warteschlange, die Nutzer freundlich vertröstet."),
+        "pointer_target": ("Die erwartete Nutzerzahl wird nicht erreicht",
+                           "Es reicht für ≈ {users}, erwartet werden {target}. Die Lücke lässt sich nur mit schnelleren "
+                           "Antworten oder mehr Leistung schließen."),
+        "pointer_ok": ("Kein dringender Handlungsbedarf",
+                       "Die Anwendung erreicht alle gesetzten Ziele. Sinnvoll ist, den Test nach größeren Änderungen "
+                       "zu wiederholen und die Läufe zu vergleichen."),
+        "assumptions": ["• Ein Nutzer macht den Ablauf etwa alle {think} s einmal. Macht er ihn häufiger, reicht es für weniger.",
+                        "• Als „rechtzeitig“ gilt die Antwort, wenn fast alle (95 %) sie nach höchstens {slo} haben.",
+                        "• Unter Last werden die aufgezeichneten Anfragen abgespielt, nicht der Browser – der Server sieht "
+                        "dieselben Anfragen, die Darstellung im Browser fehlt.",
+                        "• Alle simulierten Nutzer teilen sich die Sitzung der Aufzeichnung (ein Konto)."],
+        "not_measured": ["• Die Zeit, die der Browser zum Aufbauen und Darstellen braucht.",
+                         "• Die Anmeldung selbst – sie liegt vor „messen ab hier“ und wurde nur einmal gemacht.",
+                         "• Andere Abläufe und Seiten der Anwendung.",
+                         "• Die Internetverbindung der echten Nutzer. Gemessen wurde vom Messrechner aus."],
+        "pdf_kicker": "LASTTEST ABLAUF · KURZBERICHT",
+        "pdf_foot": "Nutzer gleichzeitig nach dem Gesetz von Little bei {think} s Pause zwischen zwei Durchläufen – eine "
+                    "Schätzung, keine Garantie. Aufgezeichnet im Browser, abgespielt per HTTP mit einer geteilten Sitzung.",
+        "pdf_foot2": "Nicht gemessen: die Darstellung im Browser, die Anmeldung, andere Abläufe.",
+        "compare_hint": "Liegt die neue Linie durchgehend unter der alten, hat die Änderung geholfen – auch unter "
+                        "Last, nicht nur im Leerlauf.",
+        "compare_more": "Eine höhere Linie bedeutet: Dieselbe Anwendung bedient mehr Nutzer.",
+        "little": "Kapazität nach dem Gesetz von Little: Nutzer = Durchläufe/s × (mittlere Antwortzeit + Pause zwischen "
+                  "zwei Durchläufen); bevorzugt aus der offenen Last (Echter Andrang), sonst aus dem Stufentest.",
     },
     "api": {
         "title": "Wie viele Anfragen hält unsere API aus?",
@@ -168,7 +236,8 @@ TEXTS = {
 
 
 def kind_of(summary):
-    return "api" if (summary.get("config") or {}).get("kind") == "api" else "web"
+    kind = (summary.get("config") or {}).get("kind")
+    return kind if kind in TEXTS else "web"
 
 
 def texts(summary):
@@ -250,7 +319,7 @@ def facts(summary):
         "rbrk": (summary.get("rate") or {}).get("break"),
         "spike": summary.get("spike"), "soak": summary.get("soak"), "ctl": summary.get("control"),
         "cap": cap_, "users": cap_.get("users"), "verdict": verdict(summary),
-        "api": kind_of(summary) == "api", "t": texts(summary),
+        "api": kind_of(summary) == "api", "flow": kind_of(summary) == "flow", "t": texts(summary),
     }
 
 
@@ -263,7 +332,7 @@ def headline_cards(summary):
     if f["steps"] or f["stages"]:  # ohne Lasttest gibt es keine Kapazität
         cards.append((f"≈ {approx(users)}" if users else "0", t["unit_label"],
                       f"erwartet: {n0(target)}" if target
-                      else ("bei zufällig verteilten Anfragen" if api else f"bei {n0(f['think'])} s Pause zwischen zwei Klicks"),
+                      else ("bei zufällig verteilten Anfragen" if api else f"bei {n0(f['think'])} s Pause {t['pause']}"),
                       (GOOD if not target or users >= target else WARN if users >= 0.7 * target else BAD)
                       if users else BAD))
     if base:
@@ -276,7 +345,7 @@ def headline_cards(summary):
                       else "schon die kleinste Stufe ist zu langsam",
                       GOOD if rec else BAD))
     if top and top.get("req_s"):
-        cards.append((n0(top["req_s"] * 60), "Höchstleistung pro Minute" if api else "Aufrufe pro Minute",
+        cards.append((n0(top["req_s"] * 60), "Höchstleistung pro Minute" if api else t["per_min_long"],
                       "mehr Anfragen gehen überhaupt nicht durch – egal, wie langsam" if api
                       else "mehr schafft der Server insgesamt nicht", INK))
     return cards
@@ -342,7 +411,7 @@ def result_rows(summary):
                      f"{quality['overall']} – " + ("der Messrechner kam gut hinterher" if worst["status"] == "good"
                                                    else f"{worst['title']} {worst['value']}")))
     total = f["pre"].get("total_bytes")
-    if total and not api:
+    if total and not api and not f["flow"]:
         rows.append((GOOD if total <= LIGHT_PAGE else WARN if total <= HEAVY_PAGE else BAD, "Gewicht der Seite",
                      f"{size(total)} mit {n0(f['pre'].get('assets', 0))} Dateien"
                      + ("" if total <= LIGHT_PAGE else " – schwer; das kostet bei jedem Besuch Zeit")))
@@ -359,7 +428,7 @@ def pointers(summary):
     if base and base.get("ttft_p50") is not None and base["ttft_p50"] > GOOD_TTFB:
         head, body = t["pointer_slow"]
         out.append((head, body.format(t=secs(base["ttft_p50"]))))
-    if not api and pre.get("total_bytes") and pre["total_bytes"] > LIGHT_PAGE:
+    if not api and not f["flow"] and pre.get("total_bytes") and pre["total_bytes"] > LIGHT_PAGE:
         biggest = (pre.get("files") or [{}])[0]
         out.append(("Die Seite ist schwer",
                     f"{size(pre['total_bytes'])} pro Besuch"
@@ -403,9 +472,76 @@ def _bullets(sl, x, y, w, items, gap=0.95):
         text(sl, x + 0.62, yy + 0.33, w - 0.62, gap - 0.38, body, size=12.5, color=INK2)
 
 
-def _method_slide(d, summary, f):
+def _flow_slides(d, summary, f, outdir):
+    """Ablauf: Schritte und aufgezeichnete Anfragen, dazu die Bildschirmfotos des Browsers."""
+    cfg, pre, slo = f["cfg"], f["pre"], f["slo"]
+    sl = d.slide()
+    title(sl, "So haben wir getestet", "Einmal im echten Browser aufgezeichnet, dann hunderte Male ohne Browser abgespielt")
+    lines = [ln.strip() for ln in (cfg.get("steps_text") or "").splitlines() if ln.strip() and not ln.strip().startswith("#")]
+    text(sl, 0.6, 1.8, 5.6, 0.35, "Die Schritte", size=14, bold=True, color=S1)
+    rows = []
+    for ln in lines[:14]:
+        measure = "messen" in ln.lower() and ("ab hier" in ln.lower() or ln.lower().strip("─-—= ") == "messen")
+        rows.append([("▶ ab hier wird gemessen" if measure else _short(ln, 58), S1 if measure else None)])
+    if len(lines) > 14:
+        rows.append([(f"… und {len(lines) - 14} weitere Schritte", MUTED)])
+    for i, (row,) in enumerate(rows):
+        txt, col = row
+        text(sl, 0.6, 2.2 + i * 0.3, 5.6, 0.3, txt, size=11, color=col or INK2, font="Consolas" if not col else "Calibri",
+             bold=bool(col))
+    reqs = pre.get("requests") or []
+    text(sl, 6.6, 1.8, 6.1, 0.35, "Was die Seite im Messbereich an den Server schickt", size=14, bold=True, color=S1)
+    table_rows = [["Anfrage", "Status", "gestreamt", "veränderlich"]]
+    for i, q in enumerate(reqs[:8]):
+        path_ = re.sub(r"\{\{(\w+)\}\}", r"{\1}", q["path"])           # {{v1}} → {v1}
+        table_rows.append([(f"{q['method']} {_short(path_, 40)}", S1 if i == pre.get("main") else None),
+                           str(q["status"]), "ja" if q["stream"] else "–", ", ".join(q["dynamic"]) or "–"])
+    table(sl, 6.6, 2.25, 6.15, table_rows, col_w=[3.55, 0.7, 0.9, 1.0], font=10)
+    y_after = 2.35 + 0.34 * len(table_rows)
+    text(sl, 6.6, y_after, 6.15, 1.4, [
+        "Blau: die Hauptanfrage – an ihr wird „erstes Wort“ gemessen.",
+        "Veränderliche Werte (z. B. eine Chat-ID) kommen aus einer früheren Antwort und werden bei jeder "
+        "Wiederholung frisch geholt." if any(q["dynamic"] for q in reqs) else
+        "Keine veränderlichen Werte: Jede Wiederholung schickt genau dieselben Anfragen.",
+    ], size=11.5, color=INK2, space_after=5)
+    footer(sl, "Zugangsdaten stehen nur in Platzhaltern und wurden nicht gespeichert; die Sitzung lebt nur im "
+               f"Arbeitsspeicher des Tests. Ziel: Antwort nach höchstens {secs(slo)}.")
+    notes(sl, "Aufzeichnung mit Chromium (Playwright), Netzwerkmitschnitt ab „messen ab hier“ (XHR/fetch/Dokument/"
+              "EventSource). Abspielen mit aiohttp, Keep-Alive, Cookies aus der Aufzeichnung. Hauptanfrage = gestreamte "
+              "Antwort, sonst die längste. Veränderliche Werte: Tokens in Adresse/Body/X-Kopfzeilen, die als Blatt in "
+              "einer früheren JSON-Antwort vorkommen.")
+
+    shots = [s for s in (pre.get("steps") or []) if s.get("screenshot") and outdir
+             and os.path.isfile(os.path.join(outdir, s["screenshot"]))]
+    if shots:
+        sl = d.slide()
+        title(sl, "Was der Browser gesehen hat", "Bildschirmfotos aus der Aufzeichnung – zur Kontrolle, ob die Schritte stimmen")
+        # Interessant sind der Anfang, der Stand kurz vor „messen“ und alles im Messbereich
+        m = next((i for i, s in enumerate(shots) if s["text"].startswith("messen")), len(shots))
+        before = {s["line"]: s for s in shots[:1] + shots[max(0, m - 1):m]}
+        pick = list(before.values()) + shots[m + 1:]
+        if len(pick) > 6:
+            pick = list(before.values())[-1:] + shots[m + 1:][-5:]
+        cols = 3
+        cw, ch = (W - 1.2 - 0.3 * (cols - 1)) / cols, 2.35
+        for i, s in enumerate(pick[:6]):
+            x, y = 0.6 + (i % cols) * (cw + 0.3), 1.7 + (i // cols) * (ch + 0.45)
+            try:
+                sl.shapes.add_picture(os.path.join(outdir, s["screenshot"]), Inches(x), Inches(y), width=Inches(cw),
+                                      height=Inches(ch))
+            except Exception:
+                rect(sl, x, y, cw, ch, PANEL)
+            text(sl, x, y + ch + 0.05, cw, 0.35, f"Zeile {s['line']}: {_short(s['text'], 48)}", size=10.5, color=INK2)
+        notes(sl, "Je ein Foto nach jedem Schritt; hier der Anfang, der Stand vor „messen“ und der Messbereich. Alle Fotos liegen als "
+                  "schritt_NN.png im Ergebnisordner.")
+
+
+def _method_slide(d, summary, f, outdir=None):
     """Folie „So haben wir getestet“ – je Testart anders."""
     t, cfg, pre, slo = f["t"], f["cfg"], f["pre"], f["slo"]
+    if kind_of(summary) == "flow":
+        _flow_slides(d, summary, f, outdir)
+        return
     sl = d.slide()
     if f["api"]:
         method, path = endpoint(cfg)
@@ -516,7 +652,7 @@ def build_report(summary, path):
               f"Ziel (SLO): {t['time']} p95 ≤ {fmt(slo, 2)} s, keine Fehler.")
 
     # ═══ So haben wir getestet ═══
-    _method_slide(d, summary, f)
+    _method_slide(d, summary, f, os.path.dirname(os.path.abspath(path)))
 
     # ═══ Einer allein ═══
     if base:
@@ -533,6 +669,10 @@ def build_report(summary, path):
         if api:
             stat(sl, 0.6 + 2 * (bw + 0.25), 1.9, bw, 2.2, size(pre.get("bytes")), "Größe einer Antwort",
                  f"Status {pre.get('status', '–')} bei {method} {_short(path_, 28)}", vsize=36)
+        elif kind_of(summary) == "flow":
+            reqs = pre.get("requests") or []
+            stat(sl, 0.6 + 2 * (bw + 0.25), 1.9, bw, 2.2, str(len(reqs)), "Anfragen je Durchlauf",
+                 "so viele Anfragen schickt die Seite im Messbereich an den Server", vsize=36)
         else:
             stat(sl, 0.6 + 2 * (bw + 0.25), 1.9, bw, 2.2, size(pre.get("total_bytes") or pre.get("bytes")),
                  "Gewicht eines Besuchs", f"die Seite und {n0(n_files)} Dateien", vsize=36)
@@ -571,8 +711,8 @@ def build_report(summary, path):
         explain(sl, f"Nach rechts kommen immer mehr {t['units']} gleichzeitig. Die blaue Linie zeigt, wie lange "
                     "eine typische wartet, die orange, wie lange fast alle warten. Solange Orange "
                     "unter der gestrichelten Linie bleibt, ist alles gut." if api else
-                    "Nach rechts kommen immer mehr Besucher gleichzeitig. Die blaue Linie zeigt, wie lange "
-                    "ein typischer Besucher wartet, die orange, wie lange fast alle warten. Solange Orange "
+                    f"Nach rechts kommen immer mehr {t['units']} gleichzeitig. Die blaue Linie zeigt, wie lange "
+                    f"ein typischer {t['one']} wartet, die orange, wie lange fast alle warten. Solange Orange "
                     "unter der gestrichelten Linie bleibt, ist alles gut.", meaning)
         footer(sl, t["gleichzeitig_note"])
         notes(sl, f"Ramp mit fester Parallelität, je Stufe {n0(cfg.get('level_seconds', 0))} s im eingeschwungenen "
@@ -796,7 +936,7 @@ def build_pdf(summary, path):
     if steps:
         ch_h = max(140, min(230, y - foot_top - 26 - len(rows) * 16 - 18))
         half = (cw - 14) / 2
-        x_short = "Anfragen gleichzeitig" if api else "Besucher gleichzeitig"
+        x_short = t["unit_label"]
         if stages:
             chart(pg, M, y - ch_h, half, ch_h, f"{t['time']}, wenn die {t['units']} zufällig kommen",
                   [("normal", S1, [(s["rate"] * 60, s.get("e2e_p50")) for s in stages]),
