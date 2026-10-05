@@ -1,0 +1,7 @@
+results/
+results_*/
+__pycache__/
+*.pyc
+.venv/
+venv/
+.playwright-mcp/

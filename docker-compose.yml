@@ -1,23 +1,62 @@
 # Starten:  docker compose up --build      → http://localhost:8090
 # Beenden:  docker compose down
 #
+# Zwei Container:
+#   web      – die Oberfläche (Next.js). Nur sie ist von außen erreichbar.
+#   backend  – die Testlogik (Python). Kein offener Port; nur „web“ spricht mit ihr.
+#
 # Linux: Gehören die Dateien in ./results sonst root oder einem fremden Benutzer, so starten:
 #   LOCAL_UID=$(id -u) LOCAL_GID=$(id -g) docker compose up --build
 
+# Härtung für beide Container: keine Sonderrechte, Dateisystem nur lesbar.
+x-hardening: &hardening
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  restart: unless-stopped
+  extra_hosts:
+    # Auf Linux fehlt host.docker.internal sonst (Windows/macOS haben es von Haus aus).
+    - "host.docker.internal:host-gateway"
+
 services:
-  llm-stresstest:
-    build: .
-    image: llm-stresstest
+  web:
+    <<: *hardening
+    build: ./web
+    image: last-web
     ports:
       # Nur von diesem Rechner aus erreichbar – die Oberfläche hat keinen Passwortschutz.
-      - "127.0.0.1:8090:8090"
+      - "127.0.0.1:8090:3000"
+    environment:
+      BACKEND_URL: "http://backend:8090"
+      # Weitere erlaubte Rechnernamen (kommagetrennt), falls die Seite hinter einem
+      # Reverse-Proxy mit Login unter eigenem Namen läuft. Standard: nur localhost.
+      ALLOWED_HOSTS: "${ALLOWED_HOSTS:-}"
+      TZ: "${TZ:-Europe/Berlin}"
+    tmpfs:
+      - /tmp
+      - /app/.next/cache
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  backend:
+    <<: *hardening
+    build: .
+    image: llm-stresstest
+    expose:
+      - "8090"
     volumes:
       # Alle Läufe, PowerPoints und PDFs landen im Ordner results neben dieser Datei.
       - ./results:/app/results
-    extra_hosts:
-      # Auf Linux fehlt host.docker.internal sonst (Windows/macOS haben es von Haus aus).
-      - "host.docker.internal:host-gateway"
+    tmpfs:
+      - /tmp
     environment:
       # Zeitzone für die Uhrzeiten in Berichten und Protokoll
       TZ: "${TZ:-Europe/Berlin}"
     user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8090/api/state', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      start_period: 10s
+      retries: 3

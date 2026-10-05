@@ -32,6 +32,7 @@ except ImportError:
              "Installieren mit:\n    " + exe + " -m pip install aiohttp python-pptx reportlab")
 
 import llm_stresstest as lt
+import web_stresstest as ws
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPORT_NAME = "LLM-Haertetest.pptx"
@@ -81,7 +82,7 @@ class Runner:
         self.error = None
         self.report = None
         self.pdf = None
-        self.st = lt.StressTest(a, self.outdir)
+        self.st = (ws.WebStressTest if a.kind == "web" else lt.StressTest)(a, self.outdir)
         self.st.on_update = self.bump
         self.bump()
         self.task = asyncio.create_task(self._run())
@@ -105,14 +106,21 @@ class Runner:
             s = self.st.summary
             if any(k in s for k in ("baseline", "ramp", "rate", "context", "spike", "soak")):
                 path = os.path.join(self.outdir, REPORT_NAME)
+                pdf_path = os.path.join(self.outdir, PDF_NAME)
+                run = asyncio.get_running_loop().run_in_executor
                 try:
                     lt.log("Erstelle PowerPoint-Bericht …")
-                    await asyncio.get_running_loop().run_in_executor(
-                        None, lt.build_report, s, path, self.args)
+                    if self.args.kind == "web":
+                        import report_web
+                        await run(None, report_web.build_report, s, path)
+                    else:
+                        await run(None, lt.build_report, s, path, self.args)
                     self.report = path
                     lt.log("✓ Bericht fertig.")
-                    pdf = await asyncio.get_running_loop().run_in_executor(
-                        None, lt.build_pdf_report, s, os.path.join(self.outdir, PDF_NAME))
+                    if self.args.kind == "web":
+                        pdf = await run(None, report_web.build_pdf, s, pdf_path)
+                    else:
+                        pdf = await run(None, lt.build_pdf_report, s, pdf_path)
                     if pdf:
                         self.pdf = pdf
                         lt.log("✓ Kurzbericht (PDF, 1 Seite) fertig.")
@@ -129,9 +137,18 @@ class Runner:
 
 def build_args(cfg):
     """JSON aus dem Formular → argparse-Namespace mit denselben Defaults wie die CLI."""
+    kind = cfg.get("kind") or "llm"
+    if kind == "web":
+        # Ein Lasttest sieht für fremde Websites aus wie ein Angriff – ohne ausdrückliche
+        # Bestätigung startet er nicht.
+        if cfg.get("confirm_owner") is not True:
+            raise ValueError("Bitte bestätigen, dass ihr diese Website testen dürft.")
+        return ws.build_args(cfg)
+    if kind != "llm":
+        raise ValueError(f"Unbekannte Art von Test: {kind!r}")
     p = lt.build_parser()
     a = p.parse_args([])
-    blocked = {"report_only", "out", "quick"}
+    blocked = {"report_only", "out", "quick", "kind"}
     for key, val in cfg.items():
         if key in blocked or not hasattr(a, key):
             continue
@@ -163,7 +180,33 @@ def build_args(cfg):
                 raise ValueError
         except ValueError:
             raise ValueError("„Wie viele Fragen pro Minute?“: Zahlen mit Komma oder auto")
+    a.kind = "llm"
     return a
+
+
+def run_kind(path):
+    """Art eines gespeicherten Laufs: "web" oder "llm" (auch für Läufe aus älteren Versionen)."""
+    try:
+        with open(os.path.join(path, "summary.json"), encoding="utf-8") as f:
+            return json.load(f).get("config", {}).get("kind") or "llm"
+    except Exception:
+        return "llm"
+
+
+def report_filename(path, name, ext):
+    prefix = "Lasttest-Website" if run_kind(path) == "web" else "LLM-Haertetest"
+    return f"{prefix}_{name[8:]}.{ext}"
+
+
+def comparison_builder(kinds):
+    """Passende Funktion für den Vergleichsbericht. Website- und KI-Server-Läufe messen
+    Verschiedenes und lassen sich nicht miteinander vergleichen."""
+    if len(set(kinds)) > 1:
+        raise ValueError("Bitte nur Läufe gleicher Art vergleichen: entweder Websites oder KI-Server.")
+    if kinds and kinds[0] == "web":
+        import report_web
+        return report_web.build_comparison
+    return lt.build_comparison
 
 
 def public_summary(summary):
@@ -191,7 +234,8 @@ async def defaults(req):
     p = lt.build_parser()
     a = vars(p.parse_args([]))
     a.pop("api_key", None)
-    return web.json_response({"defaults": a, "quick": lt.QUICK_PROFILE})
+    return web.json_response({"defaults": a, "quick": lt.QUICK_PROFILE,
+                              "web": {"defaults": ws.DEFAULTS, "quick": ws.QUICK_PROFILE}})
 
 
 @routes.get("/api/models")
@@ -231,6 +275,14 @@ async def start(req):
 async def stop(req):
     req.app["runner"].stop()
     return web.json_response({"ok": True})
+
+
+@routes.get("/api/state")
+async def state(req):
+    """Kurzer Zustand ohne Stream – für die Startseite der Next.js-Oberfläche und den Healthcheck."""
+    runner = req.app["runner"]
+    return web.json_response({"state": runner.state, "error": runner.error,
+                              "run": os.path.basename(runner.outdir or "")})
 
 
 @routes.get("/api/events")
@@ -300,7 +352,8 @@ async def runs(req):
                 s = json.load(f)
         except Exception:
             continue
-        out.append({"name": name, "model": s.get("config", {}).get("model"),
+        out.append({"name": name, "kind": s.get("config", {}).get("kind") or "llm",
+                    "model": s.get("config", {}).get("model"),
                     "base_url": s.get("config", {}).get("base_url"),
                     "started": s.get("meta", {}).get("started"),
                     "tests": [k for k in ("baseline", "ramp", "rate", "context", "spike", "soak") if k in s],
@@ -314,6 +367,8 @@ async def run_summary(req):
     _, path = _run_dir(req)
     with open(os.path.join(path, "summary.json"), encoding="utf-8") as f:
         s = json.load(f)
+    if s.get("config", {}).get("kind") == "web":
+        return web.json_response(s, dumps=lambda o: json.dumps(o, default=str))
     # Abgeleitete Kennzahlen immer frisch rechnen – auch für Läufe aus älteren Versionen
     s.setdefault("quality", lt.assess_quality(s))
     s["capacity"], s["economics"], s["verdict"] = lt.capacity(s), lt.economics(s), lt.verdict(s)
@@ -327,7 +382,7 @@ async def run_report(req):
     if not os.path.isfile(f):
         raise web.HTTPNotFound()
     return web.FileResponse(f, headers={
-        "Content-Disposition": f'attachment; filename="LLM-Haertetest_{name[8:]}.pptx"'})
+        "Content-Disposition": f'attachment; filename="{report_filename(path, name, "pptx")}"'})
 
 
 @routes.get("/api/runs/{name}/report.pdf")
@@ -337,7 +392,7 @@ async def run_pdf(req):
     if not os.path.isfile(f):
         raise web.HTTPNotFound()
     return web.FileResponse(f, headers={
-        "Content-Disposition": f'attachment; filename="LLM-Haertetest_{name[8:]}.pdf"'})
+        "Content-Disposition": f'attachment; filename="{report_filename(path, name, "pdf")}"'})
 
 
 @routes.get("/api/compare")
@@ -349,10 +404,14 @@ async def compare(req):
                                  for n in names):
         return web.json_response({"error": "Bitte mindestens zwei vorhandene Läufe wählen."}, status=400)
     names.sort()  # ältester Lauf = Referenz
+    try:
+        build = comparison_builder([run_kind(os.path.join(root, n)) for n in names])
+    except ValueError as e:
+        return web.json_response({"error": str(e)}, status=400)
     out = os.path.join(root, f"Vergleich_{dt.datetime.now():%Y%m%d_%H%M%S}.pptx")
     try:
         await asyncio.get_running_loop().run_in_executor(
-            None, lt.build_comparison, [os.path.join(root, n) for n in names], out, None)
+            None, build, [os.path.join(root, n) for n in names], out, None)
     except Exception as e:  # noqa
         return web.json_response({"error": f"Vergleich fehlgeschlagen: {e}"}, status=500)
     return web.FileResponse(out, headers={

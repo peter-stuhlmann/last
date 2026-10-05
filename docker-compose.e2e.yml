@@ -1,0 +1,34 @@
+# Zusatz für die automatischen Durchlauf-Tests (web/e2e). Startet die Anwendung ein zweites Mal
+# unter eigenem Namen und eigenem Port, damit ein laufender Arbeitsstand nicht gestört wird,
+# plus eine winzige Test-Website als Ziel.
+#
+#   cd web && npm run e2e:up && npm run e2e && npm run e2e:down
+
+services:
+  web:
+    image: last-web-e2e
+    ports: !override
+      - "127.0.0.1:8099:3000"
+
+  backend:
+    image: llm-stresstest-e2e
+    volumes: !override
+      # Eigener Ergebnisordner im Container – die echten Läufe in ./results bleiben unberührt.
+      - e2e-results:/app/results
+
+  testsite:
+    image: python:3.12-slim
+    command: ["python", "-m", "http.server", "8000", "--directory", "/site"]
+    volumes:
+      - ./web/e2e/testsite:/site:ro
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/', timeout=3)"]
+      interval: 5s
+      timeout: 4s
+      retries: 5
+
+volumes:
+  e2e-results:

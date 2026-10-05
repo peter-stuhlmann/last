@@ -1,0 +1,34 @@
+import type { Metadata } from "next";
+import Link from "next/link";
+import { AppHeader } from "@/components/AppHeader";
+import { RunsList } from "@/components/RunsList";
+import { getRuns } from "@/lib/backend";
+
+export const metadata: Metadata = { title: "Frühere Läufe" };
+export const dynamic = "force-dynamic";
+
+export default async function LaeufePage() {
+  const runs = await getRuns();
+  return (
+    <>
+      <AppHeader
+        crumbs={[{ label: "Läufe" }]}
+        actions={
+          <Link href="/" className="btn btn-primary">
+            <span aria-hidden="true">+</span> Neuer Test
+          </Link>
+        }
+      />
+      <main id="inhalt" className="mx-auto max-w-[1000px] px-4 py-10 sm:px-8">
+        <h1 className="mb-6 font-display text-[34px] font-bold tracking-[-0.02em]">Frühere Läufe</h1>
+        {runs ? (
+          <RunsList runs={runs} />
+        ) : (
+          <p role="alert" className="rounded-xl border border-amber/35 bg-amber/10 px-4 py-3 text-sm text-amber-soft">
+            Das Test-Backend antwortet nicht. Läuft der Container „backend“?
+          </p>
+        )}
+      </main>
+    </>
+  );
+}

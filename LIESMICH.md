@@ -1,7 +1,7 @@
 # LLM-Härtetest
 
-Lasttest für OpenAI-kompatible Modellserver (vLLM, SGLang, llama.cpp, Ollama) mit Weboberfläche
-und PowerPoint-Bericht.
+Lasttest für OpenAI-kompatible Modellserver (vLLM, SGLang, llama.cpp, Ollama) und für Websites, mit Weboberfläche
+(„LAST“, Next.js) und PowerPoint-Bericht.
 
 ## Mit Docker (Windows, macOS, Linux – ohne Python-Installation)
 
@@ -20,14 +20,17 @@ Dann im Browser **http://localhost:8090** öffnen. Beenden mit `Strg+C` bzw. `do
   lauschen, nicht nur auf `127.0.0.1`.
 - **Kommandozeile im Container:**
 
-      docker compose run --rm llm-stresstest python llm_stresstest.py --base-url http://spark.buero.lan:8000/v1 --quick
-      docker compose run --rm llm-stresstest python llm_stresstest.py --compare results/results_A results/results_B
+      docker compose run --rm backend python llm_stresstest.py --base-url http://spark.buero.lan:8000/v1 --quick
+      docker compose run --rm backend python llm_stresstest.py --compare results/results_A results/results_B
 
 - **Linux:** Damit die Dateien in `results/` dir gehören:
   `LOCAL_UID=$(id -u) LOCAL_GID=$(id -g) docker compose up --build`
 - **Zeitzone** ist Europe/Berlin; anders mit `TZ=Europe/Vienna docker compose up`.
 - Die Oberfläche ist nur von diesem Rechner aus erreichbar (Port an `127.0.0.1` gebunden),
   weil sie keinen Passwortschutz hat.
+- Es laufen zwei Container: `web` (die Oberfläche, Next.js – Details in `web/README.md`) und
+  `backend` (die Testlogik in Python, ohne offenen Port). Beide laufen ohne Root-Rechte und mit
+  schreibgeschütztem Dateisystem.
 - Läuft auf Intel/AMD und ARM (Apple Silicon, auch direkt auf dem DGX Spark).
   GPU-Werte des Rechners selbst misst der Container nicht – Server-Werte kommen wie gewohnt
   über `/metrics`.
@@ -62,6 +65,36 @@ in der Weboberfläche unter „Frühere Tests“ ankreuzen, oder:
 
     python llm_stresstest.py --compare results/results_A results/results_B --labels "vorher,nachher"
 
+## Websites testen
+
+In der Oberfläche unter „Was wird getestet?“ **Website** wählen und die Adresse der Seite eintragen.
+LAST schickt simulierte Besucher los; jeder lädt die Seite und – wie ein Browser beim ersten Besuch –
+die Bilder, Styles und Skripte derselben Website (ohne Cache, mit eigenen Verbindungen).
+
+| Messwert | Bedeutung |
+|---|---|
+| Ladezeit | bis die Seite samt Dateien vollständig da ist – daran wird das Ziel gemessen (Standard: 3 s) |
+| Erste Antwort | bis der Server die ersten Daten schickt |
+| Seiten pro Sekunde | wie viele Seitenaufrufe der Server insgesamt schafft |
+| Besucher gleichzeitig | Schätzung: Seiten pro Sekunde × (Ladezeit + Pause zwischen zwei Klicks, Standard 30 s) |
+
+- Schritte: Einer allein · Immer mehr gleichzeitig · Echter Andrang · Großer Ansturm · Ausdauer · Kontrolle.
+  „Lange Texte“, Kontrollfragen und der Kostenvergleich gibt es nur beim KI-Server.
+- **Verlässlichkeit:** Wie beim KI-Server prüft der Test, ob der Messrechner selbst hinterherkam. War er
+  überlastet, wären die Ladezeiten zu hoch – das steht dann als Warnung im Urteil, in der Ampel-Liste
+  und im Bericht („Verlässlichkeit der Messung“).
+- **Nicht gemessen:** Dateien von fremden Servern (Schriften, Karten, Werbung – sie werden nie angefragt)
+  und die Zeit, die der Browser zum Darstellen braucht. Es wird genau eine Adresse getestet, kein Klickpfad.
+- **Berichte:** Jeder Lauf erzeugt eine PowerPoint (Empfehlung, Vorgehen, alle Schritte mit Diagrammen,
+  größte Dateien der Seite, mögliche Ansatzpunkte, Annahmen und Grenzen) und einen Kurzbericht als PDF
+  auf einer A4-Seite. Zwei oder mehr Website-Läufe lassen sich unter „Frühere Läufe“ ankreuzen und als
+  Vorher-nachher-Bericht vergleichen. Website- und KI-Server-Läufe lassen sich nicht mischen.
+- **Nur eigene Websites testen.** Der Start verlangt eine ausdrückliche Bestätigung; der Test gibt sich im
+  User-Agent als `LAST-Lasttest` zu erkennen. Für fremde Betreiber sieht ein Lasttest aus wie ein Angriff
+  und kann strafbar sein. Läuft die Website bei einem Hoster oder hinter einem CDN, vorher dort Bescheid geben –
+  sonst sperrt deren Schutz den Test (oder euch) aus.
+- Tests des Website-Moduls: `docker run --rm -v "$PWD":/src -w /src llm-stresstest python -m unittest discover -s tests`
+
 ## Hinweise
 
 - **Systemwerte vom Spark (KV-Cache, Warteschlange)** kommen über `/metrics` des Modellservers
@@ -75,12 +108,17 @@ in der Weboberfläche unter „Frühere Tests“ ankreuzen, oder:
 
 | Datei | Zweck |
 |---|---|
-| `stresstest_web.py` | Webserver mit Oberfläche |
-| `stresstest_ui.html` | die Seite selbst |
+| `web/` | die Weboberfläche „LAST“ (Next.js, Tailwind) – wird mit Docker gestartet |
+| `stresstest_web.py` | Python-Backend: startet Tests, liefert Ergebnisse und Berichte |
+| `stresstest_ui.html` | alte, einfache Oberfläche – nur noch beim Start ohne Docker (`python stresstest_web.py`) |
+| `web_stresstest.py` | Lasttest für Websites (nutzt die Lastgeneratoren aus `llm_stresstest.py`) |
+| `report_web.py` | PowerPoint, PDF und Vergleichsbericht für Website-Läufe |
+| `tests/` | Tests für den Website-Lasttest und seine Berichte |
 | `llm_stresstest.py` | Testlogik und Prüfung der Messqualität (auch allein nutzbar) |
 | `report_pptx.py` | PowerPoint-Bericht in einfacher Sprache |
 | `report_pdf.py` | Kurzbericht als PDF auf einer A4-Seite (braucht `reportlab`, sonst wird er übersprungen) |
 | `report_compare.py` | Vergleichsbericht aus zwei oder mehr Läufen |
+| `docker-compose.e2e.yml` | zweite, getrennte Instanz für die automatischen Durchlauf-Tests (`web/e2e`) |
 | `Dockerfile`, `docker-compose.yml`, `.dockerignore` | Container für Windows, macOS und Linux |
 | `requirements.txt` | Python-Pakete (für Docker oder `pip install -r requirements.txt`) |
 

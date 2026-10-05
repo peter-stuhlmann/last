@@ -1,0 +1,12 @@
+node_modules/
+.next/
+coverage/
+.env*
+*.tsbuildinfo
+.git/
+Dockerfile
+README.md
+e2e/
+test-results/
+playwright-report/
+playwright.config.ts

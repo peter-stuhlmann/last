@@ -1,0 +1,762 @@
+// Macht aus den Rohdaten des Backends das, was die Oberfläche in einfachen Worten zeigt.
+import { approxUsers, eur, nf, perMinute, secs, signedPct, splitSecs } from "./format";
+import type { RampStep, RunConfig, Sample, Stats, Summary, TestKey, Tone } from "./types";
+
+export type Status = Tone | "none";
+export type StepKey = "prechecks" | TestKey;
+
+const TEST_ORDER: TestKey[] = ["baseline", "ramp", "rate", "context", "spike", "soak", "control"];
+
+type Cfg = Pick<RunConfig, "kind" | "slo_ttft" | "slo_user_tps" | "slo_load">;
+
+const isWeb = (cfg: Pick<RunConfig, "kind">) => cfg.kind === "web";
+
+/** Begriffe, die sich zwischen KI-Server und Website unterscheiden. */
+export function terms(cfg: Pick<RunConfig, "kind">) {
+  return isWeb(cfg)
+    ? {
+        subject: "Die Website",
+        people: "Besucher",
+        peopleLong: "Besucher gleichzeitig auf der Website",
+        throughput: "Seiten pro Sekunde",
+        throughputUnit: "Seiten/s",
+        wait: "Ladezeit",
+        perMinute: "Aufrufe",
+        goal: (s: number) => `Ziel: Seite nach höchstens ${secs(s)} da`,
+      }
+    : {
+        subject: "Der Server",
+        people: "Nutzer",
+        peopleLong: "aktive Nutzer im Team",
+        throughput: "Gesamtleistung",
+        throughputUnit: "tok/s",
+        wait: "Wartezeit",
+        perMinute: "Fragen",
+        goal: (s: number) => `Ziel: höchstens ${secs(s)} warten`,
+      };
+}
+
+/** Das Zeit-Ziel des Laufs: Ladezeit der Seite bzw. Warten aufs erste Wort. */
+export function sloSeconds(cfg: Cfg): number {
+  return isWeb(cfg) ? (cfg.slo_load ?? 3) : cfg.slo_ttft;
+}
+
+/** Die Zeit, an der das Ziel gemessen wird (95 % sind schneller). */
+function waitP95(s: Stats, cfg: Cfg): number | null {
+  return (isWeb(cfg) ? s.e2e_p95 : s.ttft_p95) ?? null;
+}
+
+/** Gesamtleistung: Seiten pro Sekunde bzw. Tokens pro Sekunde. */
+function throughput(s: Stats, cfg: Cfg): number | null {
+  return (isWeb(cfg) ? s.req_s : s.out_tps) ?? null;
+}
+
+export function meetsSlo(s: Stats, cfg: Cfg): boolean {
+  const wait = waitP95(s, cfg);
+  if (s.error_rate !== 0 || wait == null || wait > sloSeconds(cfg)) return false;
+  return isWeb(cfg) || (s.user_tps_p50 != null && s.user_tps_p50 >= cfg.slo_user_tps);
+}
+
+export function deriveRamp(summary: Summary): { rec: RampStep | null; max: RampStep | null; steps: RampStep[] } {
+  const cfg = summary.config;
+  const steps = [...(summary.ramp?.steps ?? [])].sort((a, b) => a.concurrency - b.concurrency);
+  let rec: RampStep | null = null;
+  let max: RampStep | null = null;
+  for (const s of steps) {
+    if (meetsSlo(s, cfg)) rec = s;
+    const t = throughput(s, cfg);
+    if (t != null && (max == null || t > (throughput(max, cfg) ?? 0))) max = s;
+  }
+  return { rec, max, steps };
+}
+
+function numberList(value: string | undefined): number[] {
+  return (value ?? "")
+    .split(",")
+    .map(Number)
+    .filter((n) => Number.isFinite(n) && n > 0);
+}
+
+function selectedTests(summary: Summary): TestKey[] {
+  const chosen = (summary.config.tests ?? "").split(",");
+  const skipped = summary.skipped ?? [];
+  return TEST_ORDER.filter((k) =>
+    k === "control" ? chosen.includes("baseline") : chosen.includes(k) && !skipped.includes(k),
+  );
+}
+
+export function phaseOfSample(phase: string): TestKey | null {
+  if (phase === "baseline" || phase === "soak" || phase === "control") return phase;
+  if (phase.startsWith("ramp_")) return "ramp";
+  if (phase.startsWith("rate_")) return "rate";
+  if (phase.startsWith("ctx_")) return "context";
+  if (phase.startsWith("spike")) return "spike";
+  return null;
+}
+
+function lastSample(samples: Sample[]): Sample | undefined {
+  return samples[samples.length - 1];
+}
+
+/** Erster und letzter Messzeitpunkt je Testschritt. */
+function phaseTimes(samples: Sample[]): Partial<Record<TestKey, { start: number; end: number }>> {
+  const out: Partial<Record<TestKey, { start: number; end: number }>> = {};
+  for (const s of samples) {
+    const key = phaseOfSample(s.phase);
+    if (!key) continue;
+    const cur = out[key];
+    if (cur) cur.end = s.t;
+    else out[key] = { start: s.t, end: s.t };
+  }
+  return out;
+}
+
+function currentConcurrency(samples: Sample[]): number | null {
+  const m = /^ramp_c(\d+)$/.exec(lastSample(samples)?.phase ?? "");
+  return m ? Number(m[1]) : null;
+}
+
+export interface PhaseStep {
+  key: StepKey;
+  title: string;
+  detail: string;
+  status: "done" | "active" | "pending";
+  duration?: number;
+  /** Fortschritt innerhalb des aktiven Schritts, 0–1 */
+  fraction?: number;
+}
+
+function rampDetail(summary: Summary, samples: Sample[]): { detail: string; fraction: number } | null {
+  const c = currentConcurrency(samples);
+  if (c == null) return null;
+  const levels = numberList(summary.config.levels);
+  const idx = levels.indexOf(c);
+  if (idx < 0) return { detail: `Feinsuche · ${c} gleichzeitig`, fraction: 0.95 };
+  return { detail: `Stufe ${idx + 1} von ${levels.length} · ${c} gleichzeitig`, fraction: (idx + 1) / levels.length };
+}
+
+/** Die Zeitleiste links: was ist erledigt, was läuft, was kommt noch. */
+export function phaseSteps(summary: Summary, samples: Sample[], running: boolean): PhaseStep[] {
+  const cfg = summary.config;
+  const web = isWeb(cfg);
+  const t = terms(cfg);
+  const active = running ? (summary.meta.current_test ?? null) : null;
+  const times = phaseTimes(samples);
+  const { rec } = deriveRamp(summary);
+  const b = summary.baseline;
+  const maxCtx = Math.max(0, ...numberList(cfg.context_lengths));
+  const soakMinutes = nf(cfg.soak_minutes, cfg.soak_minutes < 1 ? 1 : 0);
+
+  const texts: Record<TestKey, { title: string; pending: string; done: string }> = {
+    baseline: {
+      title: "Einer allein",
+      pending: "Wie schnell ohne Andrang?",
+      done: !b
+        ? ""
+        : web
+          ? `Bestwert: Seite nach ${secs(b.e2e_p50)} geladen`
+          : `Bestwert: ${secs(b.ttft_p50)} · ${nf(b.user_tps_p50, 0)} tok/s`,
+    },
+    ramp: {
+      title: "Immer mehr gleichzeitig",
+      pending: `Bis ${Math.max(0, ...numberList(cfg.levels))} ${web ? "Besucher" : "Personen"} gleichzeitig`,
+      done: rec ? `Ziele gehalten bis ${rec.concurrency} gleichzeitig` : "Ziele nicht erreicht",
+    },
+    rate: {
+      title: "Echter Andrang",
+      pending: web ? "Besucher kommen zufällig, wie im Alltag" : "Fragen kommen zufällig, wie im Alltag",
+      done: summary.capacity.rate_ok
+        ? `Bis ${perMinute(summary.capacity.rate_ok)} ${t.perMinute} pro Minute`
+        : "Schlange wächst schon bei wenig Andrang",
+    },
+    context: {
+      title: "Lange Texte",
+      pending: `Bis ${nf(maxCtx, 0)} Tokens ≈ ${nf(maxCtx / 400, 0)} Seiten`,
+      done: summary.context?.max_ok ? `Schafft ${nf(summary.context.max_ok, 0)} Tokens` : "Lange Texte scheitern",
+    },
+    spike: {
+      title: "Großer Ansturm",
+      pending: `${cfg.spike_size} ${web ? "Besucher" : "Fragen"} auf einmal + Erholung`,
+      done: summary.spike?.crashed
+        ? web
+          ? "Website nicht mehr erreichbar"
+          : "Server abgestürzt"
+        : summary.spike?.recovered === false
+          ? "Erholt sich nicht"
+          : "Erholt sich",
+    },
+    soak: {
+      title: "Ausdauer",
+      pending: `${soakMinutes} Minuten gleichmäßige Last`,
+      done: "Durchgehalten",
+    },
+    control: {
+      title: "Kontrolle",
+      pending: "Noch so schnell wie am Anfang?",
+      done: summary.control ? `${signedPct(summary.control.tps_diff_pct)} zum Anfang` : "",
+    },
+  };
+
+  const anyData = TEST_ORDER.some((k) => summary[k]) || active != null;
+  const pre = summary.prechecks;
+  const preDetail =
+    web && pre?.assets != null
+      ? `Erreichbar, ${pre.assets} Dateien gehören zur Seite`
+      : pre?.rtt_ms != null
+        ? `Erreichbar, ${nf(pre.rtt_ms, 0)} ms Netzweg`
+        : web
+          ? "Erreichbar? Welche Dateien gehören dazu?"
+          : "Erreichbar? Frei? Zählt richtig?";
+  const steps: PhaseStep[] = [
+    {
+      key: "prechecks",
+      title: "Vorab-Check",
+      detail: preDetail,
+      status: pre || anyData ? "done" : running ? "active" : "pending",
+    },
+  ];
+
+  for (const key of selectedTests(summary)) {
+    const text = texts[key];
+    const time = times[key];
+    const duration = time ? Math.round(time.end - time.start) : undefined;
+    if (key === active) {
+      const ramp = key === "ramp" ? rampDetail(summary, samples) : null;
+      steps.push({
+        key,
+        title: text.title,
+        detail: ramp?.detail ?? text.pending,
+        status: "active",
+        duration,
+        fraction: ramp?.fraction,
+      });
+    } else if (summary[key]) {
+      steps.push({ key, title: text.title, detail: text.done, status: "done", duration });
+    } else {
+      steps.push({ key, title: text.title, detail: text.pending, status: "pending" });
+    }
+  }
+  return steps;
+}
+
+/** Grobe Dauer je Schritt in Sekunden – das Backend liefert keine Restzeit. */
+function estimates(summary: Summary): Record<StepKey, number> {
+  const c = summary.config;
+  const web = isWeb(c);
+  return {
+    prechecks: 20,
+    baseline: c.baseline_requests * (web ? 2 : 8),
+    ramp: numberList(c.levels).length * (c.warmup_seconds + c.level_seconds + c.cooldown),
+    rate: 4 * (c.rate_seconds + c.cooldown),
+    context: numberList(c.context_lengths).length * c.context_requests * 10,
+    spike: web ? 20 : 60,
+    soak: c.soak_minutes * 60,
+    control: web ? 10 : 30,
+  };
+}
+
+export function progress(summary: Summary, samples: Sample[]): { elapsed: number; remaining: number; pct: number } {
+  const elapsed = lastSample(samples)?.t ?? 0;
+  const est = estimates(summary);
+  const times = phaseTimes(samples);
+  let remaining = 0;
+  for (const s of phaseSteps(summary, samples, true)) {
+    if (s.status === "pending") remaining += est[s.key];
+    if (s.status === "active") {
+      const start = s.key === "prechecks" ? 0 : (times[s.key]?.start ?? elapsed);
+      remaining += Math.max(0, est[s.key] - (elapsed - start));
+    }
+  }
+  const total = elapsed + remaining;
+  const pct = total > 0 ? Math.min(99, Math.max(0, Math.round((elapsed / total) * 100))) : 0;
+  return { elapsed, remaining, pct };
+}
+
+export interface Focus {
+  label: string;
+  value: string;
+  unit: string;
+  fraction: number;
+}
+
+/** Der große Ring: woran wird gerade gemessen? */
+export function liveFocus(summary: Summary, samples: Sample[]): Focus {
+  const phase = lastSample(samples)?.phase ?? "";
+  const test = summary.meta.current_test ?? phaseOfSample(phase);
+  const cfg = summary.config;
+  const one = isWeb(cfg) ? "Besucher" : "Person";
+  switch (test) {
+    case "baseline":
+      return { label: "Einer allein", value: "1", unit: one, fraction: 0.1 };
+    case "ramp": {
+      const c = currentConcurrency(samples);
+      const levels = numberList(cfg.levels);
+      if (c == null) return { label: "Stufentest", value: "–", unit: "gleichzeitig", fraction: 0 };
+      const idx = levels.indexOf(c);
+      return idx < 0
+        ? { label: "Feinsuche", value: String(c), unit: "gleichzeitig", fraction: 0.95 }
+        : {
+            label: `Stufe ${idx + 1} / ${levels.length}`,
+            value: String(c),
+            unit: "gleichzeitig",
+            fraction: (idx + 1) / levels.length,
+          };
+    }
+    case "rate": {
+      const raw = Number(/^rate_(.+)$/.exec(phase)?.[1]);
+      const n = summary.rate?.stages.length ?? 0;
+      return {
+        label: "Echter Andrang",
+        value: Number.isFinite(raw) ? nf(raw, raw >= 10 ? 0 : 1) : "–",
+        unit: `${terms(cfg).perMinute} pro Minute`,
+        fraction: Math.min(1, (n + 1) / 5),
+      };
+    }
+    case "context": {
+      const tokens = Number(/^ctx_(\d+)$/.exec(phase)?.[1]);
+      const lengths = numberList(cfg.context_lengths);
+      const idx = lengths.indexOf(tokens);
+      return {
+        label: "Lange Texte",
+        value: Number.isFinite(tokens) ? `${nf(tokens / 1000, 0)}k` : "–",
+        unit: "Tokens Text",
+        fraction: idx < 0 ? 0.5 : (idx + 1) / lengths.length,
+      };
+    }
+    case "spike":
+      return { label: "Großer Ansturm", value: String(cfg.spike_size), unit: "auf einmal", fraction: 1 };
+    case "soak":
+      return {
+        label: "Ausdauer",
+        value: nf(cfg.soak_minutes, cfg.soak_minutes < 1 ? 1 : 0),
+        unit: "Minuten Dauerlast",
+        fraction: 0.6,
+      };
+    case "control":
+      return { label: "Kontrolle", value: "1", unit: one, fraction: 0.1 };
+    default:
+      return { label: "Vorab-Check", value: "–", unit: "wird geprüft", fraction: 0 };
+  }
+}
+
+export interface LiveKpi {
+  label: string;
+  value: string;
+  unit: string;
+  note: string;
+  tone: Status;
+}
+
+export interface Headline {
+  tone: Status;
+  title: string;
+  text: string;
+  kpis: LiveKpi[];
+}
+
+/** Überschrift und vier Kennzahlen aus der zuletzt fertig gemessenen Stufe. */
+export function liveHeadline(summary: Summary): Headline {
+  const cfg = summary.config;
+  const web = isWeb(cfg);
+  const t = terms(cfg);
+  const steps = summary.ramp?.steps ?? [];
+  const last: Stats | undefined = steps[steps.length - 1] ?? summary.baseline;
+  if (!last) {
+    return { tone: "none", title: "Messung läuft …", text: "Die ersten Werte erscheinen gleich.", kpis: [] };
+  }
+  const n = steps.length ? steps[steps.length - 1].concurrency : 1;
+  const prev = steps.length > 1 ? steps[steps.length - 2] : null;
+  const alone = n === 1;
+  const who = web
+    ? alone
+      ? "Ein Besucher lädt die Seite allein"
+      : `${n} Besucher laden die Seite gleichzeitig`
+    : alone
+      ? "Eine Person fragt allein"
+      : `${n} Personen fragen gleichzeitig`;
+  const slo = sloSeconds(cfg);
+  const waitValue = waitP95(last, cfg);
+  const waitOk = waitValue != null && waitValue <= slo;
+  const now = throughput(last, cfg);
+  const before = prev ? throughput(prev, cfg) : null;
+  const gain = before && now != null ? (now / before - 1) * 100 : null;
+  const wait = splitSecs(waitValue);
+  const speedOk = last.user_tps_p50 != null && last.user_tps_p50 >= cfg.slo_user_tps;
+  const firstByte = splitSecs(last.ttft_p95);
+
+  const kpis: LiveKpi[] = [
+    {
+      label: web ? "Seite geladen nach" : "Warten aufs 1. Wort",
+      value: wait.value,
+      unit: wait.unit,
+      note: `${waitOk ? "✓" : "✗"} Ziel ≤ ${nf(slo, 1)} s`,
+      tone: waitOk ? "good" : "warn",
+    },
+    web
+      ? {
+          label: "Erste Antwort",
+          value: firstByte.value,
+          unit: firstByte.unit,
+          note: "so schnell reagiert der Server",
+          tone: "none",
+        }
+      : {
+          label: "Lesetempo",
+          value: nf(last.user_tps_p50, 1),
+          unit: "tok/s",
+          note: speedOk ? "✓ schnell genug zum Mitlesen" : `✗ Ziel ≥ ${nf(cfg.slo_user_tps, 0)} tok/s`,
+          tone: speedOk ? "good" : "warn",
+        },
+    {
+      label: t.throughput,
+      value: nf(now, web && now != null && now < 10 ? 1 : 0),
+      unit: t.throughputUnit,
+      note: gain == null ? "alle zusammen" : `${gain >= 0 ? "↗" : "↘"} ${signedPct(gain)} zur Stufe davor`,
+      tone: "none",
+    },
+    {
+      label: "Fehler",
+      value: nf(last.error_rate * 100, 1),
+      unit: "%",
+      note:
+        last.error_rate === 0 ? "✓ keine einzige" : `✗ ${last.errors} von ${last.n} ${web ? "Aufrufen" : "Fragen"}`,
+      tone: last.error_rate === 0 ? "good" : "bad",
+    },
+  ];
+
+  if (last.error_rate > 0) {
+    return {
+      tone: "bad",
+      title: `${t.subject} kommt nicht mehr mit.`,
+      text: web ? `${who} – und manche bekommen eine Fehlerseite.` : `${who} – und manche bekommen keine Antwort.`,
+      kpis,
+    };
+  }
+  if (!meetsSlo(last, cfg)) {
+    return {
+      tone: "warn",
+      title: "Es wird eng.",
+      text: web
+        ? `${who} – sie kommt an, aber langsamer als gewünscht.`
+        : `${who} – die Antworten kommen, aber langsamer als gewünscht.`,
+      kpis,
+    };
+  }
+  const goodText = web
+    ? alone
+      ? `${who} und hat sie schnell genug vor sich.`
+      : `${who} – und alle haben sie schnell genug vor sich.`
+    : alone
+      ? `${who} und bekommt die Antwort schnell genug.`
+      : `${who} – und alle bekommen ihre Antwort schnell genug.`;
+  return { tone: "good", title: `${t.subject} hält mit.`, text: goodText, kpis };
+}
+
+export function verdictView(summary: Summary): {
+  status: Status;
+  title: string;
+  text: string;
+  reasons: [Tone, string][];
+} {
+  const v = summary.verdict;
+  const hasLoad = Boolean(summary.ramp || summary.rate);
+  if (!hasLoad) {
+    return { status: "none", title: "Noch kein Urteil.", text: v.headline, reasons: v.reasons };
+  }
+  const title = { good: "Grünes Licht.", warn: "Gelbes Licht.", bad: "Rotes Licht." }[v.status];
+  return { status: v.status, title, text: v.headline, reasons: v.reasons };
+}
+
+export interface CapacityView {
+  users: number | null;
+  target: number | null;
+  reservePct: number | null;
+  /** Position auf dem Balken, 0–1 */
+  usersFraction: number;
+  targetFraction: number;
+}
+
+export function capacityView(summary: Summary): CapacityView {
+  const users = approxUsers(summary.capacity.users);
+  const target = summary.config.target_users > 0 ? summary.config.target_users : null;
+  const scale = Math.max(users ?? 0, target ?? 0) / 0.7 || 1;
+  return {
+    users,
+    target,
+    reservePct: users != null && target != null ? Math.round((users / target - 1) * 100) : null,
+    usersFraction: Math.min(1, (users ?? 0) / scale),
+    targetFraction: Math.min(1, (target ?? 0) / scale),
+  };
+}
+
+export interface KpiCard {
+  key: "alone" | "sweet" | "peak" | "quality";
+  label: string;
+  value: string;
+  unit: string;
+  text: string;
+}
+
+export function kpiCards(summary: Summary): KpiCard[] {
+  const cfg = summary.config;
+  const web = isWeb(cfg);
+  const { rec, max } = deriveRamp(summary);
+  const b = summary.baseline;
+  const p = summary.probes;
+  const alone = splitSecs(web ? b?.e2e_p50 : b?.ttft_p50);
+  const peak = max ? throughput(max, cfg) : null;
+  const nRight = p?.groups.length ? p.groups.reduce((a, g) => a + g.richtig, 0) : null;
+  const firstByte = splitSecs(b?.ttft_p50);
+
+  const sweet: KpiCard = {
+    key: "sweet",
+    label: "Sweet Spot",
+    value: rec ? String(rec.concurrency) : "–",
+    unit: "gleichzeitig",
+    text: rec
+      ? "so viele gleichzeitig, und alle Ziele werden noch erreicht"
+      : summary.ramp
+        ? "bei keiner Stufe wurden alle Ziele erreicht"
+        : "nicht getestet",
+  };
+
+  if (web) {
+    return [
+      {
+        key: "alone",
+        label: "Einer allein",
+        value: alone.value,
+        unit: alone.unit,
+        text: b ? "bis die Seite komplett geladen ist, wenn sonst niemand da ist" : "nicht getestet",
+      },
+      sweet,
+      {
+        key: "peak",
+        label: "Höchstleistung",
+        value: nf(peak, peak != null && peak < 10 ? 1 : 0),
+        unit: "Seiten/s",
+        text: peak != null ? `≈ ${nf(peak * 60, 0)} Seitenaufrufe pro Minute für alle zusammen` : "nicht getestet",
+      },
+      {
+        key: "quality",
+        label: "Erste Antwort",
+        value: firstByte.value,
+        unit: firstByte.unit,
+        text: b ? "so schnell reagiert der Server, bevor die Seite lädt" : "nicht getestet",
+      },
+    ];
+  }
+  return [
+    {
+      key: "alone",
+      label: "Einer allein",
+      value: alone.value,
+      unit: alone.unit,
+      text: b ? "bis zum ersten Wort, wenn sonst niemand fragt" : "nicht getestet",
+    },
+    sweet,
+    {
+      key: "peak",
+      label: "Höchstleistung",
+      value: nf(peak, 0),
+      unit: "tok/s",
+      text: peak != null ? `≈ ${nf(peak / 1.33, 0)} Wörter pro Sekunde für alle zusammen` : "nicht getestet",
+    },
+    {
+      key: "quality",
+      label: "Antwortqualität",
+      value: nf(p?.load_pct, 0),
+      unit: "%",
+      text: p
+        ? `richtige Antworten unter Last – ohne Last ${nf(p.alone_pct, 0)} % · ${nRight != null ? `${nRight} von ` : ""}${p.n_load} Kontrollfragen`
+        : "keine Kontrollfragen gelaufen",
+    },
+  ];
+}
+
+export interface AmpelRow {
+  label: string;
+  value: string;
+  status: Status;
+}
+
+const NOT_TESTED = { value: "nicht getestet", status: "none" as const };
+
+function range(lo: string, hi: string): string {
+  return lo === hi || hi === "–" ? lo : lo === "–" ? hi : `${lo} – ${hi}`;
+}
+
+/** „Alle Ergebnisse auf einen Blick“. */
+export function ampelRows(summary: Summary): AmpelRow[] {
+  const cfg = summary.config;
+  const web = isWeb(cfg);
+  const t = terms(cfg);
+  const { rec } = deriveRamp(summary);
+  const b = summary.baseline;
+  const rows: AmpelRow[] = [];
+
+  const loadTone: Status = rec ? "good" : b && meetsSlo(b, cfg) ? "warn" : "bad";
+  const first = web ? "Ladezeit bei normaler Last" : "Wartezeit bei normaler Last";
+  const second = web ? "Erste Antwort des Servers" : "Lesetempo pro Person";
+  if (b || rec) {
+    const lo = splitSecs(web ? b?.e2e_p50 : b?.ttft_p50).value;
+    const hi = splitSecs(rec ? waitP95(rec, cfg) : null).value;
+    rows.push({ label: first, value: `${range(lo, hi)} s`, status: loadTone });
+    rows.push({
+      label: second,
+      value: web
+        ? `${range(splitSecs(b?.ttft_p50).value, splitSecs(rec?.ttft_p95).value)} s`
+        : `${range(nf(rec?.user_tps_p50, 0), nf(b?.user_tps_p50, 0))} tok/s`,
+      status: loadTone,
+    });
+  } else {
+    rows.push({ label: first, ...NOT_TESTED });
+    rows.push({ label: second, ...NOT_TESTED });
+  }
+
+  if (summary.rate) {
+    const ok = summary.capacity.rate_ok;
+    rows.push({
+      label: "Echter Andrang",
+      value: ok ? `bis ${perMinute(ok)} ${t.perMinute}/min` : "Schlange wächst sofort",
+      status: ok ? "good" : "bad",
+    });
+  } else rows.push({ label: "Echter Andrang", ...NOT_TESTED });
+
+  if (!web) {
+    const ctx = summary.context;
+    if (ctx) {
+      const okSteps = ctx.steps.filter((s) => s.single.error_rate === 0);
+      const biggest = okSteps[okSteps.length - 1];
+      const time = biggest?.single.ttft_p50 ?? null;
+      const slow = ctx.limit || time == null || time > 6;
+      rows.push({
+        label: biggest ? `Lange Texte (${nf(biggest.input_len, 0)} Tokens)` : "Lange Texte",
+        value: biggest ? `${secs(time)} bis zum 1. Wort` : "scheitern",
+        status: !biggest ? "bad" : slow ? (time != null && time > 20 ? "bad" : "warn") : "good",
+      });
+    } else rows.push({ label: "Lange Texte", ...NOT_TESTED });
+  }
+
+  const spike = summary.spike;
+  if (spike) {
+    const served = web ? "alle bedient, erholt sich" : "alle beantwortet, erholt sich";
+    rows.push({
+      label: "Großer Ansturm",
+      value: spike.crashed
+        ? web
+          ? "Website nicht mehr erreichbar"
+          : "Server abgestürzt"
+        : spike.recovered === false
+          ? "erholt sich nicht vollständig"
+          : spike.burst.error_rate > 0
+            ? `${nf(spike.burst.error_rate * 100, 0)} % Fehler, dann erholt`
+            : served,
+      status: spike.crashed ? "bad" : spike.recovered === false || spike.burst.error_rate > 0 ? "warn" : "good",
+    });
+  } else rows.push({ label: "Großer Ansturm", ...NOT_TESTED });
+
+  const soak = summary.soak;
+  if (soak) {
+    const failed = soak.total.error_rate > 0;
+    // KI-Server: das Tempo fällt ab. Website: die Ladezeit steigt.
+    const drop = soak.degradation?.tps_change_pct ?? 0;
+    const slower = soak.degradation?.ttft_change_pct ?? 0;
+    const tired = web ? slower > 25 : drop < -10;
+    const tiredText = web ? `wird langsamer (${signedPct(slower)} Ladezeit)` : `wird müde (${signedPct(drop)})`;
+    rows.push({
+      label: `Ausdauer über ${nf(soak.minutes, soak.minutes < 1 ? 1 : 0)} Minuten`,
+      value: failed ? `${nf(soak.total.error_rate * 100, 1)} % Fehler` : tired ? tiredText : "stabil, kein Abfall",
+      status: failed ? "bad" : tired ? "warn" : "good",
+    });
+  } else rows.push({ label: "Ausdauer", ...NOT_TESTED });
+
+  const control = summary.control;
+  if (control) {
+    const diff = control.tps_diff_pct;
+    rows.push({
+      label: "Kontrollmessung am Ende",
+      value: `${signedPct(diff)} zum Anfang`,
+      // Ladezeiten einer Website schwanken von Haus aus stärker als das Tempo eines KI-Servers
+      status: diff != null && Math.abs(diff) > (web ? 25 : 10) ? "warn" : "good",
+    });
+  } else rows.push({ label: "Kontrollmessung am Ende", ...NOT_TESTED });
+
+  // Hat der Messrechner selbst mitgehalten? Sonst wären die Zeiten zu hoch – zu Unrecht.
+  const quality = summary.quality;
+  if (quality?.items.length) {
+    const order = ["bad", "warn", "good", "info"];
+    const worst = [...quality.items].sort((a, b) => order.indexOf(a.status) - order.indexOf(b.status))[0];
+    const clean = worst.status === "good" || worst.status === "info";
+    rows.push({
+      label: "Verlässlichkeit der Messung",
+      value: `${quality.overall} – ${clean ? "die Messung war sauber" : `${worst.title} ${worst.value}`}`,
+      status: ({ hoch: "good", mittel: "warn", niedrig: "bad" } as const)[quality.overall],
+    });
+  }
+
+  return rows;
+}
+
+const ECON_DEFAULTS = { hw_price: 4000, server_watts: 200, power_price: 0.3, cloud_price_in: 0.5, cloud_price_out: 1.5 };
+
+export interface CostView {
+  own: string;
+  cloud: string;
+  ownFraction: number;
+  cloudFraction: number;
+  /** Auslastung beim eigenen Bedarf in Prozent, null ohne Bedarf */
+  needPct: number | null;
+  savings: string | null;
+  saves: boolean;
+  breakeven: string;
+  /** true, solange noch die mitgelieferten Beispielpreise drinstehen */
+  placeholder: boolean;
+}
+
+export function costView(summary: Summary): CostView | null {
+  const e = summary.economics;
+  if (!e) return null;
+  const { users, target } = capacityView(summary);
+  const top = Math.max(e.own_per_1000 ?? 0, e.cloud_per_1000 ?? 0) || 1;
+  const need = users != null && target != null ? Math.min(1, target / users) : null;
+  const diff = need != null ? e.cloud_full_month * need - e.own_month : null;
+  const roundTo = diff != null && Math.abs(diff) >= 1000 ? 50 : 10;
+  const rounded = diff != null ? Math.round(Math.abs(diff) / roundTo) * roundTo : null;
+  return {
+    own: eur(e.own_per_1000, 2),
+    cloud: eur(e.cloud_per_1000, 2),
+    ownFraction: (e.own_per_1000 ?? 0) / top,
+    cloudFraction: (e.cloud_per_1000 ?? 0) / top,
+    needPct: need != null ? Math.round(need * 100) : null,
+    savings: rounded != null ? `≈ ${eur(rounded)}` : null,
+    saves: (diff ?? 0) >= 0,
+    breakeven: e.breakeven_pct == null ? "–" : e.breakeven_pct > 100 ? "nie" : `${nf(e.breakeven_pct, 0)} %`,
+    placeholder: (Object.keys(ECON_DEFAULTS) as (keyof typeof ECON_DEFAULTS)[]).every(
+      (k) => e[k] === ECON_DEFAULTS[k],
+    ),
+  };
+}
+
+/**
+ * Punkte für die Lastkurve je Stufe: Gesamtleistung (tok/s bzw. Seiten/s) und die Zeit,
+ * an der das Ziel gemessen wird (Warten aufs erste Wort bzw. Ladezeit).
+ */
+export function curvePoints(summary: Summary): { c: number; tps: number; ttft: number | null; ok: boolean }[] {
+  const cfg = summary.config;
+  return deriveRamp(summary).steps.flatMap((s) => {
+    const tps = throughput(s, cfg);
+    return tps == null ? [] : [{ c: s.concurrency, tps, ttft: waitP95(s, cfg), ok: meetsSlo(s, cfg) }];
+  });
+}
+
+/** Restzeit der laufenden Stufe im Stufentest (Anlauf + Messfenster). */
+export function stageTimer(summary: Summary, samples: Sample[]): { remaining: number; fraction: number } | null {
+  const last = lastSample(samples);
+  if (!last || !last.phase.startsWith("ramp_")) return null;
+  let start = last.t;
+  for (let i = samples.length - 1; i >= 0 && samples[i].phase === last.phase; i--) start = samples[i].t;
+  const total = summary.config.warmup_seconds + summary.config.level_seconds;
+  const elapsed = Math.min(total, last.t - start);
+  return { remaining: total - elapsed, fraction: total > 0 ? elapsed / total : 0 };
+}

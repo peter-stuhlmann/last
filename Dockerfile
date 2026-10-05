@@ -16,7 +16,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY llm_stresstest.py report_pptx.py report_pdf.py report_compare.py stresstest_web.py \
+COPY llm_stresstest.py web_stresstest.py report_web.py report_pptx.py report_pdf.py report_compare.py stresstest_web.py \
      stresstest_ui.html LIESMICH.md ./
 
 # Ohne Root-Rechte laufen; der Ergebnisordner ist für jede Benutzerkennung beschreibbar,
