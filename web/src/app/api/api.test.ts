@@ -51,7 +51,7 @@ describe("POST /api/start", () => {
 
   it("lehnt kaputtes JSON und übergroße Anfragen ab", async () => {
     expect((await start(post("http://localhost/api/start", "{kaputt"))).status).toBe(400);
-    const big = await start(post("http://localhost/api/start", { base_url: "http://x/v1", model: "x".repeat(40_000) }));
+    const big = await start(post("http://localhost/api/start", { base_url: "http://x/v1", model: "x".repeat(120_000) }));
     expect(big.status).toBe(413);
     expect(fetchMock).not.toHaveBeenCalled();
   });

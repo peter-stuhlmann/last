@@ -107,6 +107,44 @@ function CapacityBar({ users, target }: { users: number; target: number }) {
 function MeasuredCard({ summary }: { summary: Summary }) {
   const pre = summary.prechecks;
   const cfg = summary.config;
+  if (cfg.kind === "api") {
+    const method = cfg.method ?? "GET";
+    let path = "/";
+    try {
+      path = new URL(cfg.base_url).pathname || "/";
+    } catch {
+      // Adresse bleibt unlesbar – dann nur die Methode zeigen
+    }
+    const names = cfg.header_names ?? [];
+    return (
+      <section aria-labelledby="gemessen-titel" className="card p-7">
+        <h2 id="gemessen-titel" className="font-display text-xl font-bold">
+          Was wurde gemessen?
+        </h2>
+        <p className="mt-1 text-[13px] text-white/65">Damit klar ist, was die Zahlen bedeuten</p>
+        <ul className="mt-4 flex list-disc flex-col gap-3 pl-5 text-sm leading-[21px] text-white/80">
+          <li>
+            Jede simulierte Anfrage ist genau die aus dem Formular:{" "}
+            <span className="font-mono text-[13px]">
+              {method} {path}
+            </span>
+            {names.length ? ` mit ${names.length === 1 ? "der Kopfzeile" : "den Kopfzeilen"} ${names.join(", ")}` : ""}
+            {cfg.body_bytes ? ` und einem Body von ${nf(cfg.body_bytes / 1024, cfg.body_bytes < 10240 ? 1 : 0)} kB` : ""}. Erwartet wird
+            Status {cfg.expect_status ?? "2xx"}; jede andere Antwort zählt als Fehler.
+          </li>
+          {method !== "GET" && (
+            <li>
+              Jede Anfrage wurde wirklich ausgeführt. Mit {method} verändert der Test also Daten – die Zahlen beziehen sich auf dieses
+              Schreiben.
+            </li>
+          )}
+          <li>Die simulierten Aufrufer halten ihre Verbindungen offen (Keep-Alive), so wie Programme es tun.</li>
+          <li>Nicht gemessen: Abläufe über mehrere Anfragen (Anmelden, dann Abfragen) und die Verarbeitung der Antwort beim Aufrufer.</li>
+          <li>Ziel: Antwort nach höchstens {secs(sloSeconds(cfg))}.</li>
+        </ul>
+      </section>
+    );
+  }
   return (
     <section aria-labelledby="gemessen-titel" className="card p-7">
       <h2 id="gemessen-titel" className="font-display text-xl font-bold">
@@ -117,9 +155,7 @@ function MeasuredCard({ summary }: { summary: Summary }) {
         <li>
           Jeder simulierte Gast lädt die Seite
           {pre?.assets ? ` und ${pre.assets} Dateien derselben Website (Bilder, Styles, Skripte)` : " – ohne zugehörige Dateien"}.
-          {pre?.total_bytes && pre.total_bytes >= 1024
-            ? ` Ein Besuch wiegt zusammen rund ${nf(pre.total_bytes / 1024, 0)} kB.`
-            : ""}
+          {pre?.total_bytes && pre.total_bytes >= 1024 ? ` Ein Besuch wiegt zusammen rund ${nf(pre.total_bytes / 1024, 0)} kB.` : ""}
         </li>
         <li>Wie beim ersten Besuch: ohne Browser-Cache und mit eigenen Verbindungen. Wer wiederkommt, hat es eher leichter.</li>
         <li>
@@ -138,8 +174,9 @@ export function ResultView({ name, summary, report, pdf }: { name: string; summa
   const verdict = verdictView(summary);
   const cap = capacityView(summary);
   const cost = costView(summary);
-  const web = summary.config.kind === "web";
-  const people = terms(summary.config).people;
+  const kind = summary.config.kind;
+  const web = kind === "web" || kind === "api";
+  const people = terms(summary.config).capacityUnit;
   const rows = ampelRows(summary);
   const tone = TONE[verdict.status];
   const files = `/api/runs/${name}`;
@@ -202,9 +239,9 @@ export function ResultView({ name, summary, report, pdf }: { name: string; summa
                 {cap.users != null ? nf(cap.users, 0) : "–"}
               </span>
               <span className="text-[15px] font-medium leading-[22px] text-white/75">
-                {web ? "Besucher gleichzeitig" : "aktive Nutzer"}
+                {kind === "api" ? "Anfragen pro Minute" : web ? "Besucher gleichzeitig" : "aktive Nutzer"}
                 <br />
-                {web ? "möglich" : "im Team möglich"}
+                {kind === "api" ? "gehen flüssig durch" : web ? "möglich" : "im Team möglich"}
               </span>
             </p>
             {cap.users != null && <CapacityBar users={cap.usersFraction} target={cap.targetFraction} />}

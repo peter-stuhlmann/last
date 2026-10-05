@@ -25,6 +25,7 @@ export interface Defaults {
   quick: Record<string, unknown>;
   /** Standardwerte für Website-Tests; fehlt bei einem älteren Backend */
   web?: { defaults: Record<string, unknown>; quick: Record<string, unknown> };
+  api?: { defaults: Record<string, unknown>; quick: Record<string, unknown> };
 }
 
 export const getDefaults = () => backendJson<Defaults>("/api/defaults");
@@ -63,7 +64,8 @@ export function jsonError(error: string, status: number): Response {
   return Response.json({ error }, { status, headers: { "cache-control": "no-store" } });
 }
 
-const MAX_BODY = 16 * 1024;
+// Groß genug für einen API-Body von 64 kB samt Kopfzeilen
+const MAX_BODY = 96 * 1024;
 
 /** Liest einen JSON-Body mit Größenbegrenzung. Gibt bei Fehlern eine fertige Antwort zurück. */
 export async function readJson(request: Request): Promise<{ data: unknown } | { response: Response }> {

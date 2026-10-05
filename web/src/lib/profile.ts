@@ -67,3 +67,9 @@ export const FALLBACK_WEB = {
     soak_minutes: 3,
   },
 };
+
+// HTTP-API-Tests: wie Websites, aber eine einzelne Anfrage; Ziel 0,5 s Antwortzeit.
+export const FALLBACK_API = {
+  defaults: { ...FALLBACK_WEB.defaults, slo_load: 0.5 },
+  quick: FALLBACK_WEB.quick,
+};

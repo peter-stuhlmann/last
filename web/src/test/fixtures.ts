@@ -162,3 +162,30 @@ export function webSummary(over: Partial<Summary> = {}): Summary {
     ...over,
   };
 }
+
+/** Ein abgeschlossener HTTP-API-Lauf: gleiche Form wie ein Website-Lauf, andere Bedeutung. */
+export function apiSummary(over: Partial<Summary> = {}): Summary {
+  const s = webSummary();
+  const fast = { ttft_p50: 0.04, ttft_p95: 0.06, e2e_p50: 0.05, e2e_p95: 0.08, e2e_mean: 0.055 };
+  const steps = s.ramp!.steps.map((st, i) => ({ ...st, ...fast, e2e_p95: [0.08, 0.2, 0.4, 1.3][i] }));
+  return {
+    ...s,
+    config: {
+      ...s.config,
+      kind: "api",
+      base_url: "https://api.example/v1/items",
+      method: "POST",
+      expect_status: "201",
+      header_names: ["Authorization"],
+      body_bytes: 42,
+      slo_load: 0.5,
+      target_users: 1000,
+    },
+    prechecks: { rtt_ms: 40, busy: null, status: 200, assets: 0, bytes: 1200, total_bytes: 1200, final_url: "https://api.example/v1/items" },
+    baseline: { ...s.baseline!, ...fast },
+    ramp: { steps, break: null, saturated: null },
+    capacity: { think_time: 30, rec_concurrency: 32, rate_ok: 25, users: 1500, source: "rate" },
+    verdict: { status: "good", headline: "Die API hält der Last stand.", reasons: [["good", "Schafft ≈ 1.500 Anfragen pro Minute – erwartet werden 1.000."]] },
+    ...over,
+  };
+}

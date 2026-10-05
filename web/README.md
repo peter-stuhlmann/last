@@ -1,6 +1,6 @@
 # LAST – Weboberfläche (Next.js)
 
-Oberfläche für den Lasttest von KI-Servern und Websites. Design: Figma-Datei „email“, Screens „00 · Neuer Test“,
+Oberfläche für den Lasttest von KI-Servern, Websites und HTTP-APIs. Design: Figma-Datei „email“, Screens „00 · Neuer Test“,
 „01 · Test läuft“, „02 · Ergebnis“. Die Testlogik bleibt im Python-Backend (`../stresstest_web.py`);
 diese App ist das einzige, was der Browser zu sehen bekommt.
 

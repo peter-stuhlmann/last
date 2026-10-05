@@ -10,14 +10,31 @@ const TEST_ORDER: TestKey[] = ["baseline", "ramp", "rate", "context", "spike", "
 type Cfg = Pick<RunConfig, "kind" | "slo_ttft" | "slo_user_tps" | "slo_load">;
 
 const isWeb = (cfg: Pick<RunConfig, "kind">) => cfg.kind === "web";
+const isApi = (cfg: Pick<RunConfig, "kind">) => cfg.kind === "api";
+/** Website und API messen Lade- bzw. Antwortzeiten statt Tokens. */
+const isTimed = (cfg: Pick<RunConfig, "kind">) => isWeb(cfg) || isApi(cfg);
 
-/** Begriffe, die sich zwischen KI-Server und Website unterscheiden. */
+/** Begriffe, die sich zwischen KI-Server, Website und HTTP-API unterscheiden. */
 export function terms(cfg: Pick<RunConfig, "kind">) {
+  if (isApi(cfg)) {
+    return {
+      subject: "Die API",
+      people: "Anfragen",
+      peopleLong: "Anfragen pro Minute, die flüssig durchgehen",
+      capacityUnit: "Anfragen/min",
+      throughput: "Anfragen pro Sekunde",
+      throughputUnit: "Anfr./s",
+      wait: "Antwortzeit",
+      perMinute: "Anfragen",
+      goal: (s: number) => `Ziel: Antwort nach höchstens ${secs(s)}`,
+    };
+  }
   return isWeb(cfg)
     ? {
         subject: "Die Website",
         people: "Besucher",
         peopleLong: "Besucher gleichzeitig auf der Website",
+        capacityUnit: "Besucher",
         throughput: "Seiten pro Sekunde",
         throughputUnit: "Seiten/s",
         wait: "Ladezeit",
@@ -28,6 +45,7 @@ export function terms(cfg: Pick<RunConfig, "kind">) {
         subject: "Der Server",
         people: "Nutzer",
         peopleLong: "aktive Nutzer im Team",
+        capacityUnit: "Nutzer",
         throughput: "Gesamtleistung",
         throughputUnit: "tok/s",
         wait: "Wartezeit",
@@ -38,23 +56,23 @@ export function terms(cfg: Pick<RunConfig, "kind">) {
 
 /** Das Zeit-Ziel des Laufs: Ladezeit der Seite bzw. Warten aufs erste Wort. */
 export function sloSeconds(cfg: Cfg): number {
-  return isWeb(cfg) ? (cfg.slo_load ?? 3) : cfg.slo_ttft;
+  return isTimed(cfg) ? (cfg.slo_load ?? (isApi(cfg) ? 0.5 : 3)) : cfg.slo_ttft;
 }
 
 /** Die Zeit, an der das Ziel gemessen wird (95 % sind schneller). */
 function waitP95(s: Stats, cfg: Cfg): number | null {
-  return (isWeb(cfg) ? s.e2e_p95 : s.ttft_p95) ?? null;
+  return (isTimed(cfg) ? s.e2e_p95 : s.ttft_p95) ?? null;
 }
 
 /** Gesamtleistung: Seiten pro Sekunde bzw. Tokens pro Sekunde. */
 function throughput(s: Stats, cfg: Cfg): number | null {
-  return (isWeb(cfg) ? s.req_s : s.out_tps) ?? null;
+  return (isTimed(cfg) ? s.req_s : s.out_tps) ?? null;
 }
 
 export function meetsSlo(s: Stats, cfg: Cfg): boolean {
   const wait = waitP95(s, cfg);
   if (s.error_rate !== 0 || wait == null || wait > sloSeconds(cfg)) return false;
-  return isWeb(cfg) || (s.user_tps_p50 != null && s.user_tps_p50 >= cfg.slo_user_tps);
+  return isTimed(cfg) || (s.user_tps_p50 != null && s.user_tps_p50 >= cfg.slo_user_tps);
 }
 
 export function deriveRamp(summary: Summary): { rec: RampStep | null; max: RampStep | null; steps: RampStep[] } {
@@ -80,9 +98,7 @@ function numberList(value: string | undefined): number[] {
 function selectedTests(summary: Summary): TestKey[] {
   const chosen = (summary.config.tests ?? "").split(",");
   const skipped = summary.skipped ?? [];
-  return TEST_ORDER.filter((k) =>
-    k === "control" ? chosen.includes("baseline") : chosen.includes(k) && !skipped.includes(k),
-  );
+  return TEST_ORDER.filter((k) => (k === "control" ? chosen.includes("baseline") : chosen.includes(k) && !skipped.includes(k)));
 }
 
 export function phaseOfSample(phase: string): TestKey | null {
@@ -138,7 +154,8 @@ function rampDetail(summary: Summary, samples: Sample[]): { detail: string; frac
 /** Die Zeitleiste links: was ist erledigt, was läuft, was kommt noch. */
 export function phaseSteps(summary: Summary, samples: Sample[], running: boolean): PhaseStep[] {
   const cfg = summary.config;
-  const web = isWeb(cfg);
+  const web = isTimed(cfg);
+  const api = isApi(cfg);
   const t = terms(cfg);
   const active = running ? (summary.meta.current_test ?? null) : null;
   const times = phaseTimes(samples);
@@ -153,18 +170,20 @@ export function phaseSteps(summary: Summary, samples: Sample[], running: boolean
       pending: "Wie schnell ohne Andrang?",
       done: !b
         ? ""
-        : web
-          ? `Bestwert: Seite nach ${secs(b.e2e_p50)} geladen`
-          : `Bestwert: ${secs(b.ttft_p50)} · ${nf(b.user_tps_p50, 0)} tok/s`,
+        : api
+          ? `Bestwert: Antwort nach ${secs(b.e2e_p50)}`
+          : web
+            ? `Bestwert: Seite nach ${secs(b.e2e_p50)} geladen`
+            : `Bestwert: ${secs(b.ttft_p50)} · ${nf(b.user_tps_p50, 0)} tok/s`,
     },
     ramp: {
       title: "Immer mehr gleichzeitig",
-      pending: `Bis ${Math.max(0, ...numberList(cfg.levels))} ${web ? "Besucher" : "Personen"} gleichzeitig`,
+      pending: `Bis ${Math.max(0, ...numberList(cfg.levels))} ${web ? t.people : "Personen"} gleichzeitig`,
       done: rec ? `Ziele gehalten bis ${rec.concurrency} gleichzeitig` : "Ziele nicht erreicht",
     },
     rate: {
       title: "Echter Andrang",
-      pending: web ? "Besucher kommen zufällig, wie im Alltag" : "Fragen kommen zufällig, wie im Alltag",
+      pending: `${web ? t.people : "Fragen"} kommen zufällig, wie im Alltag`,
       done: summary.capacity.rate_ok
         ? `Bis ${perMinute(summary.capacity.rate_ok)} ${t.perMinute} pro Minute`
         : "Schlange wächst schon bei wenig Andrang",
@@ -176,10 +195,10 @@ export function phaseSteps(summary: Summary, samples: Sample[], running: boolean
     },
     spike: {
       title: "Großer Ansturm",
-      pending: `${cfg.spike_size} ${web ? "Besucher" : "Fragen"} auf einmal + Erholung`,
+      pending: `${cfg.spike_size} ${web ? t.people : "Fragen"} auf einmal + Erholung`,
       done: summary.spike?.crashed
         ? web
-          ? "Website nicht mehr erreichbar"
+          ? `${t.subject.split(" ")[1]} nicht mehr erreichbar`
           : "Server abgestürzt"
         : summary.spike?.recovered === false
           ? "Erholt sich nicht"
@@ -200,13 +219,17 @@ export function phaseSteps(summary: Summary, samples: Sample[], running: boolean
   const anyData = TEST_ORDER.some((k) => summary[k]) || active != null;
   const pre = summary.prechecks;
   const preDetail =
-    web && pre?.assets != null
-      ? `Erreichbar, ${pre.assets} Dateien gehören zur Seite`
-      : pre?.rtt_ms != null
-        ? `Erreichbar, ${nf(pre.rtt_ms, 0)} ms Netzweg`
-        : web
-          ? "Erreichbar? Welche Dateien gehören dazu?"
-          : "Erreichbar? Frei? Zählt richtig?";
+    api && pre?.status != null
+      ? `Erreichbar, Status ${pre.status} nach ${nf(pre.rtt_ms, 0)} ms`
+      : web && !api && pre?.assets != null
+        ? `Erreichbar, ${pre.assets} Dateien gehören zur Seite`
+        : pre?.rtt_ms != null
+          ? `Erreichbar, ${nf(pre.rtt_ms, 0)} ms Netzweg`
+          : api
+            ? "Erreichbar? Antwortet sie wie erwartet?"
+            : web
+              ? "Erreichbar? Welche Dateien gehören dazu?"
+              : "Erreichbar? Frei? Zählt richtig?";
   const steps: PhaseStep[] = [
     {
       key: "prechecks",
@@ -242,7 +265,7 @@ export function phaseSteps(summary: Summary, samples: Sample[], running: boolean
 /** Grobe Dauer je Schritt in Sekunden – das Backend liefert keine Restzeit. */
 function estimates(summary: Summary): Record<StepKey, number> {
   const c = summary.config;
-  const web = isWeb(c);
+  const web = isTimed(c);
   return {
     prechecks: 20,
     baseline: c.baseline_requests * (web ? 2 : 8),
@@ -284,7 +307,7 @@ export function liveFocus(summary: Summary, samples: Sample[]): Focus {
   const phase = lastSample(samples)?.phase ?? "";
   const test = summary.meta.current_test ?? phaseOfSample(phase);
   const cfg = summary.config;
-  const one = isWeb(cfg) ? "Besucher" : "Person";
+  const one = isApi(cfg) ? "Anfrage" : isWeb(cfg) ? "Besucher" : "Person";
   switch (test) {
     case "baseline":
       return { label: "Einer allein", value: "1", unit: one, fraction: 0.1 };
@@ -357,7 +380,8 @@ export interface Headline {
 /** Überschrift und vier Kennzahlen aus der zuletzt fertig gemessenen Stufe. */
 export function liveHeadline(summary: Summary): Headline {
   const cfg = summary.config;
-  const web = isWeb(cfg);
+  const web = isTimed(cfg);
+  const api = isApi(cfg);
   const t = terms(cfg);
   const steps = summary.ramp?.steps ?? [];
   const last: Stats | undefined = steps[steps.length - 1] ?? summary.baseline;
@@ -367,13 +391,17 @@ export function liveHeadline(summary: Summary): Headline {
   const n = steps.length ? steps[steps.length - 1].concurrency : 1;
   const prev = steps.length > 1 ? steps[steps.length - 2] : null;
   const alone = n === 1;
-  const who = web
+  const who = api
     ? alone
-      ? "Ein Besucher lädt die Seite allein"
-      : `${n} Besucher laden die Seite gleichzeitig`
-    : alone
-      ? "Eine Person fragt allein"
-      : `${n} Personen fragen gleichzeitig`;
+      ? "Eine Anfrage läuft allein"
+      : `${n} Anfragen laufen gleichzeitig`
+    : web
+      ? alone
+        ? "Ein Besucher lädt die Seite allein"
+        : `${n} Besucher laden die Seite gleichzeitig`
+      : alone
+        ? "Eine Person fragt allein"
+        : `${n} Personen fragen gleichzeitig`;
   const slo = sloSeconds(cfg);
   const waitValue = waitP95(last, cfg);
   const waitOk = waitValue != null && waitValue <= slo;
@@ -386,7 +414,7 @@ export function liveHeadline(summary: Summary): Headline {
 
   const kpis: LiveKpi[] = [
     {
-      label: web ? "Seite geladen nach" : "Warten aufs 1. Wort",
+      label: api ? "Antwort nach" : web ? "Seite geladen nach" : "Warten aufs 1. Wort",
       value: wait.value,
       unit: wait.unit,
       note: `${waitOk ? "✓" : "✗"} Ziel ≤ ${nf(slo, 1)} s`,
@@ -418,8 +446,7 @@ export function liveHeadline(summary: Summary): Headline {
       label: "Fehler",
       value: nf(last.error_rate * 100, 1),
       unit: "%",
-      note:
-        last.error_rate === 0 ? "✓ keine einzige" : `✗ ${last.errors} von ${last.n} ${web ? "Aufrufen" : "Fragen"}`,
+      note: last.error_rate === 0 ? "✓ keine einzige" : `✗ ${last.errors} von ${last.n} ${api ? "Anfragen" : web ? "Aufrufen" : "Fragen"}`,
       tone: last.error_rate === 0 ? "good" : "bad",
     },
   ];
@@ -428,7 +455,11 @@ export function liveHeadline(summary: Summary): Headline {
     return {
       tone: "bad",
       title: `${t.subject} kommt nicht mehr mit.`,
-      text: web ? `${who} – und manche bekommen eine Fehlerseite.` : `${who} – und manche bekommen keine Antwort.`,
+      text: api
+        ? `${who} – und manche enden mit einem Fehler.`
+        : web
+          ? `${who} – und manche bekommen eine Fehlerseite.`
+          : `${who} – und manche bekommen keine Antwort.`,
       kpis,
     };
   }
@@ -436,19 +467,24 @@ export function liveHeadline(summary: Summary): Headline {
     return {
       tone: "warn",
       title: "Es wird eng.",
-      text: web
-        ? `${who} – sie kommt an, aber langsamer als gewünscht.`
-        : `${who} – die Antworten kommen, aber langsamer als gewünscht.`,
+      text:
+        web && !api
+          ? `${who} – sie kommt an, aber langsamer als gewünscht.`
+          : `${who} – die Antworten kommen, aber langsamer als gewünscht.`,
       kpis,
     };
   }
-  const goodText = web
+  const goodText = api
     ? alone
-      ? `${who} und hat sie schnell genug vor sich.`
-      : `${who} – und alle haben sie schnell genug vor sich.`
-    : alone
-      ? `${who} und bekommt die Antwort schnell genug.`
-      : `${who} – und alle bekommen ihre Antwort schnell genug.`;
+      ? `${who} und wird schnell genug beantwortet.`
+      : `${who} – und alle werden schnell genug beantwortet.`
+    : web
+      ? alone
+        ? `${who} und hat sie schnell genug vor sich.`
+        : `${who} – und alle haben sie schnell genug vor sich.`
+      : alone
+        ? `${who} und bekommt die Antwort schnell genug.`
+        : `${who} – und alle bekommen ihre Antwort schnell genug.`;
   return { tone: "good", title: `${t.subject} hält mit.`, text: goodText, kpis };
 }
 
@@ -499,7 +535,9 @@ export interface KpiCard {
 
 export function kpiCards(summary: Summary): KpiCard[] {
   const cfg = summary.config;
-  const web = isWeb(cfg);
+  const web = isTimed(cfg);
+  const api = isApi(cfg);
+  const t = terms(cfg);
   const { rec, max } = deriveRamp(summary);
   const b = summary.baseline;
   const p = summary.probes;
@@ -527,22 +565,26 @@ export function kpiCards(summary: Summary): KpiCard[] {
         label: "Einer allein",
         value: alone.value,
         unit: alone.unit,
-        text: b ? "bis die Seite komplett geladen ist, wenn sonst niemand da ist" : "nicht getestet",
+        text: b
+          ? api
+            ? "bis die Antwort komplett da ist, wenn sonst niemand fragt"
+            : "bis die Seite komplett geladen ist, wenn sonst niemand da ist"
+          : "nicht getestet",
       },
       sweet,
       {
         key: "peak",
         label: "Höchstleistung",
         value: nf(peak, peak != null && peak < 10 ? 1 : 0),
-        unit: "Seiten/s",
-        text: peak != null ? `≈ ${nf(peak * 60, 0)} Seitenaufrufe pro Minute für alle zusammen` : "nicht getestet",
+        unit: t.throughputUnit,
+        text: peak != null ? `≈ ${nf(peak * 60, 0)} ${api ? "Anfragen" : "Seitenaufrufe"} pro Minute für alle zusammen` : "nicht getestet",
       },
       {
         key: "quality",
         label: "Erste Antwort",
         value: firstByte.value,
         unit: firstByte.unit,
-        text: b ? "so schnell reagiert der Server, bevor die Seite lädt" : "nicht getestet",
+        text: b ? `so schnell reagiert der Server, bevor die ${api ? "Antwort kommt" : "Seite lädt"}` : "nicht getestet",
       },
     ];
   }
@@ -589,14 +631,15 @@ function range(lo: string, hi: string): string {
 /** „Alle Ergebnisse auf einen Blick“. */
 export function ampelRows(summary: Summary): AmpelRow[] {
   const cfg = summary.config;
-  const web = isWeb(cfg);
+  const web = isTimed(cfg);
+  const api = isApi(cfg);
   const t = terms(cfg);
   const { rec } = deriveRamp(summary);
   const b = summary.baseline;
   const rows: AmpelRow[] = [];
 
   const loadTone: Status = rec ? "good" : b && meetsSlo(b, cfg) ? "warn" : "bad";
-  const first = web ? "Ladezeit bei normaler Last" : "Wartezeit bei normaler Last";
+  const first = `${t.wait} bei normaler Last`;
   const second = web ? "Erste Antwort des Servers" : "Lesetempo pro Person";
   if (b || rec) {
     const lo = splitSecs(web ? b?.e2e_p50 : b?.ttft_p50).value;
@@ -640,12 +683,12 @@ export function ampelRows(summary: Summary): AmpelRow[] {
 
   const spike = summary.spike;
   if (spike) {
-    const served = web ? "alle bedient, erholt sich" : "alle beantwortet, erholt sich";
+    const served = web && !api ? "alle bedient, erholt sich" : "alle beantwortet, erholt sich";
     rows.push({
       label: "Großer Ansturm",
       value: spike.crashed
         ? web
-          ? "Website nicht mehr erreichbar"
+          ? `${t.subject.split(" ")[1]} nicht mehr erreichbar`
           : "Server abgestürzt"
         : spike.recovered === false
           ? "erholt sich nicht vollständig"
@@ -663,7 +706,7 @@ export function ampelRows(summary: Summary): AmpelRow[] {
     const drop = soak.degradation?.tps_change_pct ?? 0;
     const slower = soak.degradation?.ttft_change_pct ?? 0;
     const tired = web ? slower > 25 : drop < -10;
-    const tiredText = web ? `wird langsamer (${signedPct(slower)} Ladezeit)` : `wird müde (${signedPct(drop)})`;
+    const tiredText = web ? `wird langsamer (${signedPct(slower)} ${t.wait})` : `wird müde (${signedPct(drop)})`;
     rows.push({
       label: `Ausdauer über ${nf(soak.minutes, soak.minutes < 1 ? 1 : 0)} Minuten`,
       value: failed ? `${nf(soak.total.error_rate * 100, 1)} % Fehler` : tired ? tiredText : "stabil, kein Abfall",
@@ -732,9 +775,7 @@ export function costView(summary: Summary): CostView | null {
     savings: rounded != null ? `≈ ${eur(rounded)}` : null,
     saves: (diff ?? 0) >= 0,
     breakeven: e.breakeven_pct == null ? "–" : e.breakeven_pct > 100 ? "nie" : `${nf(e.breakeven_pct, 0)} %`,
-    placeholder: (Object.keys(ECON_DEFAULTS) as (keyof typeof ECON_DEFAULTS)[]).every(
-      (k) => e[k] === ECON_DEFAULTS[k],
-    ),
+    placeholder: (Object.keys(ECON_DEFAULTS) as (keyof typeof ECON_DEFAULTS)[]).every((k) => e[k] === ECON_DEFAULTS[k]),
   };
 }
 

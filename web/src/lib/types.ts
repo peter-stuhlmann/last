@@ -5,7 +5,7 @@ export type TestKey = "baseline" | "ramp" | "rate" | "context" | "spike" | "soak
 export type Tone = "good" | "warn" | "bad";
 export type RunState = "idle" | "running" | "done" | "stopped" | "error";
 
-export type RunKind = "llm" | "web";
+export type RunKind = "llm" | "web" | "api";
 
 export interface RunConfig {
   /** fehlt bei Läufen aus älteren Versionen – dann ist es ein KI-Server-Lauf */
@@ -27,8 +27,13 @@ export interface RunConfig {
   target_users: number;
   slo_ttft: number;
   slo_user_tps: number;
-  /** nur Website: Seite soll nach so vielen Sekunden geladen sein */
+  /** Website: Seite geladen / API: Antwort da – nach so vielen Sekunden */
   slo_load?: number;
+  /** nur HTTP-API; Kopfzeilen-Werte und Body werden nie gespeichert */
+  method?: string;
+  expect_status?: string;
+  header_names?: string[];
+  body_bytes?: number;
   hw_price?: number;
   server_watts?: number;
   power_price?: number;
@@ -102,6 +107,8 @@ export interface Summary {
     /** Website: Seite und alle zugehörigen Dateien zusammen */
     total_bytes?: number;
     final_url?: string;
+    /** HTTP-API: Status der Antwort ohne Last */
+    status?: number;
   };
   baseline?: Stats;
   ramp?: { steps: RampStep[]; break: { concurrency: number; reason: string } | null; saturated: number | null };

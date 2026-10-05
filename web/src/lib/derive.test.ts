@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { config, finishedSummary, stats, step, webSummary } from "@/test/fixtures";
+import { apiSummary, config, finishedSummary, stats, step, webSummary } from "@/test/fixtures";
 import {
   ampelRows,
   capacityView,
@@ -350,5 +350,41 @@ describe("Verlässlichkeit der Messung", () => {
 
   it("lässt die Zeile weg, solange nichts geprüft wurde", () => {
     expect(ampelRows(webSummary()).map((r) => r.label)).not.toContain("Verlässlichkeit der Messung");
+  });
+});
+
+describe("HTTP-API-Läufe", () => {
+  it("spricht von Anfragen und Antwortzeit", () => {
+    const t = terms(apiSummary().config);
+    expect(t.people).toBe("Anfragen");
+    expect(t.capacityUnit).toBe("Anfragen/min");
+    expect(t.throughputUnit).toBe("Anfr./s");
+    expect(t.wait).toBe("Antwortzeit");
+    expect(terms(webSummary().config).capacityUnit).toBe("Besucher");
+    expect(terms(finishedSummary().config).capacityUnit).toBe("Nutzer");
+  });
+
+  it("misst das Ziel an der Antwortzeit", () => {
+    const d = deriveRamp(apiSummary());
+    expect(d.rec?.concurrency).toBe(32);
+    expect(curvePoints(apiSummary()).map((p) => p.ok)).toEqual([true, true, true, false]);
+  });
+
+  it("zeigt live und im Ergebnis die API-Begriffe", () => {
+    const h = liveHeadline(apiSummary());
+    expect(h.tone).toBe("warn");
+    expect(h.text).toContain("64 Anfragen laufen gleichzeitig");
+    expect(h.kpis.map((k) => k.label)).toEqual(["Antwort nach", "Erste Antwort", "Anfragen pro Sekunde", "Fehler"]);
+    expect(kpiCards(apiSummary()).map((k) => `${k.label}: ${k.value} ${k.unit}`)).toEqual([
+      "Einer allein: 0,05 s", "Sweet Spot: 32 gleichzeitig", "Höchstleistung: 34 Anfr./s", "Erste Antwort: 0,04 s",
+    ]);
+    const rows = ampelRows(apiSummary());
+    expect(rows[0].label).toBe("Antwortzeit bei normaler Last");
+    expect(rows[2].value).toBe("bis 1.500 Anfragen/min");
+    expect(rows.map((r) => r.label)).not.toContain("Lange Texte");
+    const steps = phaseSteps(apiSummary(), [], false);
+    expect(steps[0].detail).toBe("Erreichbar, Status 200 nach 40 ms");
+    expect(steps[1].detail).toBe("Bestwert: Antwort nach 0,05 s");
+    expect(costView(apiSummary())).toBeNull();
   });
 });

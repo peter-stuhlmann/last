@@ -2,6 +2,49 @@ import { z } from "zod";
 
 const MAX_URL = 2048;
 const TEST_KEYS = ["baseline", "ramp", "rate", "context", "spike", "soak"];
+export const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
+export const MAX_API_BODY = 64 * 1024;
+// Diese Kopfzeilen setzt der Test selbst oder sie würden die Verbindung manipulieren (wie im Backend)
+const FORBIDDEN_HEADERS = [
+  "host",
+  "content-length",
+  "transfer-encoding",
+  "connection",
+  "upgrade",
+  "user-agent",
+  "expect",
+  "te",
+  "trailer",
+  "keep-alive",
+  "proxy-authorization",
+];
+
+const headerSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z0-9!#$%&'*+.^_`|~-]{1,64}$/, "Ungültiger Name einer Kopfzeile")
+    .refine((n) => !FORBIDDEN_HEADERS.includes(n.toLowerCase()), "Diese Kopfzeile setzt der Test selbst"),
+  // Kein Zeilenumbruch und keine Steuerzeichen – sonst ließen sich weitere Kopfzeilen einschleusen
+  value: z
+    .string()
+    .trim()
+    .max(2048)
+    .regex(/^[^\x00-\x1f\x7f]*$/, "Ungültiger Wert einer Kopfzeile"),
+});
+
+/** „Name: Wert“ je Zeile aus dem Formular → Liste von Kopfzeilen. */
+export function parseHeaderLines(textarea: string): { name: string; value: string }[] {
+  return textarea
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const i = line.indexOf(":");
+      if (i < 1) throw new Error(`Kopfzeile „${line.slice(0, 40)}“: bitte als „Name: Wert“ schreiben.`);
+      return { name: line.slice(0, i).trim(), value: line.slice(i + 1).trim() };
+    });
+}
 
 /** Normalisiert eine Server-Adresse; null, wenn sie nicht zulässig ist. */
 export function parseBaseUrl(input: unknown): string | null {
@@ -49,7 +92,7 @@ const int = (min: number, max: number) => z.coerce.number().int().min(min).max(m
  */
 export const startSchema = z
   .object({
-    kind: z.enum(["llm", "web"]).optional(),
+    kind: z.enum(["llm", "web", "api"]).optional(),
     base_url: baseUrl,
     model: z.string().trim().max(200).optional(),
     api_key: z.string().max(512).optional(),
@@ -65,6 +108,16 @@ export const startSchema = z
     slo_load: num(0.1, 120).optional(),
     include_assets: z.boolean().optional(),
     confirm_owner: z.boolean().optional(),
+    // HTTP-API
+    method: z.enum(METHODS).optional(),
+    headers: z.array(headerSchema).max(20).optional(),
+    body: z.string().max(MAX_API_BODY).optional(),
+    expect_status: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .regex(/^([1-5]xx|[1-5]\d\d)$/, "Erwarteter Status: z. B. 2xx oder 201")
+      .optional(),
     level_seconds: int(5, 600).optional(),
     warmup_seconds: int(0, 120).optional(),
     min_samples: int(1, 1000).optional(),
@@ -90,10 +143,10 @@ export const startSchema = z
     cloud_price_in: num(0, 10_000).optional(),
     cloud_price_out: num(0, 10_000).optional(),
   })
-  // Ein Lasttest sieht für fremde Websites aus wie ein Angriff – ohne Bestätigung kein Start.
-  .refine((v) => v.kind !== "web" || v.confirm_owner === true, {
+  // Ein Lasttest sieht für fremde Websites und APIs aus wie ein Angriff – ohne Bestätigung kein Start.
+  .refine((v) => (v.kind !== "web" && v.kind !== "api") || v.confirm_owner === true, {
     path: ["confirm_owner"],
-    message: "Bitte bestätigen, dass ihr diese Website testen dürft.",
+    message: "Bitte bestätigen, dass ihr diese Website oder API testen dürft.",
   });
 
 export type StartPayload = z.infer<typeof startSchema>;

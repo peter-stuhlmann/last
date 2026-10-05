@@ -2,7 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { initialLive, normalizeSummary, type LiveState } from "@/lib/events";
-import { finishedSummary, webSummary } from "@/test/fixtures";
+import { apiSummary, finishedSummary, webSummary } from "@/test/fixtures";
 import { expectAccessible } from "@/test/setup";
 import { LiveView } from "./live/LiveView";
 import { ResultView } from "./result/ResultView";
@@ -267,5 +267,38 @@ describe("LiveView bei unterbrochener Verbindung", () => {
   it("zeigt den Hinweis sonst nicht", () => {
     render(<LiveView live={{ ...initialLive, connected: true, state: "running", run: "results_1", summary: webSummary() }} onStop={vi.fn()} />);
     expect(screen.queryByRole("status", { name: "Verbindung" })).not.toBeInTheDocument();
+  });
+});
+
+describe("HTTP-API-Läufe in den Ansichten", () => {
+  it("zeigt das Ergebnis mit Anfragen pro Minute und der getesteten Anfrage", async () => {
+    const { container } = render(<ResultView name="results_1" summary={apiSummary()} report pdf />);
+    expect(screen.getByRole("heading", { level: 1, name: "Grünes Licht." })).toBeInTheDocument();
+    expect(screen.getByText(/für 1.000 Anfragen\/min geplant/)).toBeInTheDocument();
+    expect(screen.getAllByText(/Anfragen pro Minute/).length).toBeGreaterThan(0);
+    expect(screen.getByRole("heading", { name: "Was wurde gemessen?" })).toBeInTheDocument();
+    expect(screen.getByText(/POST \/v1\/items/)).toBeInTheDocument();
+    expect(screen.getByText(/Status 201/)).toBeInTheDocument();
+    expect(screen.getByText(/verändert/)).toBeInTheDocument();
+    expect(screen.queryByText(/Besucher/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Dateien/)).not.toBeInTheDocument();
+    await expectAccessible(container);
+  });
+
+  it("zeigt live die API-Begriffe", () => {
+    render(
+      <LiveView
+        live={{ ...initialLive, connected: true, state: "running", run: "results_1", summary: { ...apiSummary(), meta: { current_test: "ramp" } }, samples: [{ t: 90, phase: "ramp_c64" }] }}
+        onStop={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("heading", { level: 1, name: "Es wird eng." })).toBeInTheDocument();
+    expect(screen.getByText("Anfragen pro Minute, die flüssig durchgehen")).toBeInTheDocument();
+    expect(screen.queryByText(/Besucher/)).not.toBeInTheDocument();
+  });
+
+  it("kennzeichnet API-Läufe in der Liste", () => {
+    render(<RunsList runs={[{ name: "results_20261006_090000", kind: "api", model: null, base_url: "https://api.example/v1/items", started: null, tests: ["ramp"], report: true, pdf: true }]} />);
+    expect(screen.getByText("HTTP-API")).toBeInTheDocument();
   });
 });

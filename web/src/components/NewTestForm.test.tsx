@@ -45,7 +45,7 @@ describe("NewTestForm", () => {
     expect(screen.getByRole("textbox", { name: "Adresse des Servers" })).toHaveValue(defaults.base_url);
     expect(screen.getByRole("radio", { name: /Schnell/ })).toBeChecked();
     expect(screen.getByRole("radio", { name: /Gründlich/ })).not.toBeChecked();
-    expect(screen.getByRole("radio", { name: /HTTP-API/ })).toBeDisabled();
+    expect(screen.getByRole("radio", { name: /HTTP-API/ })).toBeEnabled();
     expect(screen.getByRole("spinbutton", { name: /Nutzer im Team/ })).toBeInTheDocument();
     expect(screen.getByRole("spinbutton", { name: /Warten höchstens/ })).toHaveValue(2);
     expect(screen.getByRole("spinbutton", { name: /Lesetempo mindestens/ })).toHaveValue(10);
@@ -195,5 +195,68 @@ describe("NewTestForm für Websites", () => {
     expect(body).not.toHaveProperty("api_key");
     expect(body).not.toHaveProperty("slo_ttft");
     expect(body).not.toHaveProperty("hw_price");
+  });
+});
+
+describe("NewTestForm für HTTP-APIs", () => {
+  const api = {
+    defaults: { levels: "1,2,4,8,16,32,64,128,256", level_seconds: 60, soak_minutes: 15, slo_load: 0.5, tests: "baseline,ramp,rate,spike,soak" },
+    quick: { levels: "1,4,16,32,64", level_seconds: 30, soak_minutes: 3 },
+  };
+
+  function setupApi() {
+    const user = userEvent.setup();
+    render(<NewTestForm defaults={defaults} quick={quick} api={api} />);
+    return user;
+  }
+
+  it("bietet Methode, Status, Kopfzeilen und Body an", async () => {
+    const user = setupApi();
+    expect(screen.getByRole("radio", { name: /HTTP-API/ })).toBeEnabled();
+    await user.click(screen.getByRole("radio", { name: /HTTP-API/ }));
+    expect(screen.getByRole("textbox", { name: "Adresse der API" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Methode" })).toHaveValue("GET");
+    expect(screen.getByRole("spinbutton", { name: /Anfragen pro Minute/ })).toBeInTheDocument();
+    expect(screen.getByRole("spinbutton", { name: /Antwort nach höchstens/ })).toHaveValue(0.5);
+    expect(screen.getByRole("textbox", { name: /Erwarteter Status/ })).toHaveValue("2xx");
+    expect(screen.queryByRole("textbox", { name: "Body" })).not.toBeInTheDocument();
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "Methode" }), "POST");
+    expect(screen.getByRole("textbox", { name: "Body" })).toBeInTheDocument();
+    expect(screen.getByText(/verändert der Test Daten/)).toBeInTheDocument();
+  });
+
+  it("schickt Kopfzeilen und Body mit, speichert sie aber nicht", async () => {
+    fetchMock.mockResolvedValue(Response.json({ ok: true, run: "results_1" }));
+    const user = setupApi();
+    await user.click(screen.getByRole("radio", { name: /HTTP-API/ }));
+    await user.type(screen.getByRole("textbox", { name: "Adresse der API" }), "https://api.example/v1/items");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Methode" }), "POST");
+    await user.clear(screen.getByRole("textbox", { name: /Erwarteter Status/ }));
+    await user.type(screen.getByRole("textbox", { name: /Erwarteter Status/ }), "201");
+    await user.type(screen.getByRole("textbox", { name: "Kopfzeilen" }), "Authorization: Bearer geheim");
+    await user.type(screen.getByRole("textbox", { name: "Body" }), '{{"name": "x"}');
+    await user.click(screen.getByRole("checkbox", { name: /eigene API/ }));
+    await user.click(screen.getByRole("button", { name: /Test starten/ }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/lauf"));
+
+    expect(sentBody()).toMatchObject({
+      kind: "api", method: "POST", expect_status: "201", base_url: "https://api.example/v1/items",
+      headers: [{ name: "Authorization", value: "Bearer geheim" }], body: '{"name": "x"}',
+      confirm_owner: true, slo_load: 0.5, levels: "1,4,16,32,64", tests: "baseline,ramp,rate,spike,soak",
+    });
+    expect(JSON.stringify({ ...localStorage })).not.toContain("geheim");
+    expect(JSON.stringify({ ...localStorage })).not.toContain('"name"');
+  });
+
+  it("meldet fehlerhafte Kopfzeilen vor dem Start", async () => {
+    const user = setupApi();
+    await user.click(screen.getByRole("radio", { name: /HTTP-API/ }));
+    await user.type(screen.getByRole("textbox", { name: "Adresse der API" }), "https://api.example/v1/items");
+    await user.type(screen.getByRole("textbox", { name: "Kopfzeilen" }), "ohne doppelpunkt");
+    await user.click(screen.getByRole("checkbox", { name: /eigene API/ }));
+    await user.click(screen.getByRole("button", { name: /Test starten/ }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Name: Wert/);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

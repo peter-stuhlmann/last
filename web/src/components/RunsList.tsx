@@ -65,6 +65,7 @@ export function RunsList({ runs }: { runs: RunInfo[] }) {
         {runs.map((r) => {
           const id = `wahl-${r.name}`;
           const web = r.kind === "web";
+          const label = r.kind === "api" ? "HTTP-API" : web ? "Website" : "KI-Server";
           const mismatch = pickedKind != null && (r.kind ?? "llm") !== pickedKind;
           return (
             <li key={r.name} className="flex flex-wrap items-center gap-x-4 gap-y-1 py-3">
@@ -76,7 +77,7 @@ export function RunsList({ runs }: { runs: RunInfo[] }) {
                 disabled={mismatch}
                 aria-label={
                   mismatch
-                    ? `Lauf vom ${runLabel(r.name)}: passt nicht zur Auswahl (${web ? "Website" : "KI-Server"})`
+                    ? `Lauf vom ${runLabel(r.name)}: passt nicht zur Auswahl (${label})`
                     : `Lauf vom ${runLabel(r.name)} zum Vergleich auswählen`
                 }
                 className="size-5 shrink-0 accent-violet disabled:opacity-30"
@@ -87,7 +88,7 @@ export function RunsList({ runs }: { runs: RunInfo[] }) {
                 </Link>
                 <p className="truncate font-mono text-xs text-white/65">
                   <span className="mr-2 rounded border border-white/15 px-1.5 py-0.5 font-sans text-[10px] font-semibold uppercase tracking-wide text-white/75">
-                    {web ? "Website" : "KI-Server"}
+                    {label}
                   </span>
                   {hostLabel(r.base_url)}
                   {r.model ? ` · ${r.model}` : ""}

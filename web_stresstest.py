@@ -26,6 +26,7 @@ import json
 import os
 import platform
 import random
+import re
 import time
 from collections import Counter
 from html.parser import HTMLParser
@@ -36,7 +37,7 @@ import aiohttp
 import llm_stresstest as lt
 from llm_stresstest import fmt, log, mean, pct
 
-USER_AGENT = "LAST-Lasttest/1.0 (Lasttest der eigenen Website)"
+USER_AGENT = "LAST-Lasttest/1.0 (Lasttest der eigenen Website oder API)"
 MAX_ASSETS = 60                    # mehr Dateien pro Seite lädt der Test nicht
 MAX_BODY = 20 * 1024 * 1024        # pro Datei höchstens 20 MB lesen
 MAX_HTML = 2 * 1024 * 1024         # so viel HTML wird nach Dateien durchsucht
@@ -57,10 +58,64 @@ QUICK_PROFILE = {"levels": "1,4,16,32,64", "level_seconds": 30, "warmup_seconds"
                  "min_samples": 20, "baseline_requests": 5, "rate_seconds": 30,
                  "spike_size": 32, "soak_minutes": 3}
 
+# HTTP-API: gleiche Schritte, aber eine einzelne Anfrage statt einer Seite mit Dateien.
+# Ziel: Antwort nach höchstens 0,5 s. Bei APIs zählt nicht die Zahl der Nutzer, sondern
+# wie viele Anfragen pro Minute flüssig durchgehen – „target_users“ meint hier genau das.
+API_DEFAULTS = {"slo_load": 0.5, "include_assets": False, "method": "GET", "headers": {},
+                "body": "", "expect_status": "2xx"}
+METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE")
+MAX_API_BODY = 64 * 1024
+MAX_HEADERS = 20
+# Diese Kopfzeilen setzt der Test selbst oder sie würden die Verbindung manipulieren
+FORBIDDEN_HEADERS = {"host", "content-length", "transfer-encoding", "connection", "upgrade",
+                     "user-agent", "expect", "te", "trailer", "keep-alive", "proxy-authorization"}
+_HEADER_NAME = re.compile(r"^[A-Za-z0-9!#$%&'*+.^_`|~-]{1,64}$")
+
+WORDS = {
+    "web": {"subject": "Die Website", "subj": "die Website", "units": "Besucher", "time": "Ladezeit", "events": "Aufrufe",
+            "one": "ein Besucher", "fail": "eine Fehlerseite", "stand": "dem Andrang"},
+    "api": {"subject": "Die API", "subj": "die API", "units": "Anfragen", "time": "Antwortzeit", "events": "Anfragen",
+            "one": "eine Anfrage", "fail": "einen Fehler", "stand": "der Last"},
+}
+
+
+def words(cfg):
+    return WORDS["api" if (cfg or {}).get("kind") == "api" else "web"]
+
+
+def status_ok(status, expect):
+    """Passt der Status zur Erwartung? „2xx“ = 200–299, sonst genau diese Zahl."""
+    expect = str(expect)
+    if expect.endswith("xx"):
+        return status // 100 == int(expect[0])
+    return status == int(expect)
+
+
+def parse_headers(raw):
+    """Kopfzeilen aus dem Formular ([{name, value}] oder {name: value}) prüfen."""
+    items = list(raw.items()) if isinstance(raw, dict) else [
+        (h.get("name", ""), h.get("value", "")) for h in (raw or []) if isinstance(h, dict)]
+    if len(items) > MAX_HEADERS:
+        raise ValueError(f"Höchstens {MAX_HEADERS} Kopfzeilen")
+    out = {}
+    for name, value in items:
+        name, value = str(name).strip(), str(value).strip()
+        if not _HEADER_NAME.match(name):
+            raise ValueError(f"Ungültiger Name einer Kopfzeile: {name!r}")
+        if name.lower() in FORBIDDEN_HEADERS:
+            raise ValueError(f"Die Kopfzeile {name} setzt der Test selbst")
+        if len(value) > 2048 or any(ord(ch) < 32 or ch == "\x7f" for ch in value):
+            raise ValueError(f"Ungültiger Wert für Kopfzeile {name}")
+        out[name] = value
+    return out
+
 
 def build_args(cfg):
     """JSON aus dem Formular → Namespace. Unbekannte Felder werden ignoriert."""
-    a = argparse.Namespace(kind="web", **DEFAULTS)
+    kind = "api" if cfg.get("kind") == "api" else "web"
+    defaults = {**DEFAULTS, **API_DEFAULTS} if kind == "api" else {**DEFAULTS, **API_DEFAULTS, "slo_load": DEFAULTS["slo_load"],
+                                                                     "include_assets": DEFAULTS["include_assets"]}
+    a = argparse.Namespace(kind=kind, **defaults)
     for key, default in DEFAULTS.items():
         val = cfg.get(key)
         if val is None or val == "":
@@ -87,6 +142,19 @@ def build_args(cfg):
             raise ValueError
     except ValueError:
         raise ValueError("Stufen: ganze Zahlen mit Komma trennen")
+    if kind == "api":
+        a.include_assets = False
+        a.method = str(cfg.get("method") or "GET").strip().upper()
+        if a.method not in METHODS:
+            raise ValueError(f"Methode muss eine von {', '.join(METHODS)} sein")
+        a.headers = parse_headers(cfg.get("headers"))
+        a.body = str(cfg.get("body") or "")
+        if len(a.body.encode("utf-8")) > MAX_API_BODY:
+            raise ValueError(f"Body höchstens {MAX_API_BODY // 1024} kB")
+        a.expect_status = str(cfg.get("expect_status") or "2xx").strip().lower()
+        if not re.match(r"^([1-5]xx|[1-5]\d\d)$", a.expect_status):
+            raise ValueError("Erwarteter Status: z. B. 2xx oder 201")
+        a.slo_load = float(cfg.get("slo_load") or API_DEFAULTS["slo_load"])
     return a
 
 
@@ -269,6 +337,71 @@ class WebClient:
         return r
 
 
+class ApiClient(WebClient):
+    """Eine HTTP-Anfrage je „request“ – mit Methode, Kopfzeilen und Body aus dem Formular.
+    Anders als Besucher einer Website halten API-Clients ihre Verbindungen offen; deshalb teilen
+    sich alle simulierten Clients einen Verbindungspool (Keep-Alive)."""
+
+    def __init__(self, args):
+        super().__init__(args)
+        self.session = None
+
+    async def __aenter__(self):
+        self.resolver = _CachingResolver()
+        self.session = aiohttp.ClientSession(
+            connector=aiohttp.TCPConnector(limit=0, resolver=self.resolver),
+            cookie_jar=aiohttp.DummyCookieJar(),
+            headers={"User-Agent": USER_AGENT, "Accept": "application/json, */*;q=0.8", **self.args.headers})
+        return self
+
+    async def __aexit__(self, *exc):
+        await self.session.close()
+        await self.resolver.close()
+
+    async def _call(self):
+        """Liefert (Status, Bytes, Zeitpunkt der ersten Antwort). Weiterleitungen werden nicht
+        verfolgt – ein 3xx ist eine Antwort wie jede andere und wird an der Erwartung gemessen."""
+        a = self.args
+        extra = {}
+        if a.body and not any(k.lower() == "content-type" for k in a.headers):
+            extra["Content-Type"] = "application/json"   # die übliche Annahme, wenn nichts angegeben ist
+        async with self.session.request(a.method, self.url, data=a.body.encode("utf-8") if a.body else None,
+                                        headers=extra, allow_redirects=False) as resp:
+            t_first = time.perf_counter()
+            size = 0
+            async for chunk in resp.content.iter_chunked(65536):
+                size += len(chunk)
+                if size >= MAX_BODY:
+                    break
+            return resp.status, size, t_first
+
+    async def prepare(self):
+        t0 = time.perf_counter()
+        try:
+            status, size, t_first = await asyncio.wait_for(self._call(), self.args.timeout)
+        except Exception:
+            hint = ""
+            if lt.IN_DOCKER and (urlparse(self.url).hostname or "") in ("localhost", "127.0.0.1", "::1"):
+                hint = (" Hinweis: Im Docker-Container ist „localhost“ der Container selbst – für eine "
+                        "API auf diesem Rechner host.docker.internal statt localhost eintragen.")
+            raise lt.PreflightError(f"API unter {self.url} nicht erreichbar.{hint}")
+        if not status_ok(status, self.args.expect_status):
+            raise lt.PreflightError(f"Die API antwortet mit Status {status}, erwartet wird "
+                                    f"{self.args.expect_status} – bitte Adresse, Methode, Kopfzeilen und "
+                                    "Body prüfen.")
+        return {"status": status, "bytes": size, "assets": 0, "final_url": self.url,
+                "total_bytes": size, "files": [], "rtt_ms": (t_first - t0) * 1000, "busy": None}
+
+    async def _view(self, r, t0):
+        status, size, t_first = await self._call()
+        r["ttft"], r["tp_first"], r["status"] = t_first - t0, t_first, status
+        r["bytes"], r["requests"] = size, 1
+        if status_ok(status, self.args.expect_status):
+            r["ok"] = True
+        else:
+            r["error"] = f"http_{status}"
+
+
 # ════════════════════════════════════════════════════════════════════════════
 #  Kennzahlen
 # ════════════════════════════════════════════════════════════════════════════
@@ -318,8 +451,10 @@ def meets_slo(s, cfg):
 
 def capacity(summary):
     """Für wie viele Besucher gleichzeitig reicht es? Ein Besucher ruft alle
-    (Ladezeit + Pause) Sekunden eine Seite auf (Gesetz von Little)."""
+    (Ladezeit + Pause) Sekunden eine Seite auf (Gesetz von Little).
+    Bei einer API steht in „users“ stattdessen, wie viele Anfragen pro Minute flüssig durchgehen."""
     cfg = summary.get("config") or {}
+    api = cfg.get("kind") == "api"
     think = cfg.get("think_time", DEFAULTS["think_time"])
     out = {"think_time": think}
     best = None
@@ -328,13 +463,15 @@ def capacity(summary):
             best = s
     if best:
         out["rec_concurrency"] = best["concurrency"]
-        out["users_ramp"] = lt.users_for(best.get("req_s"), best.get("e2e_mean"), think)
+        out["users_ramp"] = ((best.get("req_s") or 0) * 60 or None) if api else lt.users_for(
+            best.get("req_s"), best.get("e2e_mean"), think)
     good = [s for s in (summary.get("rate") or {}).get("stages", [])
             if meets_slo(s, cfg) and not s.get("overloaded")]
     if good:
         g = max(good, key=lambda s: s["rate"])
         out["rate_ok"] = g["rate"]
-        out["users_rate"] = lt.users_for(g.get("rate_actual") or g["rate"], g.get("e2e_mean"), think)
+        out["users_rate"] = ((g.get("rate_actual") or g["rate"]) * 60) if api else lt.users_for(
+            g.get("rate_actual") or g["rate"], g.get("e2e_mean"), think)
     out["users"] = out.get("users_rate") or out.get("users_ramp")
     out["source"] = "rate" if out.get("users_rate") else "ramp" if out.get("users_ramp") else None
     return out
@@ -349,6 +486,7 @@ def lt_mins(m):
 def verdict(summary):
     """Empfehlung in einem Satz: good | warn | bad plus Begründungen."""
     cfg = summary.get("config") or {}
+    w, api = words(cfg), cfg.get("kind") == "api"
     users, target = capacity(summary).get("users"), cfg.get("target_users") or 0
     rank = {"good": 0, "warn": 1, "bad": 2}
     st, reasons = "good", []
@@ -363,43 +501,49 @@ def verdict(summary):
         return fmt(lt.round_users(v), 0)
 
     tested = (summary.get("ramp") or {}).get("steps") or (summary.get("rate") or {}).get("stages")
+    if api:
+        have, what = "Schafft", "Anfragen pro Minute"
+        too_slow = "Schon bei wenigen gleichzeitigen Anfragen antwortet die API langsamer als gewünscht."
+    else:
+        have, what = "Reicht für", "Besucher gleichzeitig"
+        too_slow = "Schon bei wenigen Besuchern lädt die Seite langsamer als gewünscht."
     if tested:
         if not users:
-            note("bad", "Schon bei wenigen Besuchern lädt die Seite langsamer als gewünscht.")
+            note("bad", too_slow)
         elif target:
             if users >= target:
-                note("good", f"Reicht für ≈ {n(users)} Besucher gleichzeitig – erwartet werden {target}.")
+                note("good", f"{have} ≈ {n(users)} {what} – erwartet werden {fmt(target, 0)}.")
             elif users >= 0.7 * target:
-                note("warn", f"Knapp: reicht für ≈ {n(users)} Besucher gleichzeitig, erwartet werden {target}.")
+                note("warn", f"Knapp: {have.lower()} ≈ {n(users)} {what}, erwartet werden {fmt(target, 0)}.")
             else:
-                note("bad", f"Reicht nur für ≈ {n(users)} Besucher gleichzeitig, erwartet werden {target}.")
+                note("bad", f"{have} nur ≈ {n(users)} {what}, erwartet werden {fmt(target, 0)}.")
         else:
-            note("good", f"Reicht für ≈ {n(users)} Besucher gleichzeitig.")
+            note("good", f"{have} ≈ {n(users)} {what}.")
     spike = summary.get("spike")
     if spike:
         if spike.get("crashed"):
-            note("bad", "Beim großen Ansturm war die Website nicht mehr erreichbar.")
+            note("bad", f"Beim großen Ansturm war {w['subj']} nicht mehr erreichbar.")
         elif spike["burst"]["error_rate"] > 0:
             note("warn", f"Beim großen Ansturm bekamen {fmt(spike['burst']['error_rate'] * 100, 0)} % "
-                         "der Besucher eine Fehlerseite.")
+                         f"der {w['units']} {w['fail']}.")
         elif spike.get("recovered") is False:
-            note("warn", "Nach dem großen Ansturm blieb die Website langsamer als vorher.")
+            note("warn", f"Nach dem großen Ansturm blieb {w['subj']} langsamer als vorher.")
         else:
-            note("good", f"Den großen Ansturm ({spike['size']} Besucher im selben Augenblick) hat sie "
+            note("good", f"Den großen Ansturm ({spike['size']} {w['units']} im selben Augenblick) hat sie "
                          "ohne Fehler überstanden.")
     deg = (summary.get("soak") or {}).get("degradation") or {}
     soak = summary.get("soak")
     if soak and soak["total"]["error_rate"] > 0:
-        note("warn", f"Unter Dauerlast gab es Fehler ({fmt(soak['total']['error_rate'] * 100, 1)} % der Aufrufe).")
+        note("warn", f"Unter Dauerlast gab es Fehler ({fmt(soak['total']['error_rate'] * 100, 1)} % der {w['events']}).")
     elif deg.get("ttft_change_pct") is not None and deg["ttft_change_pct"] > 25:
-        note("warn", f"Unter Dauerlast wird die Seite langsamer (+{fmt(deg['ttft_change_pct'], 0)} % Ladezeit).")
+        note("warn", f"Unter Dauerlast wird {w['subj']} langsamer (+{fmt(deg['ttft_change_pct'], 0)} % {w['time']}).")
     elif soak:
-        note("good", f"Unter Dauerlast ({lt_mins(soak['minutes'])}) bleibt die Seite gleich schnell.")
+        note("good", f"Unter Dauerlast ({lt_mins(soak['minutes'])}) bleibt {w['subj']} gleich schnell.")
     if (summary.get("quality") or {}).get("overall") == "niedrig":
         note("warn", "Die Messung selbst war nicht ganz sauber – Test wiederholen, bevor entschieden wird.")
-    headline = {"good": "Die Website hält dem Andrang stand.",
-                "warn": "Die Website hält stand – mit Einschränkungen.",
-                "bad": "Die Website ist dem Andrang so nicht gewachsen."}[st]
+    headline = {"good": f"{w['subject']} hält {w['stand']} stand.",
+                "warn": f"{w['subject']} hält stand – mit Einschränkungen.",
+                "bad": f"{w['subject']} ist {w['stand']} so nicht gewachsen."}[st]
     if not tested:
         headline, st = "Für ein Urteil fehlen die Lasttests.", "warn"
     return {"status": st, "headline": headline, "reasons": reasons}
@@ -413,6 +557,7 @@ def assess_quality(summary):
     """Prüft die Messung selbst – gleiche Idee und gleiche Grenzwerte wie beim KI-Server-Test.
     Jeder Punkt: Ampel (good/warn/bad), kurzer Titel, Messwert und eine Erklärung."""
     items = []
+    w = words(summary.get("config"))
     steps = (summary.get("ramp") or {}).get("steps", [])
     stages = (summary.get("rate") or {}).get("stages", [])
 
@@ -421,27 +566,27 @@ def assess_quality(summary):
 
     lags = [(f"{s['concurrency']} gleichzeitig", s["client_lag_ms"]) for s in steps
             if s.get("client_lag_ms") is not None]
-    lags += [(f"{fmt(s['rate'] * 60, 0)} Aufrufen/min", s["client_lag_ms"]) for s in stages
+    lags += [(f"{fmt(s['rate'] * 60, 0)} {w['events']}/min", s["client_lag_ms"]) for s in stages
              if s.get("client_lag_ms") is not None]
     if lags:
         where, worst = max(lags, key=lambda x: x[1])
         if worst < 30:
             add("good", "Kam der Messrechner hinterher?", f"ja (max. {fmt(worst, 0)} ms Verzug)",
-                "Der Rechner, der die Besucher spielt, war nie überlastet. Er misst also sauber.")
+                f"Der Rechner, der die {w['units']} spielt, war nie überlastet. Er misst also sauber.")
         elif worst < 150:
             add("warn", "Kam der Messrechner hinterher?", f"knapp ({fmt(worst, 0)} ms bei {where})",
-                "Bei vielen gleichzeitigen Besuchern hatte der Messrechner viel zu tun. Die Ladezeiten "
+                f"Bei vielen gleichzeitigen {w['units']}n hatte der Messrechner viel zu tun. Die {w['time']}en "
                 "auf den höchsten Stufen könnten etwas zu hoch sein.")
         else:
             add("bad", "Kam der Messrechner hinterher?", f"nein ({fmt(worst, 0)} ms bei {where})",
                 "Der Messrechner war überlastet. Die Werte auf den höchsten Stufen sind zu schlecht – "
-                "die Website kann mehr. Besser von einem stärkeren Rechner testen.")
+                f"{w['subj']} kann mehr. Besser von einem stärkeren Rechner testen.")
 
     lates = [s["send_late_ms"] for s in stages if s.get("send_late_ms") is not None]
     if lates:
         worst = max(lates)
         st = "good" if worst < 50 else "warn" if worst < 250 else "bad"
-        add(st, "Kamen die zufälligen Besucher pünktlich?", f"max. {fmt(worst, 0)} ms zu spät",
+        add(st, f"Kamen die zufälligen {w['units']} pünktlich?", f"max. {fmt(worst, 0)} ms zu spät",
             {"good": "Beim Test „Echter Andrang“ ging jeder Aufruf zum geplanten Zeitpunkt los.",
              "warn": "Einige Aufrufe gingen etwas verspätet los. Die tatsächliche Menge pro Minute war "
                      "dadurch leicht kleiner als geplant.",
@@ -478,7 +623,13 @@ class WebStressTest:
         if args.seed is None:
             args.seed = random.randrange(1, 2 ** 31)
         self.arrivals = random.Random(args.seed + 1)
-        self.summary = {"meta": {"local_monitor": False}, "config": dict(vars(args))}
+        # Kopfzeilen-Werte und Body enthalten oft Zugangsdaten – ins Ergebnis kommen nur Namen und Größe.
+        config = {k: v for k, v in vars(args).items() if k not in ("headers", "body")}
+        if args.kind == "api":
+            config["header_names"] = sorted(args.headers)
+            config["body_bytes"] = len(args.body.encode("utf-8"))
+        self.summary = {"meta": {"local_monitor": False}, "config": config}
+        self.w = words(config)
         self.mon = lt.Monitor(args.monitor_interval, None, local=False)
         self.server_down = False
         self.on_update = None
@@ -532,14 +683,15 @@ class WebStressTest:
         self.notify()
 
     async def preflight(self, client):
-        log("Vorbereitung: Website erreichbar?")
+        log(f"Vorbereitung: {self.w['subject'].split()[1]} erreichbar?")
         self.summary["meta"].update({"started": dt.datetime.now().isoformat(timespec="seconds"),
                                      "host": platform.node(),
                                      "server_host": urlparse(self.a.base_url).hostname})
         info = await client.prepare()
         self.summary["prechecks"] = info
-        log(f"  Erreichbar · erste Antwort nach {fmt(info['rtt_ms'], 0)} ms · "
-            f"{info['assets']} Dateien gehören zur Seite")
+        log(f"  Erreichbar · erste Antwort nach {fmt(info['rtt_ms'], 0)} ms"
+            + (f" · {info['assets']} Dateien gehören zur Seite" if self.a.kind == "web"
+               else f" · {self.a.method} {urlparse(self.a.base_url).path or '/'} → Status {info['status']}"))
         if info["final_url"].rstrip("/") != self.a.base_url.rstrip("/"):
             log(f"  Weitergeleitet nach {info['final_url']}")
         self.notify()
@@ -554,7 +706,7 @@ class WebStressTest:
         log("━━ 1/5 Einer allein ━━")
         s = await self._alone(client, "baseline", self.a.baseline_requests)
         self.summary["baseline"] = s
-        log(f"  Erste Antwort {fmt(s['ttft_p50'], 3)}s · Seite geladen nach {fmt(s['e2e_p50'], 2)}s "
+        log(f"  Erste Antwort {fmt(s['ttft_p50'], 3)}s · {self.w['time']} {fmt(s['e2e_p50'], 2)}s "
             f"· Fehler {s['errors']}")
 
     def _break_reason(self, s):
@@ -609,7 +761,7 @@ class WebStressTest:
         return sorted({round(top * f, 3) for f in (0.5, 0.8, 1.0, 1.2)} - {0})
 
     async def rate_test(self, client):
-        log("━━ 3/5 Echter Andrang (Besucher kommen zufällig) ━━")
+        log(f"━━ 3/5 Echter Andrang ({self.w['units']} kommen zufällig) ━━")
         a = self.a
         rates = self._rates()
         if not rates:
@@ -661,7 +813,7 @@ class WebStressTest:
         self.mon.phase = "spike_idle"
         await asyncio.sleep(self.a.spike_idle)
         self.mon.phase = "spike"
-        log(f"  {n} Besucher auf einmal …")
+        log(f"  {n} {self.w['units']} auf einmal …")
         t0 = time.perf_counter()
         res, wall = await lt.run_batch(client, self.job, n, n)
         s = summarize(res, wall)
@@ -723,14 +875,14 @@ class WebStressTest:
         self.summary["control"] = {"s": s,
                                    "tps_diff_pct": (b / c - 1) * 100 if b and c else None,
                                    "ttft_diff_pct": (c / b - 1) * 100 if b and c else None}
-        log(f"  Seite geladen nach {fmt(c, 2)}s (Anfang: {fmt(b, 2)}s)")
+        log(f"  {self.w['time']} {fmt(c, 2)}s (Anfang: {fmt(b, 2)}s)")
 
     async def run(self):
         self.mon.start()
         lag_task = asyncio.create_task(self.lag_watch())
         tests = [t.strip() for t in self.a.tests.split(",")]
         try:
-            async with WebClient(self.a) as client:
+            async with (ApiClient if self.a.kind == "api" else WebClient)(self.a) as client:
                 await self.preflight(client)
                 plan = [("baseline", self.baseline), ("ramp", self.ramp), ("rate", self.rate_test),
                         ("spike", self.spike), ("soak", self.soak), ("control", self.control)]

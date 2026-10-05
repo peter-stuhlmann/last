@@ -1,6 +1,6 @@
 # LLM-Härtetest
 
-Lasttest für OpenAI-kompatible Modellserver (vLLM, SGLang, llama.cpp, Ollama) und für Websites, mit Weboberfläche
+Lasttest für OpenAI-kompatible Modellserver (vLLM, SGLang, llama.cpp, Ollama), Websites und HTTP-APIs, mit Weboberfläche
 („LAST“, Next.js) und PowerPoint-Bericht.
 
 ## Mit Docker (Windows, macOS, Linux – ohne Python-Installation)
@@ -95,7 +95,25 @@ die Bilder, Styles und Skripte derselben Website (ohne Cache, mit eigenen Verbin
   sonst sperrt deren Schutz den Test (oder euch) aus.
 - Tests des Website-Moduls: `docker run --rm -v "$PWD":/src -w /src llm-stresstest python -m unittest discover -s tests`
 
-## Hinweise
+## HTTP-APIs testen
+
+Unter „Was wird getestet?“ **HTTP-API** wählen, Adresse des Endpunkts eintragen, Methode (GET, POST, PUT,
+PATCH, DELETE) und bei Bedarf unter „Weitere Einstellungen“ Kopfzeilen („Name: Wert“ je Zeile, z. B. für die
+Anmeldung) und einen Body. Jede simulierte Anfrage ist genau diese Anfrage; die Antwort gilt als richtig,
+wenn der Status zur Erwartung passt (Standard „2xx“).
+
+| Messwert | Bedeutung |
+|---|---|
+| Antwortzeit | bis die Antwort vollständig da ist – daran wird das Ziel gemessen (Standard: 0,5 s) |
+| Erste Antwort | bis der Server die ersten Daten schickt |
+| Anfragen pro Minute | höchste zufällig verteilte Last, bei der Antwortzeit und Fehlerquote im Ziel bleiben |
+
+- Dieselben Schritte und Berichte wie beim Website-Test; die simulierten Aufrufer halten ihre
+  Verbindungen offen (Keep-Alive), wie Programme es tun. Weiterleitungen werden nicht verfolgt.
+- **Kopfzeilen-Werte und Body werden nirgends gespeichert** – nicht im Browser, nicht im Ergebnis, nicht im
+  Bericht. Dort stehen nur die Namen der Kopfzeilen und die Größe des Bodys.
+- **Schreibende Methoden verändern Daten** – hunderte Male pro Minute. Nur gegen eine Testumgebung richten.
+- Nur eigene APIs testen; der Start verlangt dieselbe Bestätigung wie beim Website-Test.
 
 - **Systemwerte vom Spark (KV-Cache, Warteschlange)** kommen über `/metrics` des Modellservers
   (bei vLLM und SGLang standardmäßig an). GPU-Temperatur/Takt des Spark lassen sich aus der
@@ -111,8 +129,8 @@ die Bilder, Styles und Skripte derselben Website (ohne Cache, mit eigenen Verbin
 | `web/` | die Weboberfläche „LAST“ (Next.js, Tailwind) – wird mit Docker gestartet |
 | `stresstest_web.py` | Python-Backend: startet Tests, liefert Ergebnisse und Berichte |
 | `stresstest_ui.html` | alte, einfache Oberfläche – nur noch beim Start ohne Docker (`python stresstest_web.py`) |
-| `web_stresstest.py` | Lasttest für Websites (nutzt die Lastgeneratoren aus `llm_stresstest.py`) |
-| `report_web.py` | PowerPoint, PDF und Vergleichsbericht für Website-Läufe |
+| `web_stresstest.py` | Lasttest für Websites und HTTP-APIs (nutzt die Lastgeneratoren aus `llm_stresstest.py`) |
+| `report_web.py` | PowerPoint, PDF und Vergleichsbericht für Website- und API-Läufe |
 | `tests/` | Tests für den Website-Lasttest und seine Berichte |
 | `llm_stresstest.py` | Testlogik und Prüfung der Messqualität (auch allein nutzbar) |
 | `report_pptx.py` | PowerPoint-Bericht in einfacher Sprache |

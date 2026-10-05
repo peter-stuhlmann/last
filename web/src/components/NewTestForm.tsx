@@ -2,9 +2,9 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
-import { FALLBACK_WEB } from "@/lib/profile";
+import { FALLBACK_API, FALLBACK_WEB } from "@/lib/profile";
 import type { ModelInfo, RunKind } from "@/lib/types";
-import { parseBaseUrl } from "@/lib/validation";
+import { METHODS, parseBaseUrl, parseHeaderLines } from "@/lib/validation";
 
 type Values = Record<string, unknown>;
 type Profile = "quick" | "full";
@@ -13,9 +13,25 @@ type Profile = "quick" | "full";
 // und die Bestätigung, dass die Website getestet werden darf (die gilt nur für diesen einen Start).
 const STORAGE_KEY = "last.form.v1";
 const REMEMBERED = [
-  "base_url", "model", "target_users", "slo_ttft", "slo_user_tps",
-  "hw_price", "server_watts", "power_price", "cloud_price_in", "cloud_price_out",
-  "web_url", "web_users", "slo_load", "think_time",
+  "base_url",
+  "model",
+  "target_users",
+  "slo_ttft",
+  "slo_user_tps",
+  "hw_price",
+  "server_watts",
+  "power_price",
+  "cloud_price_in",
+  "cloud_price_out",
+  "web_url",
+  "web_users",
+  "slo_load",
+  "think_time",
+  "api_url",
+  "api_rpm",
+  "api_slo",
+  "expect_status",
+  "method",
 ] as const;
 
 const COST_FIELDS = [
@@ -26,7 +42,9 @@ const COST_FIELDS = [
   { name: "cloud_price_out", label: "Cloud: Ausgabe", unit: "€ je 1 Mio. Tokens" },
 ] as const;
 
-const TARGETS: Record<RunKind, { name: string; label: string; unit: string; step: string; min: string; placeholder: string }[]> = {
+type Target = { name: string; label: string; unit: string; step: string; min: string; placeholder: string; text?: boolean };
+
+const TARGETS: Record<RunKind, Target[]> = {
   llm: [
     { name: "target_users", label: "Nutzer im Team", unit: "Personen", step: "1", min: "0", placeholder: "?" },
     { name: "slo_ttft", label: "Warten höchstens", unit: "Sekunden", step: "0.1", min: "0.1", placeholder: "2" },
@@ -37,32 +55,37 @@ const TARGETS: Record<RunKind, { name: string; label: string; unit: string; step
     { name: "slo_load", label: "Seite geladen nach höchstens", unit: "Sekunden", step: "0.1", min: "0.1", placeholder: "3" },
     { name: "think_time", label: "Pause zwischen zwei Klicks", unit: "Sekunden", step: "1", min: "1", placeholder: "30" },
   ],
+  api: [
+    { name: "api_rpm", label: "Anfragen pro Minute", unit: "erwartet", step: "1", min: "0", placeholder: "?" },
+    { name: "api_slo", label: "Antwort nach höchstens", unit: "Sekunden", step: "0.05", min: "0.05", placeholder: "0,5" },
+    { name: "expect_status", label: "Erwarteter Status", unit: "z. B. 2xx", step: "1", min: "0", placeholder: "2xx", text: true },
+  ],
 };
 
 const KINDS: { value: RunKind | "api"; icon: string; label: string; soon: boolean }[] = [
   { value: "llm", icon: "✦", label: "KI-Server", soon: false },
-  { value: "api", icon: "{ }", label: "HTTP-API", soon: true },
+  { value: "api", icon: "{ }", label: "HTTP-API", soon: false },
   { value: "web", icon: "▦", label: "Website", soon: false },
 ];
 
-type Check =
-  | { state: "idle" | "busy" }
-  | { state: "ok"; models: ModelInfo[] }
-  | { state: "fail"; message: string };
+type Check = { state: "idle" | "busy" } | { state: "ok"; models: ModelInfo[] } | { state: "fail"; message: string };
 
 function text(v: unknown): string {
   return v == null || v === 0 ? "" : String(v);
 }
 
 function levelsInfo(levels: unknown): string {
-  const list = String(levels ?? "").split(",").map(Number).filter(Boolean);
+  const list = String(levels ?? "")
+    .split(",")
+    .map(Number)
+    .filter(Boolean);
   return list.length ? `${list.length} Stufen · bis ${Math.max(...list)} gleichzeitig` : "";
 }
 
 function minutes(v: Values, kind: RunKind): string {
-  // Faustregel: Schnell ≈ 15 min, Gründlich ≈ 50 min; Websites brauchen keinen Test mit langen Texten
+  // Faustregel: Schnell ≈ 15 min, Gründlich ≈ 50 min; Websites und APIs haben keinen Test mit langen Texten
   const quick = Number(v.soak_minutes) <= 5;
-  return kind === "web" ? (quick ? "~10 min" : "~35 min") : quick ? "~15 min" : "~50 min";
+  return kind === "llm" ? (quick ? "~15 min" : "~50 min") : quick ? "~10 min" : "~35 min";
 }
 
 /** Werte des gewählten Profils: „Schnell“ kommt fertig vom Backend, „Gründlich“ sind die Standardwerte. */
@@ -74,10 +97,12 @@ export function NewTestForm({
   defaults,
   quick,
   web = FALLBACK_WEB,
+  api = FALLBACK_API,
 }: {
   defaults: Values;
   quick: Values;
   web?: { defaults: Values; quick: Values };
+  api?: { defaults: Values; quick: Values };
 }) {
   const router = useRouter();
   const urlRef = useRef<HTMLInputElement>(null);
@@ -96,6 +121,14 @@ export function NewTestForm({
     web_users: "",
     slo_load: text(web.defaults.slo_load ?? 3),
     think_time: text(web.defaults.think_time ?? 30),
+    api_url: "",
+    api_rpm: "",
+    api_slo: text(api.defaults.slo_load ?? 0.5),
+    expect_status: "2xx",
+    method: "GET",
+    // Kopfzeilen und Body werden bewusst nicht gemerkt – sie enthalten oft Zugangsdaten
+    headers_text: "",
+    body_text: "",
   }));
   const [profile, setProfile] = useState<Profile>("quick");
   const [includeAssets, setIncludeAssets] = useState(true);
@@ -103,11 +136,14 @@ export function NewTestForm({
   const [urlError, setUrlError] = useState<string | null>(null);
   const [confirmError, setConfirmError] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [check, setCheck] = useState<Check>({ state: "idle" });
 
   const isWeb = kind === "web";
-  const urlField = isWeb ? "web_url" : "base_url";
+  const isApi = kind === "api";
+  const urlField = isApi ? "api_url" : isWeb ? "web_url" : "base_url";
+  const writes = isApi && form.method !== "GET";
 
   // Gemerkte Eingaben erst nach dem ersten Rendern einsetzen, damit Server- und Browser-HTML übereinstimmen.
   useEffect(() => {
@@ -118,7 +154,7 @@ export function NewTestForm({
       // eslint-disable-next-line react-hooks/set-state-in-effect -- einmalige Übernahme aus localStorage
       setForm((f) => ({ ...f, ...Object.fromEntries(Object.entries(rest).filter(([, v]) => typeof v === "string" && v)) }));
       if (savedProfile === "full" || savedProfile === "quick") setProfile(savedProfile);
-      if (savedKind === "web" || savedKind === "llm") setKind(savedKind);
+      if (savedKind === "web" || savedKind === "llm" || savedKind === "api") setKind(savedKind);
     } catch {
       // Gesperrter oder kaputter Speicher: einfach mit den Standardwerten weitermachen.
     }
@@ -137,15 +173,18 @@ export function NewTestForm({
     setUrlError(null);
     setConfirmError(false);
     setServerError(null);
+    setFormError(null);
   }
 
   function validUrl(): string | null {
     const url = parseBaseUrl(form[urlField]);
     if (!url) {
       setUrlError(
-        isWeb
-          ? "Die Adresse muss mit http:// oder https:// beginnen, zum Beispiel https://www.example.de/"
-          : "Die Adresse muss mit http:// oder https:// beginnen, zum Beispiel http://spark.buero.lan:8000/v1",
+        isApi
+          ? "Die Adresse muss mit http:// oder https:// beginnen, zum Beispiel https://api.example.de/v1/items"
+          : isWeb
+            ? "Die Adresse muss mit http:// oder https:// beginnen, zum Beispiel https://www.example.de/"
+            : "Die Adresse muss mit http:// oder https:// beginnen, zum Beispiel http://spark.buero.lan:8000/v1",
       );
       urlRef.current?.focus();
     }
@@ -179,38 +218,62 @@ export function NewTestForm({
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setServerError(null);
+    setFormError(null);
     setConfirmError(false);
     const base_url = validUrl();
     if (!base_url) return;
-    if (isWeb && !confirmed) {
+    if ((isWeb || isApi) && !confirmed) {
       setConfirmError(true);
       confirmRef.current?.focus();
       return;
     }
 
     const number = (name: string) => (form[name] === "" ? undefined : Number(form[name].replace(",", ".")));
-    const payload = isWeb
+    let headers: { name: string; value: string }[] = [];
+    if (isApi) {
+      try {
+        headers = parseHeaderLines(form.headers_text);
+      } catch (err) {
+        setFormError(err instanceof Error ? err.message : "Kopfzeilen prüfen");
+        return;
+      }
+    }
+    const payload = isApi
       ? {
-          ...profileValues(profile, web.quick, web.defaults),
-          kind: "web",
+          ...profileValues(profile, api.quick, api.defaults),
+          kind: "api",
           base_url,
+          method: form.method,
+          headers,
+          body: writes ? form.body_text : "",
+          expect_status: form.expect_status.trim() || "2xx",
           confirm_owner: true,
-          include_assets: includeAssets,
-          tests: String(web.defaults.tests ?? "baseline,ramp,rate,spike,soak"),
-          target_users: number("web_users") ?? 0,
-          slo_load: number("slo_load"),
-          think_time: number("think_time"),
+          tests: String(api.defaults.tests ?? "baseline,ramp,rate,spike,soak"),
+          target_users: number("api_rpm") ?? 0,
+          slo_load: number("api_slo"),
         }
-      : {
-          ...profileValues(profile, quick, defaults),
-          base_url,
-          model: form.model || undefined,
-          api_key: form.api_key || undefined,
-          target_users: number("target_users") ?? 0,
-          slo_ttft: number("slo_ttft"),
-          slo_user_tps: number("slo_user_tps"),
-          ...Object.fromEntries(COST_FIELDS.map((f) => [f.name, number(f.name)])),
-        };
+      : isWeb
+        ? {
+            ...profileValues(profile, web.quick, web.defaults),
+            kind: "web",
+            base_url,
+            confirm_owner: true,
+            include_assets: includeAssets,
+            tests: String(web.defaults.tests ?? "baseline,ramp,rate,spike,soak"),
+            target_users: number("web_users") ?? 0,
+            slo_load: number("slo_load"),
+            think_time: number("think_time"),
+          }
+        : {
+            ...profileValues(profile, quick, defaults),
+            base_url,
+            model: form.model || undefined,
+            api_key: form.api_key || undefined,
+            target_users: number("target_users") ?? 0,
+            slo_ttft: number("slo_ttft"),
+            slo_user_tps: number("slo_user_tps"),
+            ...Object.fromEntries(COST_FIELDS.map((f) => [f.name, number(f.name)])),
+          };
 
     setBusy(true);
     const { ok, data } = await post("/api/start", payload);
@@ -228,12 +291,13 @@ export function NewTestForm({
     router.push("/lauf");
   }
 
-  const source = isWeb ? web : { defaults, quick };
+  const source = isApi ? api : isWeb ? web : { defaults, quick };
   const profiles: { key: Profile; title: string; values: Values; hint: string }[] = [
     { key: "quick", title: "Schnell", values: source.quick, hint: "für einen ersten Eindruck" },
     { key: "full", title: "Gründlich", values: source.defaults, hint: "für die Entscheidung" },
   ];
-  const urlLabel = isWeb ? "Adresse der Website" : "Adresse des Servers";
+  const urlLabel = isApi ? "Adresse der API" : isWeb ? "Adresse der Website" : "Adresse des Servers";
+  const thing = isApi ? "API" : "Website";
   const legend = "mb-2 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-white/65";
   const focusRing =
     "has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-cyan";
@@ -249,6 +313,26 @@ export function NewTestForm({
               </span>
               <span className="sr-only">{urlLabel}</span>
             </label>
+            {isApi && (
+              <>
+                <label htmlFor="method" className="sr-only">
+                  Methode
+                </label>
+                <select
+                  id="method"
+                  name="method"
+                  value={form.method}
+                  onChange={set("method")}
+                  className="rounded-lg border border-white/15 bg-white/[0.06] px-2 py-1.5 font-mono text-sm font-bold"
+                >
+                  {METHODS.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </>
+            )}
             <input
               ref={urlRef}
               id="base_url"
@@ -259,14 +343,14 @@ export function NewTestForm({
               autoCapitalize="none"
               spellCheck={false}
               required
-              placeholder={isWeb ? "https://www.example.de/" : "http://spark.buero.lan:8000/v1"}
+              placeholder={isApi ? "https://api.example.de/v1/items" : isWeb ? "https://www.example.de/" : "http://spark.buero.lan:8000/v1"}
               value={form[urlField]}
               onChange={set(urlField)}
               aria-invalid={urlError ? true : undefined}
               aria-describedby="base_url-hilfe base_url-status"
               className="min-w-0 flex-1 basis-56 bg-transparent py-2 font-mono text-base font-medium caret-cyan placeholder:text-white/45 focus:outline-none"
             />
-            {!isWeb && (
+            {!isWeb && !isApi && (
               <button
                 type="button"
                 onClick={checkConnection}
@@ -280,13 +364,13 @@ export function NewTestForm({
           </div>
         </div>
         <div id="base_url-status" role="status" className="mt-2 min-h-5 font-mono text-xs">
-          {!isWeb && check.state === "ok" && (
+          {!isWeb && !isApi && check.state === "ok" && (
             <span className="text-mint-soft">
               ✓ erreichbar · {check.models[0]?.id ?? "kein Modell gemeldet"}
               {check.models.length > 1 ? ` (+${check.models.length - 1} weitere)` : ""}
             </span>
           )}
-          {!isWeb && check.state === "fail" && <span className="text-rose-soft">✗ {check.message}</span>}
+          {!isWeb && !isApi && check.state === "fail" && <span className="text-rose-soft">✗ {check.message}</span>}
         </div>
         {urlError && (
           <p role="alert" className="mt-1 text-sm text-rose-soft">
@@ -294,9 +378,11 @@ export function NewTestForm({
           </p>
         )}
         <p id="base_url-hilfe" className="sr-only">
-          {isWeb
-            ? "Adresse der Seite, die die simulierten Besucher aufrufen, beginnend mit http:// oder https://. Enter startet den Test."
-            : "Adresse eines OpenAI-kompatiblen Servers, beginnend mit http:// oder https://. Enter startet den Test."}
+          {isApi
+            ? "Adresse des Endpunkts, den die simulierten Aufrufer ansprechen, beginnend mit http:// oder https://. Enter startet den Test."
+            : isWeb
+              ? "Adresse der Seite, die die simulierten Besucher aufrufen, beginnend mit http:// oder https://. Enter startet den Test."
+              : "Adresse eines OpenAI-kompatiblen Servers, beginnend mit http:// oder https://. Enter startet den Test."}
         </p>
       </div>
 
@@ -322,14 +408,12 @@ export function NewTestForm({
                   value={t.value}
                   checked={on}
                   disabled={t.soon}
-                  onChange={() => t.value !== "api" && chooseKind(t.value)}
+                  onChange={() => chooseKind(t.value as RunKind)}
                   className="sr-only"
                 />
                 <span aria-hidden="true">{t.icon}</span>
                 {t.label}
-                {t.soon && (
-                  <span className="ml-1 font-mono text-[9px] font-bold uppercase tracking-[0.12em] text-amber-soft">bald</span>
-                )}
+                {t.soon && <span className="ml-1 font-mono text-[9px] font-bold uppercase tracking-[0.12em] text-amber-soft">bald</span>}
               </label>
             );
           })}
@@ -350,14 +434,7 @@ export function NewTestForm({
                     : "border-white/10 bg-white/[0.035]"
                 }`}
               >
-                <input
-                  type="radio"
-                  name="profile"
-                  value={p.key}
-                  checked={on}
-                  onChange={() => setProfile(p.key)}
-                  className="sr-only"
-                />
+                <input type="radio" name="profile" value={p.key} checked={on} onChange={() => setProfile(p.key)} className="sr-only" />
                 <span className={`block font-display text-lg font-bold ${on ? "" : "text-white/75"}`}>{p.title}</span>
                 <span className="mt-1 block text-xs font-medium text-white/70">
                   {minutes(p.values, kind)} · {p.hint}
@@ -369,7 +446,14 @@ export function NewTestForm({
                   {on ? (
                     <>
                       <circle cx="11" cy="11" r="10.5" fill="#7C5CFF" stroke="#C4B5FD" />
-                      <path d="M6.5 11.2l3 3 6-6.1" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                      <path
+                        d="M6.5 11.2l3 3 6-6.1"
+                        fill="none"
+                        stroke="#fff"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
                     </>
                   ) : (
                     <circle cx="11" cy="11" r="10" fill="none" stroke="#fff" strokeOpacity="0.35" strokeWidth="1.5" />
@@ -393,10 +477,12 @@ export function NewTestForm({
                 <input
                   id={t.name}
                   name={t.name}
-                  type="number"
-                  inputMode="decimal"
-                  min={t.min}
-                  step={t.step}
+                  type={t.text ? "text" : "number"}
+                  inputMode={t.text ? "text" : "decimal"}
+                  min={t.text ? undefined : t.min}
+                  step={t.text ? undefined : t.step}
+                  maxLength={t.text ? 3 : undefined}
+                  autoComplete="off"
                   placeholder={t.placeholder}
                   value={form[t.name]}
                   onChange={set(t.name)}
@@ -419,7 +505,52 @@ export function NewTestForm({
           </span>
           Weitere Einstellungen
         </summary>
-        {isWeb ? (
+        {isApi ? (
+          <div role="group" aria-labelledby={moreId} className="grid gap-4 px-5 pt-1">
+            <div>
+              <label htmlFor="headers_text" className="mb-1 block text-xs font-medium text-white/70">
+                Kopfzeilen
+              </label>
+              <textarea
+                id="headers_text"
+                name="headers_text"
+                rows={3}
+                autoComplete="off"
+                spellCheck={false}
+                placeholder={"Authorization: Bearer …\nX-Mandant: 42"}
+                value={form.headers_text}
+                onChange={set("headers_text")}
+                aria-describedby="headers_text-hilfe"
+                className="field font-mono text-[13px]"
+              />
+              <p id="headers_text-hilfe" className="mt-1 text-xs text-white/60">
+                Eine je Zeile als „Name: Wert“. Werden nicht gespeichert und erscheinen nicht im Ergebnis.
+              </p>
+            </div>
+            {writes && (
+              <div>
+                <label htmlFor="body_text" className="mb-1 block text-xs font-medium text-white/70">
+                  Body
+                </label>
+                <textarea
+                  id="body_text"
+                  name="body_text"
+                  rows={4}
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder='{"name": "Beispiel"}'
+                  value={form.body_text}
+                  onChange={set("body_text")}
+                  aria-describedby="body_text-hilfe"
+                  className="field font-mono text-[13px]"
+                />
+                <p id="body_text-hilfe" className="mt-1 text-xs text-white/60">
+                  Wird mit jeder Anfrage unverändert gesendet (ohne eigene Kopfzeile als application/json). Wird nicht gespeichert.
+                </p>
+              </div>
+            )}
+          </div>
+        ) : isWeb ? (
           <div role="group" aria-labelledby={moreId} className="px-5 pt-1">
             <label className="flex cursor-pointer items-start gap-3 text-sm text-white/85">
               <input
@@ -431,8 +562,8 @@ export function NewTestForm({
               <span>
                 Auch Bilder, Styles und Skripte der Seite laden
                 <span className="mt-0.5 block text-xs text-white/60">
-                  Wie ein Browser beim ersten Besuch. Ohne Haken wird nur das HTML geholt – das misst vor allem den Server
-                  selbst. Dateien von fremden Servern werden nie angefragt.
+                  Wie ein Browser beim ersten Besuch. Ohne Haken wird nur das HTML geholt – das misst vor allem den Server selbst. Dateien
+                  von fremden Servern werden nie angefragt.
                 </span>
               </span>
             </label>
@@ -454,9 +585,7 @@ export function NewTestForm({
                 onChange={set("model")}
                 className="field font-mono"
               />
-              <datalist id="modelle">
-                {check.state === "ok" && check.models.map((m) => <option key={m.id} value={m.id} />)}
-              </datalist>
+              <datalist id="modelle">{check.state === "ok" && check.models.map((m) => <option key={m.id} value={m.id} />)}</datalist>
             </div>
             <div>
               <label htmlFor="api_key" className="mb-1 block text-xs font-medium text-white/70">
@@ -507,8 +636,16 @@ export function NewTestForm({
       </details>
 
       <div>
-        {isWeb && (
-          <div className={`mb-4 rounded-xl border px-4 py-3 ${confirmError ? "border-rose/60 bg-rose/10" : "border-amber/35 bg-amber/[0.07]"}`}>
+        {writes && (
+          <p className="mb-4 rounded-xl border border-rose/45 bg-rose/10 px-4 py-3 text-sm text-rose-soft">
+            Jede Anfrage wird wirklich ausgeführt. Mit {form.method} verändert der Test Daten – hunderte Male pro Minute. Nur gegen eine
+            Testumgebung richten.
+          </p>
+        )}
+        {(isWeb || isApi) && (
+          <div
+            className={`mb-4 rounded-xl border px-4 py-3 ${confirmError ? "border-rose/60 bg-rose/10" : "border-amber/35 bg-amber/[0.07]"}`}
+          >
             <label className="flex cursor-pointer items-start gap-3 text-sm text-white/90">
               <input
                 ref={confirmRef}
@@ -522,22 +659,22 @@ export function NewTestForm({
                 aria-describedby="bestaetigung-hilfe"
                 className="mt-0.5 size-5 shrink-0 accent-violet"
               />
-              <span>Das ist unsere eigene Website – oder ich habe die Erlaubnis, sie zu testen.</span>
+              <span>Das ist unsere eigene {thing} – oder ich habe die Erlaubnis, sie zu testen.</span>
             </label>
             <p id="bestaetigung-hilfe" className="mt-1.5 pl-8 text-xs text-white/65">
-              Für fremde Websites sieht ein Lasttest aus wie ein Angriff und kann strafbar sein. Der Test gibt sich als
+              Für fremde {isApi ? "APIs" : "Websites"} sieht ein Lasttest aus wie ein Angriff und kann strafbar sein. Der Test gibt sich als
               „LAST-Lasttest“ zu erkennen.
             </p>
             {confirmError && (
               <p role="alert" className="mt-1.5 pl-8 text-sm text-rose-soft">
-                Bitte erst bestätigen, dass ihr diese Website testen dürft.
+                Bitte erst bestätigen, dass ihr diese {thing} testen dürft.
               </p>
             )}
           </div>
         )}
-        {serverError && (
+        {(serverError || formError) && (
           <p role="alert" className="mb-3 rounded-xl border border-rose/45 bg-rose/10 px-4 py-3 text-sm text-rose-soft">
-            {serverError}
+            {serverError ?? formError}
           </p>
         )}
         <button
@@ -546,13 +683,16 @@ export function NewTestForm({
           className="flex min-h-16 w-full items-center justify-center gap-3.5 rounded-2xl border border-white/25 bg-gradient-to-r from-violet via-[#6180ff] to-cyan font-display text-xl font-bold tracking-[-0.01em] shadow-[0_14px_40px_rgb(124_92_255/0.55),0_0_24px_rgb(34_211_238/0.35)] transition hover:brightness-110 disabled:cursor-wait disabled:opacity-70 [text-shadow:0_1px_2px_rgb(0_0_0/0.45)]"
         >
           {busy ? "Startet …" : "Test starten"}
-          <kbd aria-hidden="true" className="grid h-[26px] w-[30px] place-items-center rounded-[7px] border border-white/35 bg-white/20 font-sans text-[15px] font-normal">
+          <kbd
+            aria-hidden="true"
+            className="grid h-[26px] w-[30px] place-items-center rounded-[7px] border border-white/35 bg-white/20 font-sans text-[15px] font-normal"
+          >
             ↵
           </kbd>
         </button>
         <p className="mt-5 text-xs text-white/60">
-          {isWeb ? "Nur eigene Websites testen." : "Nur gegen eigene Server testen."} · Läuft im Hintergrund weiter – du kannst die
-          Seite schließen.
+          {isApi ? "Nur eigene APIs testen." : isWeb ? "Nur eigene Websites testen." : "Nur gegen eigene Server testen."} · Läuft im
+          Hintergrund weiter – du kannst die Seite schließen.
         </p>
       </div>
     </form>

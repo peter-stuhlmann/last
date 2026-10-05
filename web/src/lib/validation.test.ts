@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { modelsRequestSchema, parseBaseUrl, startSchema } from "./validation";
+import { modelsRequestSchema, parseBaseUrl, parseHeaderLines, startSchema } from "./validation";
 
 describe("parseBaseUrl", () => {
   it("akzeptiert http(s)-Adressen und entfernt den Schrägstrich am Ende", () => {
@@ -71,5 +71,41 @@ describe("startSchema für Websites", () => {
 
   it("braucht die Bestätigung beim KI-Server nicht", () => {
     expect(startSchema.safeParse({ base_url: "http://spark:8000/v1" }).success).toBe(true);
+  });
+});
+
+describe("startSchema für HTTP-APIs", () => {
+  const api = { kind: "api", base_url: "https://api.example/v1/items", confirm_owner: true };
+
+  it("nimmt Methode, Kopfzeilen, Body und erwarteten Status an", () => {
+    const r = startSchema.safeParse({
+      ...api, method: "POST", expect_status: "201", body: '{"a":1}', slo_load: 0.5,
+      headers: [{ name: "Authorization", value: "Bearer abc" }],
+    });
+    expect(r.success).toBe(true);
+    expect(r.data).toMatchObject({ kind: "api", method: "POST", expect_status: "201", headers: [{ name: "Authorization", value: "Bearer abc" }] });
+  });
+
+  it("lehnt gefährliche Kopfzeilen und falsche Werte ab", () => {
+    expect(startSchema.safeParse({ ...api, method: "TRACE" }).success).toBe(false);
+    expect(startSchema.safeParse({ ...api, headers: [{ name: "Host", value: "intern" }] }).success).toBe(false);
+    expect(startSchema.safeParse({ ...api, headers: [{ name: "X-A", value: "a\r\nX-B: b" }] }).success).toBe(false);
+    expect(startSchema.safeParse({ ...api, headers: [{ name: "X A", value: "a" }] }).success).toBe(false);
+    expect(startSchema.safeParse({ ...api, headers: Array.from({ length: 25 }, (_, i) => ({ name: `X-${i}`, value: "a" })) }).success).toBe(false);
+    expect(startSchema.safeParse({ ...api, body: "x".repeat(70_000) }).success).toBe(false);
+    expect(startSchema.safeParse({ ...api, expect_status: "alles" }).success).toBe(false);
+    expect(startSchema.safeParse({ ...api, confirm_owner: false }).success).toBe(false);
+  });
+});
+
+describe("parseHeaderLines", () => {
+  it("liest Kopfzeilen zeilenweise und überspringt Leerzeilen", () => {
+    expect(parseHeaderLines("Authorization: Bearer abc\n\nX-Mandant:  42 \n")).toEqual([
+      { name: "Authorization", value: "Bearer abc" },
+      { name: "X-Mandant", value: "42" },
+    ]);
+  });
+  it("meldet Zeilen ohne Doppelpunkt", () => {
+    expect(() => parseHeaderLines("kaputt")).toThrow(/Name: Wert/);
   });
 });

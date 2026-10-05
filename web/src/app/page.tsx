@@ -6,7 +6,7 @@ import { Sparkline } from "@/components/Sparkline";
 import { getDefaults, getRuns, getState, getSummary } from "@/lib/backend";
 import { capacityView, curvePoints, terms, verdictView } from "@/lib/derive";
 import { clock, hostLabel, nf, runLabel, secs } from "@/lib/format";
-import { FALLBACK_DEFAULTS, FALLBACK_QUICK, FALLBACK_WEB } from "@/lib/profile";
+import { FALLBACK_API, FALLBACK_DEFAULTS, FALLBACK_QUICK, FALLBACK_WEB } from "@/lib/profile";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +24,7 @@ export default async function Home() {
   const running = state?.state === "running";
   const cap = last ? capacityView(last.summary) : null;
   const verdict = last ? verdictView(last.summary) : null;
-  const lastIsWeb = last?.summary.config.kind === "web";
+  const lastIsWeb = last?.summary.config.kind === "web" || last?.summary.config.kind === "api";
   const best = (lastIsWeb ? last?.summary.baseline?.e2e_p50 : last?.summary.baseline?.ttft_p50) ?? null;
   const started = last?.summary.meta.started;
   const finished = last?.summary.meta.finished;
@@ -79,6 +79,7 @@ export default async function Home() {
             defaults={defaults?.defaults ?? FALLBACK_DEFAULTS}
             quick={defaults?.quick ?? FALLBACK_QUICK}
             web={defaults?.web ?? FALLBACK_WEB}
+            api={defaults?.api ?? FALLBACK_API}
           />
         </div>
 
@@ -92,7 +93,7 @@ export default async function Home() {
                   <span aria-hidden="true" className="text-mint">
                     ●
                   </span>{" "}
-                  {nf(cap.users, 0)} {last ? terms(last.summary.config).people : "Nutzer"} möglich
+                  {nf(cap.users, 0)} {last ? terms(last.summary.config).capacityUnit : "Nutzer"} möglich
                 </span>
               </p>
             )}
@@ -100,7 +101,7 @@ export default async function Home() {
               <p className="absolute bottom-[13%] left-[2%] rounded-[14px] border border-cyan/40 bg-[#0a0b14]/80 px-4 py-3 shadow-[0_12px_32px_rgb(34_211_238/0.3)] backdrop-blur-[20px]">
                 <span className="block font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-white/65">Bestwert</span>
                 <span className="mt-1 block font-display text-base font-bold">
-                  {secs(best)} {lastIsWeb ? "bis die Seite da ist" : "bis zum 1. Wort"}
+                  {secs(best)} {last?.summary.config.kind === "api" ? "bis die Antwort da ist" : lastIsWeb ? "bis die Seite da ist" : "bis zum 1. Wort"}
                 </span>
               </p>
             )}

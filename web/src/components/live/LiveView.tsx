@@ -182,9 +182,11 @@ function Forecast({ summary }: { summary: Summary }) {
       </p>
       <p className="text-sm font-medium text-white/75">{terms(summary.config).peopleLong}</p>
       <p className="mt-4 border-t border-white/10 pt-3.5 text-xs leading-[18px] text-white/70">
-        {summary.config.kind === "web"
-          ? `Wenn jeder Besucher etwa alle ${nf(summary.capacity.think_time, 0)} Sekunden eine Seite aufruft.`
-          : `Wenn jede Person etwa alle ${nf(summary.capacity.think_time, 0)} Sekunden fragt.`}{" "}
+        {summary.config.kind === "api"
+          ? "Bei zufällig verteilten Anfragen, so wie im Alltag."
+          : summary.config.kind === "web"
+            ? `Wenn jeder Besucher etwa alle ${nf(summary.capacity.think_time, 0)} Sekunden eine Seite aufruft.`
+            : `Wenn jede Person etwa alle ${nf(summary.capacity.think_time, 0)} Sekunden fragt.`}{" "}
         Wird genauer, je länger der Test läuft.
       </p>
       <p className="mt-2 font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-[#ccbfff]">
@@ -381,7 +383,7 @@ export function LiveView({ live, onStop }: { live: LiveState; onStop: () => void
   const timer = running ? stageTimer(summary, samples) : null;
   const activeIndex = steps.findIndex((s) => s.status === "active");
   const levels = summary.config.levels.split(",").map(Number).filter(Boolean);
-  const web = summary.config.kind === "web";
+  const web = summary.config.kind === "web" || summary.config.kind === "api";
   const t = terms(summary.config);
   const slo = sloSeconds(summary.config);
   const profileName = Number(summary.config.soak_minutes) <= 5 ? "Schnell" : "Gründlich";
@@ -479,7 +481,11 @@ export function LiveView({ live, onStop }: { live: LiveState; onStop: () => void
           <section aria-labelledby="kurve-h" className="card p-7">
             <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
               <h2 id="kurve-h" className="font-display text-xl font-bold tracking-[-0.01em]">
-                {web ? "Wie viel schafft sie, wenn mehr Besucher kommen?" : "Wie viel schafft er, wenn mehr Leute kommen?"}
+                {summary.config.kind === "api"
+                  ? "Wie viel schafft sie, wenn mehr Anfragen kommen?"
+                  : web
+                    ? "Wie viel schafft sie, wenn mehr Besucher kommen?"
+                    : "Wie viel schafft er, wenn mehr Leute kommen?"}
               </h2>
               <p className="flex gap-5 text-xs font-medium text-white/70">
                 <span>
