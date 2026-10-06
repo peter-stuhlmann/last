@@ -1,0 +1,7 @@
+# Einheitliche Zeilenenden im Repo (LF), egal ob Windows, macOS oder Linux.
+* text=auto eol=lf
+*.png binary
+*.woff2 binary
+*.pptx binary
+*.pdf binary
+*.ico binary

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Tests für den Website-Lasttest. Starten (im Projektordner):
 
     docker run --rm -v "$PWD":/src -w /src llm-stresstest python -m unittest discover -s tests -v

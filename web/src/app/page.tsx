@@ -66,7 +66,7 @@ export default async function Home() {
               </Link>
             </p>
           )}
-          <p className="eyebrow text-[#bfadff]">Lasttest · KI-Server, APIs &amp; Websites</p>
+          <p className="eyebrow text-[#bfadff]">Lasttest · KI-Server, APIs, Websites &amp; Abläufe</p>
           <h1 className="-ml-1 mt-3 font-display text-[44px] font-bold leading-[1.02] tracking-[-0.035em] sm:text-[72px]">
             Wie viel hält
             <br />
@@ -82,6 +82,7 @@ export default async function Home() {
             web={defaults?.web ?? FALLBACK_WEB}
             api={defaults?.api ?? FALLBACK_API}
             flow={defaults?.flow ?? FALLBACK_FLOW}
+            features={defaults?.features}
           />
         </div>
 
@@ -138,6 +139,10 @@ export default async function Home() {
             </section>
           )}
         </aside>
+        <p className="col-span-full mt-4 font-mono text-[11px] text-white/45">
+          LAST {state?.version ? `v${state.version}` : ""}
+          {state?.features && !state.features.flow ? " · Backend ohne Browser (Abläufe nicht verfügbar)" : ""}
+        </p>
       </main>
     </>
   );

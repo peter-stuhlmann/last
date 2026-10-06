@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Lasttest für Abläufe („Ablauf“): anmelden, Seite öffnen, etwas tun – zum Beispiel mit einem Chat reden.
 
@@ -21,9 +20,7 @@ Platzhaltern ({email}, {passwort}) und werden nirgends gespeichert; die Aufzeich
 Sitzungs-Cookies lebt nur im Arbeitsspeicher des laufenden Tests.
 """
 
-import asyncio
 import json
-import os
 import re
 import time
 from urllib.parse import urlsplit
@@ -34,6 +31,19 @@ from yarl import URL
 import llm_stresstest as lt
 from llm_stresstest import fmt, log
 from web_stresstest import USER_AGENT, WebClient, WebStressTest, _CachingResolver
+
+
+def browser_available():
+    """Ist Playwright (und damit der unsichtbare Browser) installiert? Im schlanken Image nicht."""
+    try:
+        import playwright  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+NO_BROWSER = ("Dieses Backend-Image enthält keinen Browser. Für Abläufe das Image-Ziel „browser“ bauen: "
+              "docker compose up --build ohne BACKEND_TARGET=slim (bzw. make up ohne SLIM=1).")
 
 FLOW_DEFAULTS = {"levels": "1,2,4,8,16,32", "slo_load": 10.0, "spike_size": 16, "include_assets": False,
                  "think_time": 60.0, "timeout": 120.0, "break_load": 90.0}
@@ -198,7 +208,7 @@ def build_plan(records):
     main = next((r["i"] for r in records if r.get("stream")), None)
     if main is None and records:
         main = max(records, key=lambda r: (r.get("t_end") or 0) - (r.get("t_start") or 0))["i"]
-    for j, rec in enumerate(records):
+    for rec in records:
         tpl = {"method": rec["method"], "url": rec["url"], "headers": _clean_headers(rec.get("headers")),
                "body": rec.get("body") or "", "status": rec.get("status") or 200, "stream": bool(rec.get("stream")),
                "dynamic": []}

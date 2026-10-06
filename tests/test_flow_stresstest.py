@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Tests für Abläufe: Schritt-Sprache, Erkennen veränderlicher Werte, Abspielen per HTTP.
 Der Rekorder mit echtem Browser steht in test_flow_recorder.py (braucht Chromium)."""
 import asyncio
@@ -153,7 +152,7 @@ class ChatApp:
         self.calls.append(("messages", cid))
         if cid not in self.known:
             return web.json_response({"error": "unbekannt"}, status=404)
-        body = await req.json()
+        await req.json()
         resp = web.StreamResponse(headers={"Content-Type": "text/event-stream"})
         await resp.prepare(req)
         await asyncio.sleep(0.05)                       # „Nachdenken“ vor dem ersten Wort
@@ -201,10 +200,10 @@ class Abspielen(unittest.IsolatedAsyncioTestCase):
 
     async def test_spielt_den_ablauf_mit_neuer_id_ab(self):
         args = sw.build_args({"kind": "flow", "base_url": self.base, "confirm_owner": True,
-                              "steps": "öffne %s/\nmessen ab hier\nklicke \"Senden\"" % self.base})
+                              "steps": f"öffne {self.base}/\nmessen ab hier\nklicke \"Senden\""})
         async with fl.FlowClient(args, recorded_plan(self.base)) as client:
             r1 = await client.request(None, 0)
-            r2 = await client.request(None, 0)
+            await client.request(None, 0)
         self.assertTrue(r1["ok"], r1)
         self.assertEqual(r1["requests"], 2)
         self.assertGreater(r1["ttft"], 0.05)            # erstes Wort erst nach dem „Nachdenken“
@@ -219,7 +218,7 @@ class Abspielen(unittest.IsolatedAsyncioTestCase):
         plan = recorded_plan(self.base)
         plan["cookies"] = []                            # ohne Sitzung: 401
         args = sw.build_args({"kind": "flow", "base_url": self.base, "confirm_owner": True,
-                              "steps": "öffne %s/\nmessen ab hier\nklicke \"Senden\"" % self.base})
+                              "steps": f"öffne {self.base}/\nmessen ab hier\nklicke \"Senden\""})
         async with fl.FlowClient(args, plan) as client:
             r = await client.request(None, 0)
         self.assertFalse(r["ok"])
@@ -255,3 +254,12 @@ class Eingaben(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OhneBrowser(unittest.TestCase):
+    def test_start_ohne_browser_wird_klar_abgelehnt(self):
+        import unittest.mock as mock
+        with mock.patch.dict(sw.FEATURES, {"flow": False}):
+            with self.assertRaisesRegex(ValueError, "keinen Browser"):
+                sw.check_features({"kind": "flow", "confirm_owner": True, "steps": "öffne http://x.test/"})
+            sw.check_features({"kind": "web"})                 # andere Arten gehen weiter

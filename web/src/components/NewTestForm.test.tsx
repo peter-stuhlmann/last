@@ -324,3 +324,13 @@ describe("NewTestForm für Abläufe", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+describe("Backend ohne Browser", () => {
+  it("bietet Abläufe nur an, wenn das Backend-Image den Browser hat", async () => {
+    render(<NewTestForm defaults={defaults} quick={quick} features={{ flow: false }} />);
+    const radio = screen.getByRole("radio", { name: /Ablauf/ });
+    expect(radio).toBeDisabled();
+    expect(screen.getByText("braucht Browser-Image")).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /Website/ })).toBeEnabled();
+  });
+});

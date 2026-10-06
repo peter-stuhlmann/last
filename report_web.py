@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Berichte für den Lasttest von Websites und HTTP-APIs – in einfacher Sprache.
 
@@ -24,9 +23,41 @@ from pptx.enum.text import MSO_ANCHOR
 from pptx.util import Inches
 
 from llm_stresstest import IN_DOCKER, fmt, round_users
-from report_pptx import (BAD, CARD, DARK_BG, GOOD, INFO, INK, INK2, MUTED, PANEL, S1, S2, S3, S4,
-                         STATUS, W, WARN, Deck, bar_chart, dot, explain, footer, line_chart, mins,
-                         n0, notes, per_min, rect, secs, stat, table, text, time_feel, title)
+from report_pptx import (
+    BAD,
+    CARD,
+    DARK_BG,
+    GOOD,
+    INFO,
+    INK,
+    INK2,
+    MUTED,
+    PANEL,
+    S1,
+    S2,
+    S3,
+    S4,
+    STATUS,
+    WARN,
+    Deck,
+    W,
+    bar_chart,
+    dot,
+    explain,
+    footer,
+    line_chart,
+    mins,
+    n0,
+    notes,
+    per_min,
+    rect,
+    secs,
+    stat,
+    table,
+    text,
+    time_feel,
+    title,
+)
 from web_stresstest import DEFAULTS, capacity, meets_slo, verdict
 
 GOOD_TTFB, SLOW_TTFB = 0.5, 1.5            # Richtwerte für die erste Antwort des Servers (s)
@@ -538,7 +569,7 @@ def _flow_slides(d, summary, f, outdir):
 
 def _method_slide(d, summary, f, outdir=None):
     """Folie „So haben wir getestet“ – je Testart anders."""
-    t, cfg, pre, slo = f["t"], f["cfg"], f["pre"], f["slo"]
+    cfg, pre, slo = f["cfg"], f["pre"], f["slo"]
     if kind_of(summary) == "flow":
         _flow_slides(d, summary, f, outdir)
         return
@@ -887,7 +918,7 @@ def build_report(summary, path):
 def build_pdf(summary, path):
     from reportlab.lib.colors import HexColor
 
-    from report_pdf import M, PH, PW, Page, chart
+    from report_pdf import PH, PW, M, Page, chart
 
     pg = Page(path)
     c = pg.c

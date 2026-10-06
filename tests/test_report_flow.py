@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Berichte zum Ablauf-Lasttest: Schritte, Bildschirmfotos und aufgezeichnete Anfragen statt Seitengewicht."""
 import os
 import struct
@@ -11,8 +10,9 @@ from pptx import Presentation
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import report_web as rw  # noqa: E402
 from test_report_web import all_text, page, sample  # noqa: E402
+
+import report_web as rw  # noqa: E402
 
 STEPS = """öffne https://chat.example/login
 tippe in "E-Mail" {email}

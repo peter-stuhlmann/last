@@ -8,6 +8,11 @@
 #   winget install ezwinports.make      (oder: choco install make)
 # Für die Tests der Oberfläche (make test-web, make e2e) zusätzlich Node.js.
 
+# make up SLIM=1  → Backend ohne Browser (kleineres Image, keine Abläufe)
+ifdef SLIM
+export BACKEND_TARGET = slim
+endif
+
 COMPOSE     := docker compose
 E2E_COMPOSE := $(COMPOSE) -p last-e2e -f docker-compose.yml -f docker-compose.e2e.yml
 IMAGE       := llm-stresstest
@@ -18,14 +23,14 @@ export MSYS_NO_PATHCONV = 1
 
 .DEFAULT_GOAL := help
 .PHONY: help up build rebuild down restart status logs logs-web logs-backend open \
-        test test-web check e2e e2e-up e2e-down test-all shell results update clean
+        test lint test-web check e2e e2e-up e2e-down test-all shell results update clean
 
 help: ## diese Übersicht
 	@awk 'BEGIN {FS = ":.*## "; printf "\nBefehle:\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2} END {print ""}' $(MAKEFILE_LIST)
 
 # ── Container ──────────────────────────────────────────────────────────────
 
-up: ## starten (baut beim ersten Mal) → http://localhost:8090
+up: ## starten (baut beim ersten Mal) → http://localhost:8090 · ohne Browser: make up SLIM=1
 	$(COMPOSE) up -d --wait
 	@echo "LAST läuft: $(URL)"
 
@@ -73,6 +78,9 @@ test: ## Python-Tests im Docker-Image (Lasttest, Berichte, Aufzeichnung mit Chro
 	$(COMPOSE) build backend
 	docker run --rm --tmpfs /tmp -v "$(CURDIR)":/src -w /src $(IMAGE) python -m unittest discover -s tests
 
+lint: ## Python-Lint (ruff) – dieselben Regeln wie in der CI
+	docker run --rm -v "$(CURDIR)":/src -w /src python:3.12-slim sh -c "pip install -q ruff && ruff check ."
+
 test-web: ## Tests der Oberfläche (Vitest, inkl. Barrierefreiheit)
 	cd web && npm test
 
@@ -89,7 +97,7 @@ e2e: ## Durchlauf-Tests im echten Browser (startet und entfernt die Instanz selb
 	$(MAKE) e2e-up
 	cd web && npx playwright test; status=$$?; cd .. && $(MAKE) e2e-down; exit $$status
 
-test-all: test test-web check e2e ## alles prüfen
+test-all: lint test test-web check e2e ## alles prüfen
 
 # ── Aufräumen ──────────────────────────────────────────────────────────────
 

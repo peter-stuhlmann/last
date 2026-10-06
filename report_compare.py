@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Vergleichsbericht: zwei oder mehr Testläufe nebeneinander (vorher/nachher, Modell A gegen B).
 Der erste Lauf ist die Referenz, alle anderen werden daran gemessen.
@@ -9,9 +8,34 @@ Der erste Lauf ist die Referenz, alle anderen werden daran gemessen.
 from pptx.enum.text import MSO_ANCHOR
 
 from llm_stresstest import capacity, economics, fmt, recommended_concurrency, verdict
-from report_pptx import (BAD, DARK_BG, GOOD, INK, INK2, MUTED, S1, S2, S3, S4, W, Deck, approx, dot,
-                         eur, explain, footer, notes, pages, per_min, rect, secs, table, text, title,
-                         xy_chart)
+from report_pptx import (
+    BAD,
+    DARK_BG,
+    GOOD,
+    INK,
+    INK2,
+    MUTED,
+    S1,
+    S2,
+    S3,
+    S4,
+    Deck,
+    W,
+    approx,
+    dot,
+    eur,
+    explain,
+    footer,
+    notes,
+    pages,
+    per_min,
+    rect,
+    secs,
+    table,
+    text,
+    title,
+    xy_chart,
+)
 
 COLORS = (S1, S2, S3, S4, "0E7490", "B45309")
 

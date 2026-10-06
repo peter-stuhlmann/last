@@ -1,7 +1,5 @@
-# -*- coding: utf-8 -*-
 """Aufzeichnen mit echtem Browser und anschließendes Abspielen – braucht Chromium (im Docker-Image enthalten)."""
 import asyncio
-import json
 import os
 import sys
 import tempfile

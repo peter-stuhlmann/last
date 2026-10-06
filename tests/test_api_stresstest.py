@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Tests für den Lasttest von HTTP-APIs."""
 import asyncio
 import json
@@ -11,10 +10,11 @@ from aiohttp import web
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from test_report_web import all_text, page, sample  # noqa: E402
+
 import report_web as rw  # noqa: E402
 import stresstest_web as sw  # noqa: E402
 import web_stresstest as ws  # noqa: E402
-from test_report_web import all_text, page, sample  # noqa: E402
 
 
 class Api:

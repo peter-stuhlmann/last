@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Wie sehr kann man den Zahlen des Website-Tests trauen? (Aufpasser für den Messrechner)"""
 import os
 import sys
@@ -8,11 +7,12 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from test_report_web import sample  # noqa: E402
+from test_web_stresstest import Site, make_args  # noqa: E402
+
 import report_web as rw  # noqa: E402
 import web_stresstest as ws  # noqa: E402
 from report_pptx import BAD, GOOD, WARN  # noqa: E402
-from test_report_web import sample  # noqa: E402
-from test_web_stresstest import Site, make_args  # noqa: E402
 
 
 def with_lag(*lags, late=None, n_window=40):

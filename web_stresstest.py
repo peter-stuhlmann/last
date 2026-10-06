@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Lasttest für Websites
 =====================
@@ -150,7 +149,7 @@ def build_args(cfg):
             else:
                 val = str(val).strip()
         except (TypeError, ValueError):
-            raise ValueError(f"Ungültiger Wert für {key}: {val!r}")
+            raise ValueError(f"Ungültiger Wert für {key}: {val!r}") from None
         setattr(a, key, val)
     if not a.base_url.startswith(("http://", "https://")):
         raise ValueError("Adresse muss mit http:// oder https:// beginnen")
@@ -159,7 +158,7 @@ def build_args(cfg):
         if not [int(x) for x in a.levels.split(",") if x.strip()]:
             raise ValueError
     except ValueError:
-        raise ValueError("Stufen: ganze Zahlen mit Komma trennen")
+        raise ValueError("Stufen: ganze Zahlen mit Komma trennen") from None
     if kind == "api":
         a.include_assets = False
         a.method = str(cfg.get("method") or "GET").strip().upper()
@@ -311,7 +310,7 @@ class WebClient:
             if lt.IN_DOCKER and (urlparse(self.url).hostname or "") in ("localhost", "127.0.0.1", "::1"):
                 hint = (" Hinweis: Im Docker-Container ist „localhost“ der Container selbst – für eine "
                         "Website auf diesem Rechner host.docker.internal statt localhost eintragen.")
-            raise lt.PreflightError(f"Website unter {self.url} nicht erreichbar.{hint}")
+            raise lt.PreflightError(f"Website unter {self.url} nicht erreichbar.{hint}") from None
         self.url, self.assets = final, assets
         # Die größten Dateien für den Bericht: Sie bestimmen meist die Ladezeit
         biggest = sorted(files, key=lambda f: f["bytes"], reverse=True)[:8]
@@ -345,7 +344,7 @@ class WebClient:
         t0 = r["tp_start"]
         try:
             await asyncio.wait_for(self._view(r, t0), timeout or self.args.timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             r["ok"], r["error"] = False, "timeout"
         except (aiohttp.ClientConnectorError, aiohttp.ServerDisconnectedError,
                 ConnectionResetError, aiohttp.ClientOSError) as e:
@@ -404,7 +403,7 @@ class ApiClient(WebClient):
             if lt.IN_DOCKER and (urlparse(self.url).hostname or "") in ("localhost", "127.0.0.1", "::1"):
                 hint = (" Hinweis: Im Docker-Container ist „localhost“ der Container selbst – für eine "
                         "API auf diesem Rechner host.docker.internal statt localhost eintragen.")
-            raise lt.PreflightError(f"API unter {self.url} nicht erreichbar.{hint}")
+            raise lt.PreflightError(f"API unter {self.url} nicht erreichbar.{hint}") from None
         if not status_ok(status, self.args.expect_status):
             raise lt.PreflightError(f"Die API antwortet mit Status {status}, erwartet wird "
                                     f"{self.args.expect_status} – bitte Adresse, Methode, Kopfzeilen und "
@@ -705,7 +704,7 @@ class WebStressTest:
     async def preflight(self, client):
         log(f"Vorbereitung: {self.w['subject'].split()[1]} erreichbar?")
         self.summary["meta"].update({"started": dt.datetime.now().isoformat(timespec="seconds"),
-                                     "host": platform.node(),
+                                     "host": platform.node(), "version": lt.VERSION,
                                      "server_host": urlparse(self.a.base_url).hostname})
         info = await client.prepare()
         self.summary["prechecks"] = info

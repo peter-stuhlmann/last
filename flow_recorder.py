@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Aufzeichnen eines Ablaufs mit einem echten, unsichtbaren Browser (Playwright/Chromium).
 
@@ -13,9 +12,8 @@ import re
 import time
 
 import llm_stresstest as lt
+from flow_stresstest import MAX_RESPONSE, RECORD_TYPES, STEP_TIMEOUT_MS, build_plan, fill_text, is_selector, public_plan
 from llm_stresstest import log
-from flow_stresstest import (MAX_RESPONSE, RECORD_TYPES, STEP_TIMEOUT_MS, build_plan, fill_text,
-                             is_selector, public_plan)
 
 LONG_WAIT_MS = 180_000       # eine Chat-Antwort darf dauern
 TEXT_TYPES = ("application/json", "text/", "application/x-ndjson", "application/problem+json")
@@ -114,7 +112,7 @@ async def record(args, outdir):
         from playwright.async_api import async_playwright
     except ImportError:
         raise lt.PreflightError("Für Abläufe wird ein Browser gebraucht (Playwright). Im Docker-Image ist er "
-                                "enthalten; sonst: python -m pip install playwright && playwright install chromium")
+                                "enthalten; sonst: python -m pip install playwright && playwright install chromium") from None
     steps, secrets = args.steps, args.secrets
     state = {"measuring": False, "ws": False, "t_measure": None}
     pending, records, shots = {}, [], []
@@ -178,7 +176,7 @@ async def record(args, outdir):
                         shot = None
                     raise lt.PreflightError(
                         f"Schritt in Zeile {step['line']} („{describe(step)}“) hat nicht geklappt: "
-                        f"{_short_error(err)}." + (" Bildschirmfoto: schritt_fehler.png" if shot else ""))
+                        f"{_short_error(err)}." + (" Bildschirmfoto: schritt_fehler.png" if shot else "")) from err
                 shot = f"schritt_{n:02d}.png"
                 try:
                     await page.screenshot(path=os.path.join(outdir, shot))

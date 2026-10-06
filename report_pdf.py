@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Einseitiger PDF-Bericht (A4) für den LLM-Härtetest – zum Ausdrucken oder Weiterleiten.
 
@@ -18,8 +17,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
 
 from llm_stresstest import capacity, economics, fmt, verdict
-from report_pptx import (INFO, INK, INK2, MUTED, REF, S1, S2, STATUS, eur, headline_cards, n0,
-                         per_min, result_rows)
+from report_pptx import INFO, INK, INK2, MUTED, REF, S1, S2, STATUS, eur, headline_cards, n0, per_min, result_rows
 
 PW, PH = A4
 M = 34  # Seitenrand (pt)

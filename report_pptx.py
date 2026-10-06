@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 PowerPoint-Bericht für den LLM-Härtetest – in einfacher Sprache.
 
@@ -15,11 +14,20 @@ from pptx.dml.color import RGBColor
 from pptx.enum.chart import XL_CHART_TYPE, XL_LEGEND_POSITION, XL_MARKER_STYLE
 from pptx.enum.dml import MSO_LINE
 from pptx.enum.shapes import MSO_SHAPE
-from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
+from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
 from pptx.util import Inches, Pt
 
-from llm_stresstest import (PROBE_KINDS, capacity, economics, fmt, meets_slo, rate_ok,
-                            recommended_concurrency, round_users, verdict)
+from llm_stresstest import (
+    PROBE_KINDS,
+    capacity,
+    economics,
+    fmt,
+    meets_slo,
+    rate_ok,
+    recommended_concurrency,
+    round_users,
+    verdict,
+)
 
 # ── Farben ──────────────────────────────────────────────────────────────────
 INK, INK2, MUTED = "111827", "374151", "6B7280"
@@ -497,7 +505,7 @@ def result_rows(summary):
     pc = (base or {}).get("prefix_compare")
     if pc and pc.get("ttft_unique"):
         rows.append((INFO, "Gemeinsamer Einleitungstext",
-                     "erstes Wort nach %s statt %s" % secs_pair(pc["ttft_shared"], pc["ttft_unique"])))
+                     "erstes Wort nach {} statt {}".format(*secs_pair(pc["ttft_shared"], pc["ttft_unique"]))))
     if ctx and ctx.get("max_ok"):
         lim = ctx.get("limit")
         rows.append((WARN if lim and lim["mode"] != "einzeln" else GOOD, "Lange Texte",
@@ -539,7 +547,6 @@ def build_report(summary, path):
     spike = summary.get("spike")
     soak = summary.get("soak")
     ctl = summary.get("control")
-    crashes = summary.get("crashes", [])
     quality = summary.get("quality") or {"overall": "–", "items": []}
     rec = recommended_concurrency(summary)
     cap_ = capacity(summary)
@@ -1045,7 +1052,7 @@ def build_report(summary, path):
         pos = [(0.5, 1.6), (6.85, 1.6), (0.5, 4.2), (6.85, 4.2)] if len(panels) > 2 else \
               [(0.5, 1.6), (6.85, 1.6)]
         hh = 2.5 if len(panels) > 2 else 4.6
-        for (series, t, tech, cols), (px, py) in zip(panels, pos):
+        for (series, t, _tech, cols), (px, py) in zip(panels, pos):
             ch = xy_chart(sl, px, py, 6.0, hh, series, t, None, "Minuten seit Start", colors=cols)
         footer(sl, "Der Notizblock ist der KV-Cache: Dort merkt sich der Server die laufenden "
                    "Gespräche. Ist er voll, müssen neue Fragen in der Schlange warten.")

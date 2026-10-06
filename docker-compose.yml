@@ -1,5 +1,6 @@
 # Starten:  docker compose up --build      → http://localhost:8090
 # Beenden:  docker compose down
+# Ohne Browser (kleineres Image, keine Abläufe):  BACKEND_TARGET=slim docker compose up --build
 #
 # Zwei Container:
 #   web      – die Oberfläche (Next.js). Nur sie ist von außen erreichbar.
@@ -41,7 +42,10 @@ services:
 
   backend:
     <<: *hardening
-    build: .
+    build:
+      context: .
+      # slim (~300 MB, ohne Abläufe) oder browser (~2 GB, mit Chromium für Abläufe)
+      target: "${BACKEND_TARGET:-browser}"
     image: llm-stresstest
     expose:
       - "8090"

@@ -1,0 +1,21 @@
+# Nur Werkzeug-Einstellungen – das Projekt wird nicht als Paket installiert.
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+extend-exclude = ["web", "results"]
+
+[tool.ruff.lint]
+# E/W: Stil, F: Fehler (ungenutzte Namen, undefinierte Variablen), I: Import-Reihenfolge,
+# B: typische Fallen, UP: veraltete Schreibweisen
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = [
+  "E501",  # Zeilenlänge prüft der Formatter nicht hart – lange Texte in Berichten
+  "B008",  # Standardwerte aus Funktionsaufrufen sind hier gewollt
+  "B905",  # zip() ohne strict – die Listen sind hier immer gleich lang
+  "E741",  # kurze Namen wie l in kleinen Schleifen
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["llm_stresstest", "web_stresstest", "flow_stresstest", "flow_recorder",
+                     "report_web", "report_pptx", "report_pdf", "report_compare", "stresstest_web"]

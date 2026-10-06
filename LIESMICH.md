@@ -22,6 +22,11 @@ Kürzer geht es mit `make` (Windows: `winget install ezwinports.make`):
     make test        # alle Prüfungen: make test-all
     make             # zeigt alle Befehle
 
+- **Zwei Varianten des Backend-Images:** Standard ist `browser` (≈ 2 GB, mit unsichtbarem Chromium für
+  Abläufe). Wer keine Abläufe braucht, nimmt `slim` (≈ 300 MB):
+  `BACKEND_TARGET=slim docker compose up --build` bzw. `make up SLIM=1`. Die Oberfläche zeigt dann
+  „Ablauf“ als nicht verfügbar an.
+
 - **Ergebnisse** (PowerPoint, PDF, Rohdaten) landen im Ordner `results/` neben dieser Datei.
 - **Adresse des Modellservers:** Der Spark im Netz wird ganz normal eingetragen
   (`http://spark.buero.lan:8000/v1`). Läuft der Modellserver **auf demselben Rechner** wie Docker,
@@ -167,7 +172,7 @@ früheren Antwort) erkennt der Test selbst und holt sie bei jeder Wiederholung f
   nicht in `summary.json`, nicht im Bericht. Der aufgezeichnete Plan lebt nur im Arbeitsspeicher des Tests.
 - Grenzen: Alle simulierten Nutzer teilen sich **eine Sitzung** (das Konto der Aufzeichnung); Seiten mit
   **Dauerverbindung (WebSocket)** im Messbereich lassen sich so nicht abspielen; die Darstellung im Browser
-  wird nicht gemessen. Das Docker-Image ist wegen Chromium rund 2 GB groß.
+  wird nicht gemessen. Abläufe brauchen das Backend-Image `browser` (Standard, rund 2 GB wegen Chromium).
 - Nur eigene Anwendungen testen; der Start verlangt dieselbe Bestätigung wie beim Website-Test.
 
 - **Systemwerte vom Spark (KV-Cache, Warteschlange)** kommen über `/metrics` des Modellservers
@@ -194,7 +199,10 @@ früheren Antwort) erkennt der Test selbst und holt sie bei jeder Wiederholung f
 | `report_compare.py` | Vergleichsbericht aus zwei oder mehr Läufen |
 | `docker-compose.e2e.yml` | zweite, getrennte Instanz für die automatischen Durchlauf-Tests (`web/e2e`) |
 | `Dockerfile`, `docker-compose.yml`, `.dockerignore` | Container für Windows, macOS und Linux |
-| `requirements.txt` | Python-Pakete (für Docker oder `pip install -r requirements.txt`) |
+| `requirements.txt`, `requirements-browser.txt` | Python-Pakete, exakt gepinnt (Browser-Zusatz nur im Image-Ziel `browser`) |
+| `VERSION` | Versionsnummer – steht in jeder `summary.json` unter `meta.version` und auf der Startseite |
+| `pyproject.toml` | Lint-Regeln (ruff): `make lint` |
+| `.github/workflows/ci.yml` | CI: ruff, Python-Tests im Image, Typen/Lint/Vitest der Oberfläche, Durchlauf-Tests |
 
 ## Was geprüft wird
 

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 LLM-Härtetest für OpenAI-kompatible Server (vLLM, SGLang, llama.cpp, Ollama, TGI …)
 ===================================================================================
@@ -60,6 +59,19 @@ for _stream in (sys.stdout, sys.stderr):
 # Im Docker-Container (siehe Dockerfile): Standardadresse und Ergebnisordner per Umgebung
 IN_DOCKER = os.environ.get("LLMST_IN_DOCKER") == "1"
 RESULTS_ROOT = os.environ.get("LLMST_RESULTS", ".")
+
+
+def read_version():
+    """Versionsnummer aus der Datei VERSION neben diesem Skript – steht in jeder summary.json,
+    damit auch Jahre später klar ist, womit gemessen wurde."""
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "VERSION"), encoding="utf-8") as f:
+            return f.read().strip() or "dev"
+    except OSError:
+        return "dev"
+
+
+VERSION = read_version()
 
 
 def is_local_url(url):
@@ -166,7 +178,7 @@ class PromptFactory:
         if shared and self.shared_prefix > 0:
             msgs.append({"role": "system", "content": self.prefix()})
             input_tokens -= self.shared_prefix
-        tag = "%032x" % self.rnd.getrandbits(128)
+        tag = f"{self.rnd.getrandbits(128):032x}"
         filler = self._filler(max(1, input_tokens - overhead), self.rnd)
         msgs.append({"role": "user", "content": f"[{tag}] Text: {filler}{instruction}"})
         return msgs
@@ -414,7 +426,7 @@ class Client:
                 r["error"] = "leere_antwort"
             else:
                 r["ok"] = True
-        except asyncio.TimeoutError:
+        except TimeoutError:
             r["error"] = "timeout"
             r["e2e"] = time.perf_counter() - t0
         except (aiohttp.ClientConnectorError, aiohttp.ServerDisconnectedError,
@@ -1141,7 +1153,7 @@ class StressTest:
                 max_len = m.get("max_model_len") or m.get("context_length")
         self.summary["meta"].update({"models": models, "server_max_model_len": max_len,
                                      "started": dt.datetime.now().isoformat(timespec="seconds"),
-                                     "host": platform.node(),
+                                     "host": platform.node(), "version": VERSION,
                                      "server_host": urlparse(self.a.base_url).hostname})
         log(f"  Modell: {self.a.model}   max. Kontext: {max_len or 'unbekannt'}")
         pre = {}
@@ -1422,7 +1434,7 @@ class StressTest:
         limit = self.a.max_context or self.summary["meta"].get("max_model_len")
         if limit:
             top = int(limit * 0.95) - self.a.context_output_len  # Puffer für Chat-Template
-            lengths = [l for l in lengths if l <= top]
+            lengths = [n for n in lengths if n <= top]
             if not lengths or lengths[-1] < top * 0.9:
                 lengths.append(top)
         steps, limit_hit = [], None
@@ -1431,7 +1443,7 @@ class StressTest:
                 break
             self.mon.phase = f"ctx_{L}"
             log(f"  ≈{L:>7} Tokens: einzeln …")
-            job = lambda: (self.pf.make(L), self.a.context_output_len)  # noqa: E731
+            job = lambda L=L: (self.pf.make(L), self.a.context_output_len)  # noqa: E731
             res1, wall1 = await run_batch(client, job, self.a.context_requests, 1)
             s1 = summarize(res1, wall1)
             self.save_raw("context_single", res1, input_len=L)
@@ -1854,6 +1866,7 @@ def build_comparison(dirs, path, labels=None):
 def build_parser():
     p = argparse.ArgumentParser(description="LLM-Härtetest mit PowerPoint-Bericht",
                                 formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    p.add_argument("--version", action="version", version=f"LAST {VERSION}")
     g = p.add_argument_group("Server")
     g.add_argument("--base-url", default=os.environ.get("LLMST_BASE_URL", "http://localhost:8000/v1"),
                    help="OpenAI-kompatible Basis-URL (vLLM :8000, SGLang :30000, "

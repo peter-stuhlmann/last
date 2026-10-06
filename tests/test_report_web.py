@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Tests für die Berichte zum Website-Lasttest (PowerPoint, PDF, Vergleich)."""
 import asyncio
 import os
@@ -10,10 +9,11 @@ from pptx import Presentation
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from test_web_stresstest import Site, make_args  # noqa: E402
+
 import report_web as rw  # noqa: E402
 import stresstest_web as sw  # noqa: E402
 from report_pptx import BAD, GOOD, WARN  # noqa: E402
-from test_web_stresstest import Site, make_args  # noqa: E402
 
 
 def page(**over):

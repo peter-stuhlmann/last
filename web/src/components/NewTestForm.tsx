@@ -101,11 +101,11 @@ const TARGETS: Record<RunKind, Target[]> = {
   ],
 };
 
-const KINDS: { value: RunKind; icon: string; label: string; soon: boolean }[] = [
-  { value: "llm", icon: "✦", label: "KI-Server", soon: false },
-  { value: "api", icon: "{ }", label: "HTTP-API", soon: false },
-  { value: "web", icon: "▦", label: "Website", soon: false },
-  { value: "flow", icon: "⇶", label: "Ablauf", soon: false },
+const KINDS: { value: RunKind; icon: string; label: string }[] = [
+  { value: "llm", icon: "✦", label: "KI-Server" },
+  { value: "api", icon: "{ }", label: "HTTP-API" },
+  { value: "web", icon: "▦", label: "Website" },
+  { value: "flow", icon: "⇶", label: "Ablauf" },
 ];
 
 const THING: Record<RunKind, string> = { llm: "Server", web: "Website", api: "API", flow: "Anwendung" };
@@ -164,12 +164,14 @@ export function NewTestForm({
   web = FALLBACK_WEB,
   api = FALLBACK_API,
   flow = FALLBACK_FLOW,
+  features = { flow: true },
 }: {
   defaults: Values;
   quick: Values;
   web?: { defaults: Values; quick: Values };
   api?: { defaults: Values; quick: Values };
   flow?: { defaults: Values; quick: Values };
+  features?: { flow: boolean };
 }) {
   const router = useRouter();
   const urlRef = useRef<HTMLInputElement>(null);
@@ -231,7 +233,9 @@ export function NewTestForm({
       // eslint-disable-next-line react-hooks/set-state-in-effect -- einmalige Übernahme aus localStorage
       setForm((f) => ({ ...f, ...Object.fromEntries(Object.entries(rest).filter(([, v]) => typeof v === "string" && v)) }));
       if (savedProfile === "full" || savedProfile === "quick") setProfile(savedProfile);
-      if (savedKind === "web" || savedKind === "llm" || savedKind === "api" || savedKind === "flow") setKind(savedKind);
+      if (savedKind === "web" || savedKind === "llm" || savedKind === "api" || (savedKind === "flow" && features.flow)) {
+        setKind(savedKind);
+      }
     } catch {
       // Gesperrter oder kaputter Speicher: einfach mit den Standardwerten weitermachen.
     }
@@ -486,11 +490,13 @@ export function NewTestForm({
         <div className="flex flex-wrap gap-3">
           {KINDS.map((t) => {
             const on = t.value === kind;
+            // Abläufe brauchen den Browser im Backend-Image (Ziel „browser“) – sonst nur anzeigen, nicht wählbar
+            const off = t.value === "flow" && !features.flow;
             return (
               <label
                 key={t.value}
                 className={`flex min-h-[42px] items-center gap-2 rounded-xl border px-4 text-sm ${focusRing} ${
-                  t.soon
+                  off
                     ? "cursor-not-allowed border-dashed border-white/15 bg-white/[0.03] font-medium text-white/60"
                     : on
                       ? "cursor-pointer border-[#a68cff]/70 bg-violet/20 font-semibold shadow-[0_4px_18px_rgb(124_92_255/0.35)]"
@@ -502,13 +508,18 @@ export function NewTestForm({
                   name="kind"
                   value={t.value}
                   checked={on}
-                  disabled={t.soon}
+                  disabled={off}
+                  aria-describedby={off ? "ablauf-hinweis" : undefined}
                   onChange={() => chooseKind(t.value as RunKind)}
                   className="sr-only"
                 />
                 <span aria-hidden="true">{t.icon}</span>
                 {t.label}
-                {t.soon && <span className="ml-1 font-mono text-[9px] font-bold uppercase tracking-[0.12em] text-amber-soft">bald</span>}
+                {off && (
+                  <span id="ablauf-hinweis" className="ml-1 font-mono text-[9px] font-bold uppercase tracking-[0.12em] text-amber-soft">
+                    braucht Browser-Image
+                  </span>
+                )}
               </label>
             );
           })}

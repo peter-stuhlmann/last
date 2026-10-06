@@ -27,6 +27,8 @@ export interface Defaults {
   web?: { defaults: Record<string, unknown>; quick: Record<string, unknown> };
   api?: { defaults: Record<string, unknown>; quick: Record<string, unknown> };
   flow?: { defaults: Record<string, unknown>; quick: Record<string, unknown> };
+  /** was dieses Backend-Image kann – Abläufe nur mit Browser (Image-Ziel „browser“) */
+  features?: Features;
 }
 
 export const getDefaults = () => backendJson<Defaults>("/api/defaults");
@@ -39,10 +41,16 @@ export async function getSummary(name: string): Promise<Summary | null> {
   return normalizeSummary(await backendJson<Summary>(`/api/runs/${name}/summary.json`, 8000));
 }
 
+export interface Features {
+  flow: boolean;
+}
+
 export interface BackendState {
   state: RunState;
   run: string;
   error: string | null;
+  version?: string;
+  features?: Features;
 }
 
 export const getState = () => backendJson<BackendState>("/api/state");

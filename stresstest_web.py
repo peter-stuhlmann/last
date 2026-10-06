@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Weboberfläche für llm_stresstest.py
 ===================================
@@ -21,24 +20,35 @@ import datetime as dt
 import json
 import os
 import re
+import shutil
 import sys
+import time
 
 try:
-    from aiohttp import web, ClientSession, ClientTimeout
     import pptx  # noqa: F401  (für den Bericht)
+    from aiohttp import ClientSession, ClientTimeout, web
 except ImportError:
     exe = sys.executable if " " not in sys.executable else f'"{sys.executable}"'
     sys.exit("Es fehlen Python-Pakete für genau dieses Python (" + sys.executable + ").\n"
              "Installieren mit:\n    " + exe + " -m pip install aiohttp python-pptx reportlab")
 
+import flow_stresstest as flow
 import llm_stresstest as lt
 import web_stresstest as ws
-import flow_stresstest as flow
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPORT_NAME = "LLM-Haertetest.pptx"
 PDF_NAME = "LLM-Haertetest.pdf"
 RUN_NAME_RE = re.compile(r"^results_[\w-]+$")
+# Was dieses Backend kann: Abläufe brauchen den Browser (Image-Ziel „browser“, siehe Dockerfile)
+FEATURES = {"flow": flow.browser_available()}
+
+# Gelöschte Läufe liegen eine Woche im Papierkorb – lokal gibt es selten ein Backup
+TRASH_DIR = ".papierkorb"
+TRASH_DAYS = 7
+NOTES_FILE = "notes.json"
+TAG_RE = re.compile(r"^[a-z0-9äöüß][a-z0-9äöüß._-]{0,23}$")
+MAX_TITLE, MAX_NOTE, MAX_TAGS = 80, 2000, 10
 
 
 class Runner:
@@ -136,6 +146,12 @@ class Runner:
 
 # ── Hilfen ──────────────────────────────────────────────────────────────────
 
+def check_features(cfg):
+    """Lehnt Testarten ab, die dieses Image nicht kann – vor dem Start, mit klarer Ansage."""
+    if (cfg.get("kind") or "llm") == "flow" and not FEATURES["flow"]:
+        raise ValueError(flow.NO_BROWSER)
+
+
 def build_args(cfg):
     """JSON aus dem Formular → argparse-Namespace mit denselben Defaults wie die CLI."""
     kind = cfg.get("kind") or "llm"
@@ -169,7 +185,7 @@ def build_args(cfg):
             else:
                 val = str(val).strip()
         except (TypeError, ValueError):
-            raise ValueError(f"Ungültiger Wert für {key}: {val!r}")
+            raise ValueError(f"Ungültiger Wert für {key}: {val!r}") from None
         setattr(a, key, val)
     if not a.base_url.startswith(("http://", "https://")):
         raise ValueError("Server-URL muss mit http:// oder https:// beginnen")
@@ -180,7 +196,7 @@ def build_args(cfg):
             if not [float(x) for x in str(a.rates).split(",") if x.strip()]:
                 raise ValueError
         except ValueError:
-            raise ValueError("„Wie viele Fragen pro Minute?“: Zahlen mit Komma oder auto")
+            raise ValueError("„Wie viele Fragen pro Minute?“: Zahlen mit Komma oder auto") from None
     a.kind = "llm"
     return a
 
@@ -239,7 +255,8 @@ async def defaults(req):
                               "web": {"defaults": ws.DEFAULTS, "quick": ws.QUICK_PROFILE},
                               "api": {"defaults": {**ws.DEFAULTS, **ws.API_DEFAULTS}, "quick": ws.QUICK_PROFILE},
                               "flow": {"defaults": {**ws.DEFAULTS, **flow.FLOW_DEFAULTS},
-                                       "quick": {**ws.QUICK_PROFILE, "levels": "1,2,4,8,16", "spike_size": 8}}})
+                                       "quick": {**ws.QUICK_PROFILE, "levels": "1,2,4,8,16", "spike_size": 8}},
+                              "features": FEATURES})
 
 
 @routes.get("/api/models")
@@ -268,7 +285,9 @@ async def start(req):
     if runner.running:
         return web.json_response({"error": "Es läuft bereits ein Test."}, status=409)
     try:
-        a = build_args(await req.json())
+        cfg = await req.json()
+        check_features(cfg)
+        a = build_args(cfg)
     except ValueError as e:
         return web.json_response({"error": str(e)}, status=400)
     name = runner.start(a)
@@ -286,7 +305,8 @@ async def state(req):
     """Kurzer Zustand ohne Stream – für die Startseite der Next.js-Oberfläche und den Healthcheck."""
     runner = req.app["runner"]
     return web.json_response({"state": runner.state, "error": runner.error,
-                              "run": os.path.basename(runner.outdir or "")})
+                              "run": os.path.basename(runner.outdir or ""),
+                              "version": lt.VERSION, "features": FEATURES})
 
 
 @routes.get("/api/events")
@@ -342,28 +362,139 @@ def _run_dir(req):
     return name, path
 
 
+def read_notes(path):
+    """Titel, Tags, Notiz eines Laufs – von Menschen ergänzt, getrennt von der Messung in summary.json."""
+    try:
+        with open(os.path.join(path, NOTES_FILE), encoding="utf-8") as f:
+            n = json.load(f)
+    except (OSError, ValueError):
+        n = {}
+    return {"title": n.get("title") or None, "tags": [t for t in (n.get("tags") or []) if isinstance(t, str)],
+            "note": n.get("note") or "", "pinned": bool(n.get("pinned")), "updated": n.get("updated")}
+
+
+def clean_notes(body):
+    """Prüft die Eingabe streng – alles andere ist ein Fehler, nichts wird stillschweigend gekürzt."""
+    if not isinstance(body, dict):
+        raise ValueError("Notizen müssen ein Objekt sein.")
+    unknown = set(body) - {"title", "tags", "note", "pinned"}
+    if unknown:
+        raise ValueError(f"Unbekanntes Feld: {sorted(unknown)[0]}")
+    title = body.get("title") or ""
+    note = body.get("note") or ""
+    tags = body.get("tags") or []
+    pinned = body.get("pinned", False)
+    if not isinstance(title, str) or len(title) > MAX_TITLE or re.search(r"[\x00-\x1f\x7f]", title):
+        raise ValueError(f"Titel: höchstens {MAX_TITLE} Zeichen, eine Zeile.")
+    if not isinstance(note, str) or len(note) > MAX_NOTE or re.search(r"[\x00-\x08\x0b-\x1f\x7f]", note):
+        raise ValueError(f"Notiz: höchstens {MAX_NOTE} Zeichen.")
+    if not isinstance(tags, list) or not all(isinstance(t, str) for t in tags):
+        raise ValueError("Tags: Liste von Wörtern.")
+    seen = []
+    for t in (t.strip().lower() for t in tags):
+        if t and t not in seen:
+            seen.append(t)
+    if len(seen) > MAX_TAGS or not all(TAG_RE.match(t) for t in seen):
+        raise ValueError(f"Tags: höchstens {MAX_TAGS}, je bis 24 Zeichen aus Buchstaben, Ziffern, Punkt, Strich.")
+    if not isinstance(pinned, bool):
+        raise ValueError("pinned: ja oder nein.")
+    return {"title": title.strip() or None, "tags": seen, "note": note.strip(), "pinned": pinned}
+
+
+def write_notes(path, notes):
+    notes = {**notes, "updated": dt.datetime.now().isoformat(timespec="seconds")}
+    tmp = os.path.join(path, NOTES_FILE + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(notes, f, ensure_ascii=False, indent=1)
+    os.replace(tmp, os.path.join(path, NOTES_FILE))      # atomar: nie eine halbe Datei
+    return notes
+
+
+def empty_trash(root):
+    """Räumt Läufe aus dem Papierkorb, die älter als TRASH_DAYS sind (beim Start und nach jedem Löschen)."""
+    trash = os.path.join(root, TRASH_DIR)
+    if not os.path.isdir(trash):
+        return
+    cutoff = time.time() - TRASH_DAYS * 86400
+    for name in os.listdir(trash):
+        p = os.path.join(trash, name)
+        try:
+            if os.path.getmtime(p) < cutoff:
+                shutil.rmtree(p, ignore_errors=True)
+        except OSError:
+            pass
+
+
+def run_row(root, name):
+    """Eine Zeile der Lauf-Liste: Stammdaten, Notizen und die Kennzahlen für den Verlauf."""
+    path = os.path.join(root, name)
+    sfile = os.path.join(path, "summary.json")
+    if not (RUN_NAME_RE.match(name) and os.path.isfile(sfile)):
+        return None
+    try:
+        with open(sfile, encoding="utf-8") as f:
+            s = json.load(f)
+    except Exception:
+        return None
+    cfg, kind = s.get("config") or {}, (s.get("config") or {}).get("kind") or "llm"
+    base = s.get("baseline") or {}
+    cap = s.get("capacity") or {}
+    return {"name": name, "kind": kind, "model": cfg.get("model"), "base_url": cfg.get("base_url"),
+            "started": (s.get("meta") or {}).get("started"),
+            "tests": [k for k in ("baseline", "ramp", "rate", "context", "spike", "soak") if k in s],
+            "report": os.path.isfile(os.path.join(path, REPORT_NAME)),
+            "pdf": os.path.isfile(os.path.join(path, PDF_NAME)),
+            # für den Verlauf über mehrere Läufe
+            "users": cap.get("users"), "target_users": cfg.get("target_users") or 0,
+            "status": (s.get("verdict") or {}).get("status"),
+            "alone": base.get("e2e_p50") if kind in ("web", "api", "flow") else base.get("ttft_p50"),
+            "version": (s.get("meta") or {}).get("version"),
+            **read_notes(path)}
+
+
 @routes.get("/api/runs")
 async def runs(req):
     root = req.app["runner"].root
-    out = []
-    for name in sorted(os.listdir(root), reverse=True):
-        path = os.path.join(root, name)
-        sfile = os.path.join(path, "summary.json")
-        if not (RUN_NAME_RE.match(name) and os.path.isfile(sfile)):
-            continue
-        try:
-            with open(sfile) as f:
-                s = json.load(f)
-        except Exception:
-            continue
-        out.append({"name": name, "kind": s.get("config", {}).get("kind") or "llm",
-                    "model": s.get("config", {}).get("model"),
-                    "base_url": s.get("config", {}).get("base_url"),
-                    "started": s.get("meta", {}).get("started"),
-                    "tests": [k for k in ("baseline", "ramp", "rate", "context", "spike", "soak") if k in s],
-                    "report": os.path.isfile(os.path.join(path, REPORT_NAME)),
-                    "pdf": os.path.isfile(os.path.join(path, PDF_NAME))})
-    return web.json_response({"runs": out[:50]})
+    try:
+        limit = max(1, min(int(req.query.get("limit", 50)), 500))
+    except ValueError:
+        limit = 50
+    rows = [r for r in (run_row(root, n) for n in sorted(os.listdir(root), reverse=True)) if r]
+    rows.sort(key=lambda r: (not r["pinned"], r["name"]), reverse=False)
+    rows.sort(key=lambda r: r["pinned"], reverse=True)
+    return web.json_response({"runs": rows[:limit]})
+
+
+@routes.put("/api/runs/{name}/notes")
+async def put_notes(req):
+    _, path = _run_dir(req)
+    if not os.path.isfile(os.path.join(path, "summary.json")):
+        raise web.HTTPNotFound()
+    try:
+        notes = clean_notes(await req.json())
+    except ValueError as e:
+        return web.json_response({"error": str(e)}, status=400)
+    return web.json_response(write_notes(path, notes))
+
+
+@routes.delete("/api/runs/{name}")
+async def delete_run(req):
+    """Verschiebt den Lauf in den Papierkorb (results/.papierkorb); endgültig weg nach TRASH_DAYS Tagen."""
+    name, path = _run_dir(req)
+    runner = req.app["runner"]
+    root = os.path.realpath(runner.root)
+    # Nur echte Ordner direkt unterhalb des Ergebnisordners – kein Symlink nach draußen
+    if os.path.islink(path) or os.path.dirname(os.path.realpath(path)) != root:
+        raise web.HTTPNotFound()
+    if runner.running and os.path.realpath(runner.outdir or "") == os.path.realpath(path):
+        return web.json_response({"error": "Dieser Lauf läuft gerade – erst abbrechen, dann löschen."}, status=409)
+    trash = os.path.join(runner.root, TRASH_DIR)
+    os.makedirs(trash, exist_ok=True)
+    target = os.path.join(trash, f"{name}_{dt.datetime.now():%Y%m%d_%H%M%S}")
+    shutil.move(path, target)
+    os.utime(target, None)
+    empty_trash(runner.root)
+    return web.json_response({"ok": True, "trash_days": TRASH_DAYS})
 
 
 @routes.get("/api/runs/{name}/summary.json")
@@ -439,6 +570,15 @@ async def run_raw(req):
         "Content-Disposition": f'attachment; filename="raw_{name[8:]}.jsonl"'})
 
 
+def make_app(results_root):
+    os.makedirs(results_root, exist_ok=True)
+    empty_trash(results_root)
+    app = web.Application()
+    app["runner"] = Runner(results_root)
+    app.add_routes(routes)
+    return app
+
+
 def main():
     ap = argparse.ArgumentParser(description="Weboberfläche für den LLM-Härtetest")
     ap.add_argument("--host", default="127.0.0.1",
@@ -447,10 +587,7 @@ def main():
     ap.add_argument("--results", default=os.path.join(HERE, "results"),
                     help="Ordner für alle Testläufe")
     a = ap.parse_args()
-    os.makedirs(a.results, exist_ok=True)
-    app = web.Application()
-    app["runner"] = Runner(a.results)
-    app.add_routes(routes)
+    app = make_app(a.results)
     shown = "localhost" if a.host in ("127.0.0.1", "0.0.0.0") else a.host
     print(f"\n  LLM-Härtetest läuft auf  http://{shown}:{a.port}\n"
           f"  Ergebnisse werden gespeichert in {a.results}\n")

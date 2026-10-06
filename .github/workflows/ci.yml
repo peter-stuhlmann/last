@@ -1,0 +1,95 @@
+# Prüft jeden Push und Pull-Request: Python-Lint und -Tests im echten Backend-Image,
+# Oberfläche (Typen, Lint, Vitest inkl. Barrierefreiheit) und die Durchlauf-Tests im Browser
+# gegen den kompletten Docker-Stack – genau das, was `make test-all` lokal macht.
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Python · Lint und Tests (Backend-Image)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/ruff-action@v3
+        with:
+          args: check .
+      - uses: docker/setup-buildx-action@v3
+      - name: Backend-Image bauen (browser)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: browser
+          tags: llm-stresstest:ci
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Unit-Tests (inkl. Aufzeichnung mit Chromium)
+        run: docker run --rm --tmpfs /tmp -v "$PWD":/src -w /src llm-stresstest:ci python -m unittest discover -s tests
+      - name: Schlankes Image baut ebenfalls
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: slim
+          tags: llm-stresstest:ci-slim
+          cache-from: type=gha
+
+  web:
+    name: Oberfläche · Typen, Lint, Vitest
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+
+  e2e:
+    name: Durchlauf-Tests · Docker-Stack + Playwright
+    runs-on: ubuntu-latest
+    needs: [python, web]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci --no-audit --no-fund
+        working-directory: web
+      - run: npx playwright install --with-deps chromium
+        working-directory: web
+      - name: Stack starten (eigene Instanz auf Port 8099)
+        run: npm run e2e:up
+        working-directory: web
+      - name: Playwright
+        run: npx playwright test
+        working-directory: web
+      - name: Protokolle bei Fehlern
+        if: failure()
+        run: docker compose -p last-e2e -f docker-compose.yml -f docker-compose.e2e.yml logs --no-color --tail=200
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-traces
+          path: web/test-results
+          retention-days: 7
+      - name: Aufräumen
+        if: always()
+        run: npm run e2e:down
+        working-directory: web
