@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AppHeader, StatusPill, TargetChip } from "@/components/AppHeader";
 import { ResultView } from "@/components/result/ResultView";
+import { RunNotes } from "@/components/RunNotes";
 import { getRuns, getSummary } from "@/lib/backend";
 import { clock, hostLabel, runLabel } from "@/lib/format";
 import { isRunName } from "@/lib/security";
@@ -21,6 +22,7 @@ export default async function ErgebnisPage({ params }: PageProps<"/laeufe/[name]
   if (!summary) notFound();
 
   const info = runs?.find((r) => r.name === name);
+  const allTags = [...new Set((runs ?? []).flatMap((r) => r.tags ?? []))].sort();
   const { started, finished } = summary.meta;
   const duration = started && finished ? (Date.parse(finished) - Date.parse(started)) / 1000 : null;
   const host = hostLabel(summary.config.base_url);
@@ -31,7 +33,7 @@ export default async function ErgebnisPage({ params }: PageProps<"/laeufe/[name]
         crumbs={[
           { label: "Läufe", href: "/laeufe" },
           { label: `${host}${summary.config.model ? ` · ${summary.config.model}` : ""}` },
-          { label: `Lauf ${runLabel(name)}` },
+          { label: info?.title ?? `Lauf ${runLabel(name)}` },
         ]}
         status={
           finished ? (
@@ -49,8 +51,9 @@ export default async function ErgebnisPage({ params }: PageProps<"/laeufe/[name]
           </>
         }
       />
-      <main id="inhalt" className="mx-auto max-w-[1440px] px-4 py-8 sm:px-8">
+      <main id="inhalt" className="mx-auto flex max-w-[1440px] flex-col gap-6 px-4 py-8 sm:px-8">
         <ResultView name={name} summary={summary} report={info?.report ?? false} pdf={info?.pdf ?? false} />
+        <RunNotes name={name} initial={info ?? null} allTags={allTags} />
       </main>
     </>
   );

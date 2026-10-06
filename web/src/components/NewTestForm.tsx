@@ -239,6 +239,7 @@ export function NewTestForm({
     } catch {
       // Gesperrter oder kaputter Speicher: einfach mit den Standardwerten weitermachen.
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- nur einmal beim ersten Rendern
   }, []);
 
   const set = (name: string) => (e: { target: { value: string } }) => {

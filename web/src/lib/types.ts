@@ -196,7 +196,16 @@ export type EventMessage =
       summary: Summary | null;
     };
 
-export interface RunInfo {
+/** Was Menschen einem Lauf hinzufügen – liegt als notes.json neben der summary.json. */
+export interface RunNotes {
+  title: string | null;
+  tags: string[];
+  note: string;
+  pinned: boolean;
+  updated?: string | null;
+}
+
+export interface RunInfo extends RunNotes {
   name: string;
   kind?: RunKind;
   model: string | null;
@@ -205,6 +214,13 @@ export interface RunInfo {
   tests: string[];
   report: boolean;
   pdf: boolean;
+  /** für den Verlauf über mehrere Läufe */
+  users?: number | null;
+  target_users?: number;
+  status?: Tone | null;
+  /** Bestwert ohne Andrang: Ladezeit/Antwortzeit bzw. Zeit bis zum ersten Wort */
+  alone?: number | null;
+  version?: string | null;
 }
 
 export interface ModelInfo {

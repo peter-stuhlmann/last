@@ -34,7 +34,7 @@ export interface Defaults {
 export const getDefaults = () => backendJson<Defaults>("/api/defaults");
 
 export async function getRuns(): Promise<RunInfo[] | null> {
-  return (await backendJson<{ runs: RunInfo[] }>("/api/runs"))?.runs ?? null;
+  return (await backendJson<{ runs: RunInfo[] }>("/api/runs?limit=500"))?.runs ?? null;
 }
 
 export async function getSummary(name: string): Promise<Summary | null> {

@@ -139,7 +139,7 @@ export default async function Home() {
             </section>
           )}
         </aside>
-        <p className="col-span-full mt-4 font-mono text-[11px] text-white/45">
+        <p className="col-span-full mt-4 font-mono text-[11px] text-white/65">
           LAST {state?.version ? `v${state.version}` : ""}
           {state?.features && !state.features.flow ? " · Backend ohne Browser (Abläufe nicht verfügbar)" : ""}
         </p>

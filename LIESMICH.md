@@ -182,6 +182,15 @@ früheren Antwort) erkennt der Test selbst und holt sie bei jeder Wiederholung f
   Im Büro-LAN ist das vernachlässigbar, über VPN eher nicht.
 - Nur gegen eigene Server testen – ein Lasttest sieht für fremde Server aus wie ein Angriff.
 
+## Läufe verwalten
+
+Auf der Ergebnisseite lassen sich **Titel, Notiz und Tags** vergeben und ein Lauf **anpinnen** – das steht
+in `notes.json` neben der `summary.json`, die Messung selbst bleibt unverändert. Die Liste unter „Läufe“
+durchsucht Titel, Tags (`#tag`), Adresse, Modell und Datum und zeigt oben den **Verlauf**: Kapazität und
+Zeit ohne Andrang aller Läufe gleicher Art und Adresse über die Zeit, mit einem Satz dazu. **Löschen**
+verschiebt einen Lauf nach `results/.papierkorb/`; nach 7 Tagen wird er dort endgültig entfernt
+(`make trash-empty` leert sofort).
+
 ## Dateien
 
 | Datei | Zweck |
@@ -197,6 +206,8 @@ früheren Antwort) erkennt der Test selbst und holt sie bei jeder Wiederholung f
 | `report_pptx.py` | PowerPoint-Bericht in einfacher Sprache |
 | `report_pdf.py` | Kurzbericht als PDF auf einer A4-Seite (braucht `reportlab`, sonst wird er übersprungen) |
 | `report_compare.py` | Vergleichsbericht aus zwei oder mehr Läufen |
+| `results/<lauf>/notes.json` | Titel, Tags, Notiz, Pin eines Laufs (von Hand ergänzt) |
+| `results/.papierkorb/` | gelöschte Läufe, 7 Tage lang zurückholbar |
 | `docker-compose.e2e.yml` | zweite, getrennte Instanz für die automatischen Durchlauf-Tests (`web/e2e`) |
 | `Dockerfile`, `docker-compose.yml`, `.dockerignore` | Container für Windows, macOS und Linux |
 | `requirements.txt`, `requirements-browser.txt` | Python-Pakete, exakt gepinnt (Browser-Zusatz nur im Image-Ziel `browser`) |

@@ -134,7 +134,7 @@ describe("ResultView", () => {
 
 describe("RunsList", () => {
   const runs = ["results_20261004_234100", "results_20261003_101500", "results_20261001_080000"].map((name) => ({
-    name, model: "brain", base_url: "http://spark.buero.lan:8000/v1", started: null, tests: ["baseline", "ramp"], report: true, pdf: true,
+    name, model: "brain", base_url: "http://spark.buero.lan:8000/v1", started: null, title: null, tags: [], note: "", pinned: false, tests: ["baseline", "ramp"], report: true, pdf: true,
   }));
 
   it("aktiviert den Vergleich erst ab zwei gewählten Läufen", async () => {
@@ -207,21 +207,21 @@ describe("Website-Läufe in den Ansichten", () => {
     render(
       <RunsList
         runs={[
-          { name: "results_20261005_100000", kind: "web", model: null, base_url: "https://shop.example/", started: null, tests: ["baseline", "ramp"], report: false, pdf: false },
-          { name: "results_20261004_234100", kind: "llm", model: "brain", base_url: "http://spark:8000/v1", started: null, tests: ["ramp"], report: true, pdf: true },
+          { name: "results_20261005_100000", kind: "web", model: null, base_url: "https://shop.example/", started: null, title: null, tags: [], note: "", pinned: false, tests: ["baseline", "ramp"], report: false, pdf: false },
+          { name: "results_20261004_234100", kind: "llm", model: "brain", base_url: "http://spark:8000/v1", started: null, title: null, tags: [], note: "", pinned: false, tests: ["ramp"], report: true, pdf: true },
         ]}
       />,
     );
     const boxes = screen.getAllByRole("checkbox");
     expect(boxes[0]).toBeEnabled();
     expect(boxes[1]).toBeEnabled();
-    expect(screen.getByText("Website")).toBeInTheDocument();
+    expect(screen.getAllByText("Website").length).toBeGreaterThan(0);
   });
 
   it("lässt nur Läufe gleicher Art miteinander vergleichen", async () => {
     const user = userEvent.setup();
     const run = (name: string, kind: "web" | "llm") => ({
-      name, kind, model: null, base_url: "https://shop.example/", started: null, tests: ["ramp"], report: true, pdf: true,
+      name, kind, model: null, base_url: "https://shop.example/", started: null, title: null, tags: [], note: "", pinned: false, tests: ["ramp"], report: true, pdf: true,
     });
     render(
       <RunsList
@@ -298,7 +298,7 @@ describe("HTTP-API-Läufe in den Ansichten", () => {
   });
 
   it("kennzeichnet API-Läufe in der Liste", () => {
-    render(<RunsList runs={[{ name: "results_20261006_090000", kind: "api", model: null, base_url: "https://api.example/v1/items", started: null, tests: ["ramp"], report: true, pdf: true }]} />);
+    render(<RunsList runs={[{ name: "results_20261006_090000", kind: "api", model: null, base_url: "https://api.example/v1/items", started: null, title: null, tags: [], note: "", pinned: false, tests: ["ramp"], report: true, pdf: true }]} />);
     expect(screen.getByText("HTTP-API")).toBeInTheDocument();
   });
 });
@@ -321,7 +321,7 @@ describe("Ablauf-Läufe in den Ansichten", () => {
   });
 
   it("kennzeichnet Abläufe in der Liste", () => {
-    render(<RunsList runs={[{ name: "results_20261006_120000", kind: "flow", model: null, base_url: "https://chat.example/login", started: null, tests: ["ramp"], report: true, pdf: true }]} />);
+    render(<RunsList runs={[{ name: "results_20261006_120000", kind: "flow", model: null, base_url: "https://chat.example/login", started: null, title: null, tags: [], note: "", pinned: false, tests: ["ramp"], report: true, pdf: true }]} />);
     expect(screen.getByText("Ablauf")).toBeInTheDocument();
   });
 });

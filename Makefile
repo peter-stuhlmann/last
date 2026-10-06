@@ -23,7 +23,7 @@ export MSYS_NO_PATHCONV = 1
 
 .DEFAULT_GOAL := help
 .PHONY: help up build rebuild down restart status logs logs-web logs-backend open \
-        test lint test-web check e2e e2e-up e2e-down test-all shell results update clean
+        test lint test-web check e2e e2e-up e2e-down test-all shell results trash-empty update clean
 
 help: ## diese Übersicht
 	@awk 'BEGIN {FS = ":.*## "; printf "\nBefehle:\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2} END {print ""}' $(MAKEFILE_LIST)
@@ -65,8 +65,11 @@ open: ## Oberfläche im Browser öffnen
 shell: ## Kommandozeile im Backend-Container (z. B. für llm_stresstest.py --help)
 	$(COMPOSE) run --rm backend sh
 
-results: ## die letzten Läufe in results/ zeigen
-	@ls -1dt results/results_* 2>/dev/null | head -10 || echo "noch keine Läufe"
+results: ## die letzten Läufe in results/ zeigen (mit Titel, falls vergeben)
+	@for d in $$(ls -1dt results/results_* 2>/dev/null | head -10); do 	  t=$$(python -c "import json,sys;print(json.load(open(sys.argv[1])).get('title') or '')" $$d/notes.json 2>/dev/null); 	  echo "$$d  $$t"; done
+
+trash-empty: ## Papierkorb (results/.papierkorb) sofort leeren
+	rm -rf results/.papierkorb
 
 update: ## neuesten Stand holen und neu bauen
 	git pull --ff-only

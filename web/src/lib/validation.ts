@@ -164,6 +164,31 @@ export const startSchema = z
 
 export type StartPayload = z.infer<typeof startSchema>;
 
+export const MAX_TITLE = 80;
+export const MAX_NOTE = 2000;
+export const MAX_TAGS = 10;
+export const TAG_RE = /^[a-z0-9äöüß][a-z0-9äöüß._-]{0,23}$/;
+
+/** Titel, Tags, Notiz, Pin eines Laufs – dieselben Grenzen wie im Backend (clean_notes). */
+export const notesSchema = z.object({
+  title: z
+    .string()
+    .trim()
+    .max(MAX_TITLE, `Titel: höchstens ${MAX_TITLE} Zeichen`)
+    .regex(/^[^\x00-\x1f\x7f]*$/, "Titel: eine Zeile")
+    .nullable()
+    .optional(),
+  tags: z
+    .array(z.string().trim().toLowerCase().regex(TAG_RE, "Tag: bis 24 Zeichen aus Buchstaben, Ziffern, Punkt, Strich"))
+    .max(MAX_TAGS, `Höchstens ${MAX_TAGS} Tags`)
+    .transform((tags) => [...new Set(tags)])
+    .optional(),
+  note: z.string().max(MAX_NOTE, `Notiz: höchstens ${MAX_NOTE} Zeichen`).optional(),
+  pinned: z.boolean().optional(),
+});
+
+export type NotesPayload = z.infer<typeof notesSchema>;
+
 export const modelsRequestSchema = z.object({
   base_url: baseUrl,
   api_key: z.string().max(512).optional(),
