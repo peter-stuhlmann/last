@@ -13,6 +13,15 @@ Im Ordner mit dieser Datei:
 
 Dann im Browser **http://localhost:8090** öffnen. Beenden mit `Strg+C` bzw. `docker compose down`.
 
+Kürzer geht es mit `make` (Windows: `winget install ezwinports.make`):
+
+    make up          # starten → http://localhost:8090
+    make down        # beenden
+    make rebuild     # nach Änderungen am Code
+    make logs        # Protokoll mitlesen
+    make test        # alle Prüfungen: make test-all
+    make             # zeigt alle Befehle
+
 - **Ergebnisse** (PowerPoint, PDF, Rohdaten) landen im Ordner `results/` neben dieser Datei.
 - **Adresse des Modellservers:** Der Spark im Netz wird ganz normal eingetragen
   (`http://spark.buero.lan:8000/v1`). Läuft der Modellserver **auf demselben Rechner** wie Docker,
