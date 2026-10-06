@@ -68,9 +68,13 @@ warte bis ".antwort" fertig ist (1 s ruhig)
 
 
 class ChatSite:
+    USERS = {("tester@example.de", "sehr-geheim-42"): "sitzung-abcdefgh",
+             ("zweite@example.de", "auch-geheim-43"): "sitzung-zweitesk"}
+
     def __init__(self):
         self.known = set()
         self.messages = []
+        self.sessions_seen = []
 
     async def handle(self, req):
         p = req.path
@@ -78,13 +82,15 @@ class ChatSite:
             return web.Response(text=LOGIN_PAGE, content_type="text/html")
         if p == "/login" and req.method == "POST":
             data = await req.json()
-            if data != {"email": "tester@example.de", "pw": "sehr-geheim-42"}:
+            sid = self.USERS.get((data.get("email"), data.get("pw")))
+            if not sid:
                 return web.json_response({"error": "falsch"}, status=401)
             resp = web.json_response({"ok": True})
-            resp.set_cookie("sid", "sitzung-abcdefgh", httponly=True)
+            resp.set_cookie("sid", sid, httponly=True)
             return resp
-        if req.cookies.get("sid") != "sitzung-abcdefgh":
+        if req.cookies.get("sid") not in self.USERS.values():
             return web.json_response({"error": "kein Zugriff"}, status=401)
+        self.sessions_seen.append(req.cookies.get("sid"))
         if p == "/chat":
             return web.Response(text=CHAT_PAGE, content_type="text/html")
         if p == "/api/conversations":
@@ -159,6 +165,25 @@ class Aufzeichnen(unittest.IsolatedAsyncioTestCase):
             with open(os.path.join(self.out, name), encoding="utf-8", errors="replace") as f:
                 content = f.read()
             for secret in ("sehr-geheim-42", "sitzung-abcdefgh", "tester@example.de"):
+                self.assertNotIn(secret, content, name)
+
+    async def test_mehrere_konten_werden_aufgezeichnet_und_reihum_benutzt(self):
+        st = fl.FlowStressTest(self.args(accounts=[{"email": "tester@example.de", "passwort": "sehr-geheim-42"},
+                                                   {"email": "zweite@example.de", "passwort": "auch-geheim-43"}],
+                                         secrets=None), self.out)
+        await st.run()
+        pre = st.summary["prechecks"]
+        self.assertEqual(pre["accounts"], 2)
+        self.assertEqual(len(pre["steps"]), 10)                 # Fotos nur vom ersten Konto
+        self.assertEqual(st.summary["baseline"]["errors"], 0)
+        used = {s for s in self.site.sessions_seen if s}
+        self.assertEqual(used, {"sitzung-abcdefgh", "sitzung-zweitesk"})
+        for name in os.listdir(self.out):
+            if name.endswith(".png"):
+                continue
+            with open(os.path.join(self.out, name), encoding="utf-8", errors="replace") as f:
+                content = f.read()
+            for secret in ("auch-geheim-43", "sitzung-zweitesk", "zweite@example.de"):
                 self.assertNotIn(secret, content, name)
 
     async def test_fehler_im_schritt_wird_erklaert(self):

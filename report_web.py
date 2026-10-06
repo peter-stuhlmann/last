@@ -182,7 +182,7 @@ TEXTS = {
                         "• Als „rechtzeitig“ gilt die Antwort, wenn fast alle (95 %) sie nach höchstens {slo} haben.",
                         "• Unter Last werden die aufgezeichneten Anfragen abgespielt, nicht der Browser – der Server sieht "
                         "dieselben Anfragen, die Darstellung im Browser fehlt.",
-                        "• Alle simulierten Nutzer teilen sich die Sitzung der Aufzeichnung (ein Konto)."],
+                        "• {accounts}"],
         "not_measured": ["• Die Zeit, die der Browser zum Aufbauen und Darstellen braucht.",
                          "• Die Anmeldung selbst – sie liegt vor „messen ab hier“ und wurde nur einmal gemacht.",
                          "• Andere Abläufe und Seiten der Anwendung.",
@@ -535,7 +535,9 @@ def _flow_slides(d, summary, f, outdir):
         "Wiederholung frisch geholt." if any(q["dynamic"] for q in reqs) else
         "Keine veränderlichen Werte: Jede Wiederholung schickt genau dieselben Anfragen.",
     ], size=11.5, color=INK2, space_after=5)
-    footer(sl, "Zugangsdaten stehen nur in Platzhaltern und wurden nicht gespeichert; die Sitzung lebt nur im "
+    n_acc = int(cfg.get("accounts") or 1)
+    footer(sl, "Zugangsdaten stehen nur in Platzhaltern und wurden nicht gespeichert; "
+               + (f"die {n_acc} Sitzungen leben" if n_acc > 1 else "die Sitzung lebt") + " nur im "
                f"Arbeitsspeicher des Tests. Ziel: Antwort nach höchstens {secs(slo)}.")
     notes(sl, "Aufzeichnung mit Chromium (Playwright), Netzwerkmitschnitt ab „messen ab hier“ (XHR/fetch/Dokument/"
               "EventSource). Abspielen mit aiohttp, Keep-Alive, Cookies aus der Aufzeichnung. Hauptanfrage = gestreamte "
@@ -645,7 +647,10 @@ def build_report(summary, path):
     url = cfg.get("base_url", "")
     n_files = pre.get("assets", 0)
     method, path_ = endpoint(cfg)
-    fill = {"think": n0(think), "slo": secs(slo), "method": method, "path": path_}
+    n_acc = int(cfg.get("accounts") or 1)
+    fill = {"think": n0(think), "slo": secs(slo), "method": method, "path": path_,
+            "accounts": ("Alle simulierten Nutzer teilen sich die Sitzung der Aufzeichnung (ein Konto)." if n_acc <= 1
+                         else f"Die simulierten Nutzer verteilen sich reihum auf {n_acc} Konten, jedes mit eigener Sitzung.")}
 
     # ═══ Titel ═══
     sl = d.slide(dark=True)

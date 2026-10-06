@@ -168,9 +168,13 @@ früheren Antwort) erkennt der Test selbst und holt sie bei jeder Wiederholung f
 - Der Bericht zeigt die Schritte, **Bildschirmfotos** aus der Aufzeichnung (`schritt_NN.png` im
   Ergebnisordner) und die aufgezeichneten Anfragen. Scheitert ein Schritt, nennt die Fehlermeldung die
   Zeile und legt `schritt_fehler.png` ab.
+- **Mehrere Konten:** Unter den Platzhaltern „Mehrere Konten“ ankreuzen und eine kleine Tabelle eintragen
+  (erste Zeile die Platzhalter-Namen, dann je Zeile ein Konto). Jedes Konto wird einmal im Browser
+  aufgezeichnet (bis zu drei gleichzeitig) und hat unter Last seine eigene Sitzung; die simulierten Nutzer
+  kommen reihum dran. So misst man echte Mehrnutzerlast statt eines Kontos mit hunderten Sitzungen.
 - **Platzhalter-Werte (Passwörter) und Sitzungs-Cookies werden nirgends gespeichert** – nicht im Browser,
   nicht in `summary.json`, nicht im Bericht. Der aufgezeichnete Plan lebt nur im Arbeitsspeicher des Tests.
-- Grenzen: Alle simulierten Nutzer teilen sich **eine Sitzung** (das Konto der Aufzeichnung); Seiten mit
+- Grenzen: Mit nur einem Konto teilen sich alle simulierten Nutzer **dessen Sitzung**; Seiten mit
   **Dauerverbindung (WebSocket)** im Messbereich lassen sich so nicht abspielen; die Darstellung im Browser
   wird nicht gemessen. Abläufe brauchen das Backend-Image `browser` (Standard, rund 2 GB wegen Chromium).
 - Nur eigene Anwendungen testen; der Start verlangt dieselbe Bestätigung wie beim Website-Test.

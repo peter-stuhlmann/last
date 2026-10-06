@@ -25,8 +25,11 @@ test("Ablauf-Test: aufzeichnen, abspielen, Bericht mit Bildschirmfotos", async (
   await page.locator("label", { hasText: "Ablauf" }).click();
   await page.getByRole("textbox", { name: "Adresse der Startseite" }).fill(START);
   await page.getByRole("textbox", { name: "Die Schritte" }).fill(STEPS);
-  await page.getByLabel("Wert für {email}").fill("tester@example.de");
-  await page.getByLabel("Wert für {passwort}").fill("sehr-geheim-42");
+  // Zwei Konten: beide werden aufgezeichnet und kommen unter Last reihum dran
+  await page.getByRole("checkbox", { name: /Mehrere Konten/ }).check();
+  await page
+    .getByRole("textbox", { name: "Konten" })
+    .fill(["email, passwort", "tester@example.de, sehr-geheim-42", "zweite@example.de, auch-geheim-43"].join("\n"));
   await page.getByRole("spinbutton", { name: "Nutzer gleichzeitig" }).fill("20");
   const axe = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
   expect(axe.violations.map((v) => v.id)).toEqual([]);
@@ -41,6 +44,7 @@ test("Ablauf-Test: aufzeichnen, abspielen, Bericht mit Bildschirmfotos", async (
   await expect(page.getByText("ab hier wird gemessen")).toBeVisible();
   await expect(page.getByText(/POST \/api\/conversations\/\{v1\}\/messages/)).toBeVisible();
   await expect(page.getByText("gestreamt")).toBeVisible();
+  await expect(page.getByText(/reihum auf 2 Konten/)).toBeVisible();
   await expect(page.getByText(/Besucher/)).toHaveCount(0);
 
   // Die Bildschirmfotos kommen wirklich an
@@ -59,8 +63,8 @@ test("Ablauf-Test: aufzeichnen, abspielen, Bericht mit Bildschirmfotos", async (
   const rawHref = (await page.getByRole("link", { name: /Rohdaten/ }).getAttribute("href"))!;
   for (const file of ["summary.json", "raw_requests.jsonl"]) {
     const text = await (await request.get(rawHref.replace("raw_requests.jsonl", file))).text();
-    expect(text.includes("sehr-geheim-42")).toBe(false);
-    expect(text.includes("sitzung-abcdefgh")).toBe(false);
-    expect(text.includes("tester@example.de")).toBe(false);
+    for (const secret of ["sehr-geheim-42", "sitzung-abcdefgh", "tester@example.de", "auch-geheim-43", "sitzung-zweitesk", "zweite@example.de"]) {
+      expect(text.includes(secret)).toBe(false);
+    }
   }
 });

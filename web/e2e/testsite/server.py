@@ -21,7 +21,8 @@ from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-EMAIL, PASSWORD, SID = "tester@example.de", "sehr-geheim-42", "sitzung-abcdefgh"
+USERS = {("tester@example.de", "sehr-geheim-42"): "sitzung-abcdefgh",
+         ("zweite@example.de", "auch-geheim-43"): "sitzung-zweitesk"}
 
 LOGIN_PAGE = """<!doctype html><html lang="de"><head><meta charset="utf-8"><title>Anmelden</title></head><body>
 <h1>Anmelden</h1>
@@ -88,7 +89,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def _logged_in(self):
         raw = self.headers.get("Cookie") or ""
-        return any(part.strip() == f"sid={SID}" for part in raw.split(";"))
+        return any(part.strip() in {f"sid={sid}" for sid in USERS.values()} for part in raw.split(";"))
 
     def _body(self):
         n = int(self.headers.get("Content-Length") or 0)
@@ -106,9 +107,10 @@ class Handler(SimpleHTTPRequestHandler):
         path = self.path.split("?")[0]
         if path == "/login":
             data = self._body()
-            if data != {"email": EMAIL, "pw": PASSWORD}:
+            sid = USERS.get((data.get("email"), data.get("pw")))
+            if not sid:
                 return self._json({"error": "falsch"}, 401)
-            return self._json({"ok": True}, cookie=f"sid={SID}; Path=/; HttpOnly")
+            return self._json({"ok": True}, cookie=f"sid={sid}; Path=/; HttpOnly")
         if not self._logged_in():
             return self._json({"error": "kein Zugriff"}, 401)
         if path == "/api/conversations":

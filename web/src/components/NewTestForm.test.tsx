@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { expectAccessible } from "@/test/setup";
-import { NewTestForm } from "./NewTestForm";
+import { NewTestForm, parseAccounts } from "./NewTestForm";
 
 const push = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
@@ -332,5 +332,42 @@ describe("Backend ohne Browser", () => {
     expect(radio).toBeDisabled();
     expect(screen.getByText("braucht Browser-Image")).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: /Website/ })).toBeEnabled();
+  });
+});
+
+describe("Abläufe mit mehreren Konten", () => {
+  const flow = {
+    defaults: { levels: "1,2,4,8,16,32", level_seconds: 60, soak_minutes: 15, slo_load: 10, think_time: 60, tests: "baseline,ramp,rate,spike,soak" },
+    quick: { levels: "1,2,4,8,16", level_seconds: 30, soak_minutes: 3 },
+  };
+
+  it("liest die Konten-Tabelle und prüft Kopfzeile und Spaltenzahl", () => {
+    expect(parseAccounts("email, passwort\na@b.de, eins\nc@d.de; zwei", ["email", "passwort"])).toEqual([
+      { email: "a@b.de", passwort: "eins" },
+      { email: "c@d.de", passwort: "zwei" },
+    ]);
+    expect(parseAccounts("{passwort}\tmail\nx\ty", ["passwort"])).toEqual([{ passwort: "x", mail: "y" }]);
+    expect(() => parseAccounts("email\na@b.de", ["email", "passwort"])).toThrow(/fehlt die Spalte „passwort“/);
+    expect(() => parseAccounts("email, passwort\na@b.de", ["email", "passwort"])).toThrow(/Zeile 2 hat 1 statt 2/);
+    expect(() => parseAccounts("email", ["email"])).toThrow(/je Zeile ein Konto/);
+  });
+
+  it("schickt accounts statt secrets, wenn mehrere Konten gewählt sind", async () => {
+    fetchMock.mockResolvedValue(Response.json({ ok: true, run: "results_1" }));
+    const user = userEvent.setup();
+    render(<NewTestForm defaults={defaults} quick={quick} flow={flow} />);
+    await user.click(screen.getByRole("radio", { name: /Ablauf/ }));
+    await user.type(screen.getByRole("textbox", { name: "Adresse der Startseite" }), "https://chat.example/login");
+    await user.type(screen.getByRole("textbox", { name: "Die Schritte" }), 'tippe in "Passwort" {{passwort}\nmessen ab hier\nklicke "Senden"');
+    await user.click(screen.getByRole("checkbox", { name: /Mehrere Konten/ }));
+    expect(screen.queryByLabelText("Wert für {passwort}")).not.toBeInTheDocument();
+    await user.type(screen.getByRole("textbox", { name: "Konten" }), "passwort\ngeheim-eins\ngeheim-zwei");
+    await user.click(screen.getByRole("checkbox", { name: /eigene Anwendung/ }));
+    await user.click(screen.getByRole("button", { name: /Test starten/ }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/lauf"));
+    const body = sentBody();
+    expect(body.accounts).toEqual([{ passwort: "geheim-eins" }, { passwort: "geheim-zwei" }]);
+    expect(body).not.toHaveProperty("secrets");
+    expect(JSON.stringify({ ...localStorage })).not.toContain("geheim");
   });
 });

@@ -85,7 +85,11 @@ function FlowMeasured({ name, summary }: { name: string; summary: Summary }) {
         </>
       )}
       <ul className="mt-4 flex list-disc flex-col gap-2 pl-5 text-sm leading-[21px] text-white/80">
-        <li>Alle simulierten Nutzer teilen sich die Sitzung der Aufzeichnung – ein Konto, viele gleichzeitige Durchläufe.</li>
+        <li>
+          {(cfg.accounts ?? 1) > 1
+            ? `Die simulierten Nutzer verteilen sich reihum auf ${cfg.accounts} Konten, jedes mit eigener Sitzung.`
+            : "Alle simulierten Nutzer teilen sich die Sitzung der Aufzeichnung – ein Konto, viele gleichzeitige Durchläufe."}
+        </li>
         <li>Nicht gemessen: die Anmeldung selbst, die Darstellung im Browser und andere Seiten der Anwendung.</li>
         <li>Zugangsdaten stehen nur in Platzhaltern und wurden nirgends gespeichert.</li>
       </ul>

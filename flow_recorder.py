@@ -16,6 +16,7 @@ from flow_stresstest import MAX_RESPONSE, RECORD_TYPES, STEP_TIMEOUT_MS, build_p
 from llm_stresstest import log
 
 LONG_WAIT_MS = 180_000       # eine Chat-Antwort darf dauern
+PARALLEL_RECORDINGS = 3      # so viele Konten werden gleichzeitig aufgezeichnet (je ein Browser-Fenster)
 TEXT_TYPES = ("application/json", "text/", "application/x-ndjson", "application/problem+json")
 
 
@@ -107,94 +108,118 @@ async def _run_step(page, step, secrets, state):
 
 
 async def record(args, outdir):
-    """Spielt die Schritte ab und liefert (Plan, Vorab-Infos). Wirft PreflightError mit Zeilennummer."""
+    """Spielt die Schritte je Konto ab und liefert ([Plan je Konto], Vorab-Infos). Fotos macht nur das erste
+    Konto. Wirft PreflightError mit Zeilennummer (und Konto-Nummer, wenn es mehrere gibt)."""
     try:
         from playwright.async_api import async_playwright
     except ImportError:
         raise lt.PreflightError("Für Abläufe wird ein Browser gebraucht (Playwright). Im Docker-Image ist er "
                                 "enthalten; sonst: python -m pip install playwright && playwright install chromium") from None
-    steps, secrets = args.steps, args.secrets
+    accounts = getattr(args, "accounts", None) or [args.secrets]
+    sem = asyncio.Semaphore(PARALLEL_RECORDINGS)
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(args=["--no-sandbox", "--disable-dev-shm-usage"])
+        try:
+            async def one(i, secrets):
+                async with sem:
+                    try:
+                        return await _record_account(browser, args.steps, secrets, outdir if i == 0 else None,
+                                                     quiet=i > 0)
+                    except lt.PreflightError as e:
+                        raise lt.PreflightError((f"Konto {i + 1}: " if len(accounts) > 1 else "") + str(e)) from None
+            results = await asyncio.gather(*(one(i, s) for i, s in enumerate(accounts)))
+        finally:
+            await browser.close()
+    plans = [plan for plan, _ in results]
+    info = results[0][1]
+    info["accounts"] = len(plans)
+    return plans, info
+
+
+async def _record_account(browser, steps, secrets, outdir, quiet=False):
+    """Ein Konto, ein eigenes Browser-Fenster (eigene Cookies). outdir=None: keine Bildschirmfotos."""
     state = {"measuring": False, "ws": False, "t_measure": None}
     pending, records, shots = {}, [], []
 
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(args=["--no-sandbox", "--disable-dev-shm-usage"])
-        context = await browser.new_context(viewport={"width": 1280, "height": 800})
-        page = await context.new_page()
-        page.set_default_timeout(STEP_TIMEOUT_MS)
+    context = await browser.new_context(viewport={"width": 1280, "height": 800})
+    page = await context.new_page()
+    page.set_default_timeout(STEP_TIMEOUT_MS)
 
-        def on_request(req):
-            if state["measuring"] and req.resource_type in RECORD_TYPES and req.url.startswith("http"):
-                pending[req] = {"t_start": time.perf_counter()}
+    def on_request(req):
+        if state["measuring"] and req.resource_type in RECORD_TYPES and req.url.startswith("http"):
+            pending[req] = {"t_start": time.perf_counter()}
 
-        def on_response(resp):
-            entry = pending.get(resp.request)
-            if entry is not None:
-                entry["t_headers"] = time.perf_counter()
+    def on_response(resp):
+        entry = pending.get(resp.request)
+        if entry is not None:
+            entry["t_headers"] = time.perf_counter()
 
-        async def finished(req):
-            entry = pending.get(req)
-            if entry is None:
-                return
-            entry["t_end"] = time.perf_counter()
-            try:
-                resp = await req.response()
-                headers = await req.all_headers()
-                resp_headers = await resp.all_headers() if resp else {}
-                ctype = (resp_headers.get("content-type") or "").lower()
-                body = None
-                if resp and any(ctype.startswith(t) for t in TEXT_TYPES):
-                    raw = await resp.body()
-                    body = raw[:MAX_RESPONSE].decode("utf-8", "replace")
-                size = len(await resp.body()) if resp else 0
-            except Exception:                                   # Antwort nicht mehr lesbar – dann ohne Inhalt
-                resp, headers, resp_headers, ctype, body, size = None, {}, {}, "", None, 0
-            records.append({
-                "i": len(records), "method": req.method, "url": req.url, "headers": headers,
-                "body": req.post_data, "status": resp.status if resp else 0, "resp_headers": resp_headers,
-                "resp_body": body, "bytes": size, "resource_type": req.resource_type,
-                "stream": ctype.startswith("text/event-stream") or ctype.startswith("application/x-ndjson")
-                or (entry["t_end"] - entry.get("t_headers", entry["t_end"]) > 1.0),
-                **{k: v for k, v in entry.items()},
-            })
-
-        page.on("request", on_request)
-        page.on("response", on_response)
-        page.on("requestfinished", lambda req: asyncio.ensure_future(finished(req)))
-        page.on("websocket", lambda ws: state.update(ws=True) if state["measuring"] else None)
-
+    async def finished(req):
+        entry = pending.get(req)
+        if entry is None:
+            return
+        entry["t_end"] = time.perf_counter()
         try:
-            for n, step in enumerate(steps, start=1):
-                t = time.perf_counter()
-                try:
-                    await _run_step(page, step, secrets, state)
-                except Exception as err:                        # noqa – jeder Fehler wird erklärt und bebildert
-                    shot = "schritt_fehler.png"
+            resp = await req.response()
+            headers = await req.all_headers()
+            resp_headers = await resp.all_headers() if resp else {}
+            ctype = (resp_headers.get("content-type") or "").lower()
+            body = None
+            if resp and any(ctype.startswith(t) for t in TEXT_TYPES):
+                raw = await resp.body()
+                body = raw[:MAX_RESPONSE].decode("utf-8", "replace")
+            size = len(await resp.body()) if resp else 0
+        except Exception:                                   # Antwort nicht mehr lesbar – dann ohne Inhalt
+            resp, headers, resp_headers, ctype, body, size = None, {}, {}, "", None, 0
+        records.append({
+            "i": len(records), "method": req.method, "url": req.url, "headers": headers,
+            "body": req.post_data, "status": resp.status if resp else 0, "resp_headers": resp_headers,
+            "resp_body": body, "bytes": size, "resource_type": req.resource_type,
+            "stream": ctype.startswith("text/event-stream") or ctype.startswith("application/x-ndjson")
+            or (entry["t_end"] - entry.get("t_headers", entry["t_end"]) > 1.0),
+            **{k: v for k, v in entry.items()},
+        })
+
+    page.on("request", on_request)
+    page.on("response", on_response)
+    page.on("requestfinished", lambda req: asyncio.ensure_future(finished(req)))
+    page.on("websocket", lambda ws: state.update(ws=True) if state["measuring"] else None)
+
+    try:
+        for n, step in enumerate(steps, start=1):
+            t = time.perf_counter()
+            try:
+                await _run_step(page, step, secrets, state)
+            except Exception as err:                        # noqa – jeder Fehler wird erklärt und bebildert
+                shot = "schritt_fehler.png" if outdir else None
+                if shot:
                     try:
                         await page.screenshot(path=os.path.join(outdir, shot))
                     except Exception:
                         shot = None
-                    raise lt.PreflightError(
-                        f"Schritt in Zeile {step['line']} („{describe(step)}“) hat nicht geklappt: "
-                        f"{_short_error(err)}." + (" Bildschirmfoto: schritt_fehler.png" if shot else "")) from err
-                shot = f"schritt_{n:02d}.png"
+                raise lt.PreflightError(
+                    f"Schritt in Zeile {step['line']} („{describe(step)}“) hat nicht geklappt: "
+                    f"{_short_error(err)}." + (" Bildschirmfoto: schritt_fehler.png" if shot else "")) from err
+            shot = f"schritt_{n:02d}.png" if outdir else None
+            if shot:
                 try:
                     await page.screenshot(path=os.path.join(outdir, shot))
                 except Exception:
                     shot = None
-                shots.append({"line": step["line"], "text": describe(step), "screenshot": shot,
-                              "ms": (time.perf_counter() - t) * 1000})
+            shots.append({"line": step["line"], "text": describe(step), "screenshot": shot,
+                          "ms": (time.perf_counter() - t) * 1000})
+            if not quiet:
                 log(f"  ✓ {describe(step)}")
-            await page.wait_for_timeout(800)                    # Nachzügler
-            if pending:
-                for _ in range(20):                             # offene Anfragen zu Ende kommen lassen
-                    if len(records) >= len(pending):
-                        break
-                    await page.wait_for_timeout(250)
-            cookies = await context.cookies()
-            final_url = page.url
-        finally:
-            await browser.close()
+        await page.wait_for_timeout(800)                    # Nachzügler
+        if pending:
+            for _ in range(20):                             # offene Anfragen zu Ende kommen lassen
+                if len(records) >= len(pending):
+                    break
+                await page.wait_for_timeout(250)
+        cookies = await context.cookies()
+        final_url = page.url
+    finally:
+        await context.close()
 
     if state["ws"]:
         raise lt.PreflightError("Im Messbereich benutzt die Seite eine Dauerverbindung (WebSocket). Die lässt "

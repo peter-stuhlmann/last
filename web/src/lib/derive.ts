@@ -315,7 +315,7 @@ export function phaseSteps(summary: Summary, samples: Sample[], running: boolean
   const pre = summary.prechecks;
   const preDetail =
     isFlow(cfg) && pre?.steps
-      ? `Aufgezeichnet: ${pre.steps.length} Schritte, ${pre.requests?.length ?? 0} Anfragen`
+      ? `Aufgezeichnet: ${pre.steps.length} Schritte, ${pre.requests?.length ?? 0} Anfragen${(pre.accounts ?? 1) > 1 ? `, ${pre.accounts} Konten` : ""}`
       : api && pre?.status != null
         ? `Erreichbar, Status ${pre.status} nach ${nf(pre.rtt_ms, 0)} ms`
         : isWeb(cfg) && pre?.assets != null

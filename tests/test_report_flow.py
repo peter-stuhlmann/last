@@ -87,6 +87,15 @@ class AblaufBericht(unittest.TestCase):
         self.assertEqual(pics, 5)
         self.assertNotIn("Zeile 3", text)
 
+    def test_mehrere_konten_stehen_in_den_annahmen(self):
+        s = flow_sample()
+        s["config"]["accounts"] = 5
+        rw.build_report(s, self.path)
+        text = all_text(self.path)
+        self.assertIn("reihum auf 5 Konten", text)
+        self.assertIn("die 5 Sitzungen leben", text)
+        self.assertNotIn("ein Konto", text)
+
     def test_ohne_fotos_trotzdem_bericht(self):
         s = flow_sample()               # keine PNGs im Ordner
         rw.build_report(s, self.path)

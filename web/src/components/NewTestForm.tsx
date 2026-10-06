@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { FALLBACK_API, FALLBACK_FLOW, FALLBACK_WEB } from "@/lib/profile";
 import type { ModelInfo, RunKind } from "@/lib/types";
-import { METHODS, parseBaseUrl, parseHeaderLines } from "@/lib/validation";
+import { MAX_ACCOUNTS, METHODS, parseBaseUrl, parseHeaderLines } from "@/lib/validation";
 
 type Values = Record<string, unknown>;
 type Profile = "quick" | "full";
@@ -45,6 +45,28 @@ const PLACEHOLDER_RE = /\{([a-zA-Z][a-zA-Z0-9_]{0,31})\}/g;
 /** Alle {platzhalter} in den Schritten, in Reihenfolge des ersten Auftretens. */
 export function findPlaceholders(steps: string): string[] {
   return [...new Set([...steps.matchAll(PLACEHOLDER_RE)].map((m) => m[1]))];
+}
+
+/**
+ * Konten-Tabelle aus dem Formular: erste Zeile die Platzhalter-Namen, dann je Zeile ein Konto,
+ * getrennt durch Komma, Semikolon oder Tab. Liefert eine Werte-Zuordnung je Konto.
+ */
+export function parseAccounts(text: string, placeholders: string[]): Record<string, string>[] {
+  const rows = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((l) => l.split(/[;\t,]/).map((c) => c.trim()));
+  if (rows.length < 2) throw new Error("Konten: erste Zeile die Platzhalter-Namen, darunter je Zeile ein Konto.");
+  const head = rows[0].map((h) => h.replace(/^\{|\}$/g, ""));
+  const missing = placeholders.filter((p) => !head.includes(p));
+  if (missing.length) throw new Error(`Konten: in der ersten Zeile fehlt die Spalte „${missing[0]}“.`);
+  const accounts = rows.slice(1).map((cells, i) => {
+    if (cells.length !== head.length) throw new Error(`Konten: Zeile ${i + 2} hat ${cells.length} statt ${head.length} Werte.`);
+    return Object.fromEntries(head.map((h, j) => [h, cells[j]]));
+  });
+  if (accounts.length > MAX_ACCOUNTS) throw new Error(`Konten: höchstens ${MAX_ACCOUNTS}.`);
+  return accounts;
 }
 
 const STEP_EXAMPLE = `tippe in "E-Mail" {email}
@@ -206,6 +228,8 @@ export function NewTestForm({
   }));
   // Werte der Platzhalter: nur im Arbeitsspeicher, nie im localStorage
   const [secrets, setSecrets] = useState<Record<string, string>>({});
+  const [manyAccounts, setManyAccounts] = useState(false);
+  const [accountsText, setAccountsText] = useState("");
   const [profile, setProfile] = useState<Profile>("quick");
   const [includeAssets, setIncludeAssets] = useState(true);
   const [confirmed, setConfirmed] = useState(false);
@@ -304,16 +328,26 @@ export function NewTestForm({
       return;
     }
     let steps = "";
+    let accounts: Record<string, string>[] | null = null;
     if (isFlow) {
       const own = form.flow_steps.trim();
       if (!own) {
         setFormError("Bitte die Schritte aufschreiben – mindestens „messen ab hier“ und einen Schritt danach.");
         return;
       }
-      const missing = placeholders.filter((p) => !secrets[p]);
-      if (missing.length) {
-        setFormError(`Bitte den Wert für {${missing[0]}} eintragen.`);
-        return;
+      if (manyAccounts && placeholders.length) {
+        try {
+          accounts = parseAccounts(accountsText, placeholders);
+        } catch (err) {
+          setFormError(err instanceof Error ? err.message : "Konten prüfen");
+          return;
+        }
+      } else {
+        const missing = placeholders.filter((p) => !secrets[p]);
+        if (missing.length) {
+          setFormError(`Bitte den Wert für {${missing[0]}} eintragen.`);
+          return;
+        }
       }
       // Die Startseite steht oben – wer selbst mit „öffne“ anfängt, behält seine Zeile
       steps = /^öffne\s/i.test(own) ? own : `öffne ${base_url}\n${own}`;
@@ -335,7 +369,9 @@ export function NewTestForm({
           kind: "flow",
           base_url,
           steps,
-          secrets: Object.fromEntries(placeholders.map((p) => [p, secrets[p]])),
+          ...(accounts
+            ? { accounts }
+            : { secrets: Object.fromEntries(placeholders.map((p) => [p, secrets[p]])) }),
           confirm_owner: true,
           tests: String(flow.defaults.tests ?? "baseline,ramp,rate,spike,soak"),
           target_users: number("flow_users") ?? 0,
@@ -552,6 +588,46 @@ export function NewTestForm({
             als {"{platzhalter}"} schreiben, dann erscheinen unten Felder dafür.
           </p>
           {placeholders.length > 0 && (
+            <label className="mt-3 flex cursor-pointer items-start gap-3 text-sm text-white/85">
+              <input
+                type="checkbox"
+                checked={manyAccounts}
+                onChange={(e) => setManyAccounts(e.target.checked)}
+                className="mt-0.5 size-5 shrink-0 accent-violet"
+              />
+              <span>
+                Mehrere Konten – die simulierten Nutzer kommen reihum dran
+                <span className="mt-0.5 block text-xs text-white/60">
+                  Jedes Konto wird einmal im Browser aufgezeichnet und hat unter Last seine eigene Sitzung. Bis {MAX_ACCOUNTS} Konten.
+                </span>
+              </span>
+            </label>
+          )}
+          {placeholders.length > 0 && manyAccounts && (
+            <div className="mt-3">
+              <label htmlFor="accounts_text" className="mb-1 block text-xs font-medium text-white/70">
+                Konten
+              </label>
+              <textarea
+                id="accounts_text"
+                name="accounts_text"
+                rows={5}
+                autoComplete="off"
+                autoCapitalize="none"
+                spellCheck={false}
+                placeholder={`${placeholders.join(", ")}\n${placeholders.map((p) => `${p}-1`).join(", ")}\n${placeholders.map((p) => `${p}-2`).join(", ")}`}
+                value={accountsText}
+                onChange={(e) => setAccountsText(e.target.value)}
+                aria-describedby="accounts_text-hilfe"
+                className="field font-mono text-[13px]"
+              />
+              <p id="accounts_text-hilfe" className="mt-1 text-xs text-white/60">
+                Erste Zeile: die Platzhalter-Namen. Darunter je Zeile ein Konto, Werte mit Komma, Semikolon oder Tab getrennt. Wird nur für
+                diesen Start benutzt – nicht gemerkt, nicht gespeichert, nicht im Bericht.
+              </p>
+            </div>
+          )}
+          {placeholders.length > 0 && !manyAccounts && (
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
               {placeholders.map((p) => (
                 <div key={p}>
@@ -676,7 +752,8 @@ export function NewTestForm({
               ))}
             </dl>
             <p className="mt-3 text-xs text-white/60">
-              Grenzen: Alle simulierten Nutzer teilen sich die Sitzung der Aufzeichnung (ein Konto). Seiten mit Dauerverbindung
+              Grenzen: Mit einem Konto teilen sich alle simulierten Nutzer dessen Sitzung – für echte Mehrnutzerlast mehrere Konten
+              eintragen. Seiten mit Dauerverbindung
               (WebSocket) im Messbereich lassen sich so nicht abspielen. Veränderliche Werte wie eine Chat-ID erkennt der Test selbst und
               holt sie bei jeder Wiederholung frisch.
             </p>

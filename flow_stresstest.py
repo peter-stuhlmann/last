@@ -275,9 +275,15 @@ class FlowClient(WebClient):
 
     def __init__(self, args, plan=None, outdir=None):
         super().__init__(args)
-        self.plan = plan
+        # Ein Plan je Konto; unter Last kommen die Konten reihum dran
+        self.plans = list(plan) if isinstance(plan, list) else ([plan] if plan else None)
         self.outdir = outdir
         self.record_info = None
+        self._turn = 0
+
+    @property
+    def plan(self):
+        return self.plans[0] if self.plans else None
 
     async def __aenter__(self):
         self.resolver = _CachingResolver()
@@ -286,9 +292,9 @@ class FlowClient(WebClient):
     async def __aexit__(self, *exc):
         await self.resolver.close()
 
-    def _session(self):
+    def _session(self, plan):
         jar = aiohttp.CookieJar(unsafe=True)
-        for c in self.plan.get("cookies") or []:
+        for c in plan.get("cookies") or []:
             scheme = "https" if c.get("secure") else "http"
             jar.update_cookies({c["name"]: c["value"]},
                                response_url=URL(f"{scheme}://{c.get('domain', '').lstrip('.')}{c.get('path') or '/'}"))
@@ -296,19 +302,21 @@ class FlowClient(WebClient):
         return aiohttp.ClientSession(connector=connector, cookie_jar=jar, headers={"User-Agent": USER_AGENT})
 
     async def prepare(self):
-        if self.plan is None:
+        if self.plans is None:
             from flow_recorder import record  # Playwright nur laden, wenn wirklich aufgezeichnet wird
-            self.plan, self.record_info = await record(self.args, self.outdir)
+            self.plans, self.record_info = await record(self.args, self.outdir)
         return self.record_info or {"status": 200, "bytes": 0, "assets": len(self.plan["requests"]), "files": [],
                                     "total_bytes": 0, "final_url": self.args.base_url, "rtt_ms": None, "busy": None,
-                                    "requests": public_plan(self.plan), "main": self.plan["main"], "steps": []}
+                                    "requests": public_plan(self.plan), "main": self.plan["main"], "steps": [],
+                                    "accounts": len(self.plans)}
 
     async def _view(self, r, t0):
-        plan = self.plan
+        plan = self.plans[self._turn % len(self.plans)]
+        self._turn += 1
         needed = {src["from"] for src in plan["extract"].values()}
         variables, responses = {}, {}
         r["chunks"] = 0
-        async with self._session() as session:
+        async with self._session(plan) as session:
             for k, tpl in enumerate(plan["requests"]):
                 url = render(tpl["url"], variables)
                 headers = {h: render(v, variables) for h, v in tpl["headers"].items()}
@@ -360,9 +368,11 @@ class FlowStressTest(WebStressTest):
         cfg = self.summary["config"]
         # Zugangsdaten raus, Schritte als Text rein (ohne eingesetzte Werte)
         cfg.pop("secrets", None)
+        cfg.pop("accounts", None)
         cfg.pop("steps", None)
         cfg["steps_text"] = args.steps_text
         cfg["placeholders"] = placeholders(args.steps)
+        cfg["accounts"] = len(getattr(args, "accounts", None) or [args.secrets])
 
     def make_client(self):
         return FlowClient(self.a, outdir=self.outdir)
@@ -379,6 +389,8 @@ class FlowStressTest(WebStressTest):
         log(f"  Aufgezeichnet: {len(info.get('steps') or [])} Schritte, {len(reqs)} Anfragen im Messbereich"
             + (f" · Hauptanfrage {main['method']} {main['path']}" + (" (gestreamt)" if main["stream"] else "")
                if main else ""))
+        if info.get("accounts", 1) > 1:
+            log(f"  {info['accounts']} Konten aufgezeichnet – unter Last kommen sie reihum dran")
         dyn = sum(len(q["dynamic"]) for q in reqs)
         if dyn:
             log(f"  {dyn} veränderliche{'r' if dyn == 1 else ''} Wert{'' if dyn == 1 else 'e'} erkannt – wird bei jeder "

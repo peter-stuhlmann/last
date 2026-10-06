@@ -65,6 +65,7 @@ API_DEFAULTS = {"slo_load": 0.5, "include_assets": False, "method": "GET", "head
 METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE")
 MAX_API_BODY = 64 * 1024
 MAX_HEADERS = 20
+MAX_ACCOUNTS = 50                 # Konten für Abläufe – jedes wird einmal im Browser aufgezeichnet
 # Diese Kopfzeilen setzt der Test selbst oder sie würden die Verbindung manipulieren
 FORBIDDEN_HEADERS = {"host", "content-length", "transfer-encoding", "connection", "upgrade",
                      "user-agent", "expect", "te", "trailer", "keep-alive", "proxy-authorization"}
@@ -127,11 +128,25 @@ def build_args(cfg):
         from flow_stresstest import parse_steps, placeholders
         a.steps_text = str(cfg.get("steps") or "")
         a.steps = parse_steps(a.steps_text)
-        raw_secrets = cfg.get("secrets") if isinstance(cfg.get("secrets"), dict) else {}
-        a.secrets = {str(k): str(v)[:1024] for k, v in raw_secrets.items()}
-        missing = [p for p in placeholders(a.steps) if p not in a.secrets]
-        if missing:
-            raise ValueError(f"Für den Platzhalter {{{missing[0]}}} fehlt ein Wert.")
+        # Ein Konto („secrets“) oder mehrere („accounts“, reihum unter Last); das erste zeichnet auf
+        raw_accounts = cfg.get("accounts") if isinstance(cfg.get("accounts"), list) else None
+        if raw_accounts is None:
+            raw_accounts = [cfg.get("secrets") if isinstance(cfg.get("secrets"), dict) else {}]
+        if not raw_accounts:
+            raise ValueError("Mindestens ein Konto wird gebraucht.")
+        if len(raw_accounts) > MAX_ACCOUNTS:
+            raise ValueError(f"Bitte höchstens {MAX_ACCOUNTS} Konten – mehr braucht der Test nicht.")
+        a.accounts = []
+        for i, acc in enumerate(raw_accounts, start=1):
+            if not isinstance(acc, dict):
+                raise ValueError(f"Konto {i}: Platzhalter und Werte erwartet.")
+            clean = {str(k): str(v)[:1024] for k, v in acc.items()}
+            missing = [p for p in placeholders(a.steps) if p not in clean]
+            if missing:
+                raise ValueError((f"Konto {i}: " if len(raw_accounts) > 1 else "")
+                                 + f"Für den Platzhalter {{{missing[0]}}} fehlt ein Wert.")
+            a.accounts.append(clean)
+        a.secrets = a.accounts[0]
         cfg = {**cfg, "base_url": a.steps[0]["url"]}
     for key, default in DEFAULTS.items():
         val = cfg.get(key)

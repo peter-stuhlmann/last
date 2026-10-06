@@ -130,9 +130,12 @@ class ChatApp:
     """Nachbau einer Chat-Anwendung: Login setzt ein Cookie, POST /api/conversations liefert eine ID,
     POST /api/conversations/{id}/messages streamt die Antwort."""
 
+    SESSIONS = ("sitzung-123456789", "sitzung-zweites-konto")
+
     def __init__(self):
         self.calls = []
         self.known = set()
+        self.sessions_seen = []
 
     async def login(self, req):
         resp = web.json_response({"ok": True})
@@ -140,8 +143,9 @@ class ChatApp:
         return resp
 
     async def conversations(self, req):
-        if req.cookies.get("sid") != "sitzung-123456789":
+        if req.cookies.get("sid") not in self.SESSIONS:
             return web.json_response({"error": "kein Zugriff"}, status=401)
+        self.sessions_seen.append(req.cookies.get("sid"))
         cid = str(uuid.uuid4())
         self.known.add(cid)
         self.calls.append(("conversations", None))
@@ -198,6 +202,16 @@ class Abspielen(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
         await self.app.runner.cleanup()
 
+    async def test_mehrere_konten_kommen_reihum_dran(self):
+        args = sw.build_args({"kind": "flow", "base_url": self.base, "confirm_owner": True,
+                              "steps": f"öffne {self.base}/\nmessen ab hier\nklicke \"Senden\""})
+        second = recorded_plan(self.base)
+        second["cookies"][0]["value"] = "sitzung-zweites-konto"
+        async with fl.FlowClient(args, [recorded_plan(self.base), second]) as client:
+            results = [await client.request(None, 0) for _ in range(4)]
+        self.assertTrue(all(r["ok"] for r in results), results)
+        self.assertEqual(self.app.sessions_seen, ["sitzung-123456789", "sitzung-zweites-konto"] * 2)
+
     async def test_spielt_den_ablauf_mit_neuer_id_ab(self):
         args = sw.build_args({"kind": "flow", "base_url": self.base, "confirm_owner": True,
                               "steps": f"öffne {self.base}/\nmessen ab hier\nklicke \"Senden\""})
@@ -234,6 +248,23 @@ class Eingaben(unittest.TestCase):
         self.assertEqual(a.secrets, {"email": "a@b.de", "passwort": "geheim"})
         self.assertEqual(a.slo_load, 8.0)
         self.assertEqual(a.levels, "1,2,4,8,16,32")
+
+    def test_mehrere_konten(self):
+        a = sw.build_args({"kind": "flow", "base_url": "https://app.example/login", "confirm_owner": True,
+                           "steps": STEPS, "accounts": [{"email": "a@b.de", "passwort": "eins"},
+                                                        {"email": "c@d.de", "passwort": "zwei"}]})
+        self.assertEqual(len(a.accounts), 2)
+        self.assertEqual(a.secrets, {"email": "a@b.de", "passwort": "eins"})     # das erste Konto zeichnet auf
+        st = fl.FlowStressTest(a, tempfile.mkdtemp())
+        st.raw.close()
+        self.assertEqual(st.summary["config"]["accounts"], 2)
+        self.assertNotIn("c@d.de", json.dumps(st.summary["config"], default=str))
+        with self.assertRaisesRegex(ValueError, "Konto 2.*passwort"):
+            sw.build_args({"kind": "flow", "base_url": "https://app.example/login", "confirm_owner": True,
+                           "steps": STEPS, "accounts": [{"email": "a@b.de", "passwort": "eins"}, {"email": "c@d.de"}]})
+        with self.assertRaisesRegex(ValueError, "höchstens 50"):
+            sw.build_args({"kind": "flow", "base_url": "https://app.example/login", "confirm_owner": True,
+                           "steps": STEPS, "accounts": [{"email": "a@b.de", "passwort": "x"}] * 51})
 
     def test_fehlende_platzhalter(self):
         with self.assertRaisesRegex(ValueError, "passwort"):

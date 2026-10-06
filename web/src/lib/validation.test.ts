@@ -130,3 +130,13 @@ describe("startSchema für Abläufe", () => {
     expect(startSchema.safeParse({ ...flow, secrets: Object.fromEntries(Array.from({ length: 25 }, (_, i) => [`p${i}`, "a"])) }).success).toBe(false);
   });
 });
+
+describe("startSchema mit mehreren Konten", () => {
+  const flow = { kind: "flow", base_url: "https://chat.example/login", confirm_owner: true, steps: "öffne https://chat.example/login\nmessen ab hier\nklicke \"Senden\"" };
+  it("nimmt bis zu 50 Konten an", () => {
+    expect(startSchema.safeParse({ ...flow, accounts: [{ pw: "a" }, { pw: "b" }] }).success).toBe(true);
+    expect(startSchema.safeParse({ ...flow, accounts: [] }).success).toBe(false);
+    expect(startSchema.safeParse({ ...flow, accounts: Array.from({ length: 51 }, () => ({ pw: "a" })) }).success).toBe(false);
+    expect(startSchema.safeParse({ ...flow, accounts: [{ "böse name": "a" }] }).success).toBe(false);
+  });
+});

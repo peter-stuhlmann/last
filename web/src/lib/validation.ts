@@ -3,6 +3,7 @@ import { z } from "zod";
 const MAX_URL = 2048;
 export const MAX_STEPS = 20 * 1024;
 export const MAX_SECRET = 1024;
+export const MAX_ACCOUNTS = 50;
 const PLACEHOLDER = /^[a-zA-Z][a-zA-Z0-9_]{0,31}$/;
 const TEST_KEYS = ["baseline", "ramp", "rate", "context", "spike", "soak"];
 export const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
@@ -126,6 +127,16 @@ export const startSchema = z
     secrets: z
       .record(z.string().regex(PLACEHOLDER, "Platzhalter: Buchstaben, Ziffern, Unterstrich"), z.string().max(MAX_SECRET))
       .refine((r) => Object.keys(r).length <= 20, "Höchstens 20 Platzhalter")
+      .optional(),
+    // mehrere Konten: eine Werte-Zuordnung je Konto; kommen unter Last reihum dran
+    accounts: z
+      .array(
+        z
+          .record(z.string().regex(PLACEHOLDER, "Platzhalter: Buchstaben, Ziffern, Unterstrich"), z.string().max(MAX_SECRET))
+          .refine((r) => Object.keys(r).length <= 20, "Höchstens 20 Platzhalter"),
+      )
+      .min(1, "Mindestens ein Konto")
+      .max(MAX_ACCOUNTS, `Höchstens ${MAX_ACCOUNTS} Konten`)
       .optional(),
     level_seconds: int(5, 600).optional(),
     warmup_seconds: int(0, 120).optional(),

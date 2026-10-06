@@ -37,6 +37,8 @@ export interface RunConfig {
   /** nur Ablauf: die Schritte im Wortlaut (Platzhalter bleiben Platzhalter) und ihre Namen */
   steps_text?: string;
   placeholders?: string[];
+  /** nur Ablauf: so viele Konten wurden aufgezeichnet und kommen unter Last reihum dran */
+  accounts?: number;
   hw_price?: number;
   server_watts?: number;
   power_price?: number;
@@ -117,6 +119,7 @@ export interface Summary {
     main?: number;
     steps?: RecordedStep[];
     measured_ms?: number | null;
+    accounts?: number;
   };
   baseline?: Stats;
   ramp?: { steps: RampStep[]; break: { concurrency: number; reason: string } | null; saturated: number | null };
