@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GET as compare } from "./compare/route";
 import { GET as events } from "./events/route";
+import { POST as live } from "./flow/live/[op]/route";
 import { POST as models } from "./models/route";
 import { GET as download } from "./runs/[name]/[file]/route";
 import { POST as start } from "./start/route";
@@ -215,5 +216,75 @@ describe("GET /api/compare", () => {
     const res = await compare(new Request("http://localhost/api/compare?runs=results_1,results_2"));
     expect(res.status).toBe(200);
     expect(String(fetchMock.mock.calls[0][0])).toBe("http://127.0.0.1:8090/api/compare?runs=results_1%2Cresults_2");
+  });
+});
+
+describe("POST /api/flow/live/…", () => {
+  const op = (name: string) => ({ params: Promise.resolve({ op: name }) });
+  const SID = "f".repeat(32);
+
+  it("reicht nur geprüfte Felder weiter und gibt nur erwartete Felder zurück", async () => {
+    fetchMock.mockResolvedValue(
+      Response.json({
+        session: SID,
+        steps_done: 1,
+        error: null,
+        extra: "weg",
+        snapshot: {
+          url: "https://a.test/chat",
+          title: "Chat",
+          viewport: { w: 1280, h: 800 },
+          screenshot: "data:image/jpeg;base64,AAAA",
+          elements: [
+            { mark: "0", kind: "field", label: "Nachricht", box: { x: 1, y: 2, w: 3, h: 4 }, secret: "x" },
+            { mark: "<b>", kind: "button", label: "x", box: {} },
+            { mark: "2", kind: "script", label: "x", box: {} },
+          ],
+        },
+      }),
+    );
+    const res = await live(post("http://localhost/api/flow/live/start", { steps: "öffne https://a.test/login", secrets: { email: "a@b.de" }, out: "/etc" }), op("start"));
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data).not.toHaveProperty("extra");
+    expect(data.snapshot.elements).toEqual([{ mark: "0", kind: "field", label: "Nachricht", box: { x: 1, y: 2, w: 3, h: 4 } }]);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toBe("http://127.0.0.1:8090/api/flow/live/start");
+    expect(JSON.parse(init.body)).toEqual({ steps: "öffne https://a.test/login", secrets: { email: "a@b.de" } });
+  });
+
+  it("prüft Aktionen, bevor sie im Browser landen", async () => {
+    for (const action of [
+      { type: "eval", js: "1" },
+      { type: "pick", mark: "0; alert(1)" },
+      { type: "press", key: "F12" },
+      { type: "fill", target: { target: 'a"b' }, text: "x" },
+      { type: "fill", target: { target: "a" }, text: "zwei\nzeilen" },
+    ]) {
+      const res = await live(post("http://localhost/api/flow/live/act", { session: SID, action }), op("act"));
+      expect(res.status, JSON.stringify(action)).toBe(400);
+    }
+    expect((await live(post("http://localhost/api/flow/live/act", { session: "x", action: { type: "press", key: "Enter" } }), op("act"))).status).toBe(400);
+    expect((await live(post("http://localhost/api/flow/live/drop", {}), op("drop"))).status).toBe(404);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("gibt Rückfragen und neue Schritte weiter, Bilder nur als JPEG", async () => {
+    fetchMock.mockResolvedValue(
+      Response.json({ need: "text", target: { kind: "fill", target: "E-Mail", nth: 2, label: "E-Mail", secret: "email" }, thumb: "javascript:alert(1)" }),
+    );
+    const res = await live(post("http://localhost/api/flow/live/act", { session: SID, action: { type: "pick", mark: "3", measuring: true } }), op("act"));
+    const data = await res.json();
+    expect(data).toEqual({ need: "text", target: { kind: "fill", target: "E-Mail", nth: 2, label: "E-Mail", secret: "email" }, thumb: null });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).action).toEqual({ type: "pick", mark: "3", measuring: true });
+  });
+
+  it("lehnt Abläufe ohne Startseite ab und gibt Backend-Fehler verständlich weiter", async () => {
+    expect((await live(post("http://localhost/api/flow/live/start", { steps: "klicke \"Los\"" }), op("start"))).status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+    fetchMock.mockResolvedValue(Response.json({ error: "Der Browser wurde inzwischen geschlossen – bitte neu starten." }, { status: 410 }));
+    const res = await live(post("http://localhost/api/flow/live/act", { session: SID, action: { type: "press", key: "Enter" } }), op("act"));
+    expect(res.status).toBe(410);
+    expect((await res.json()).error).toMatch(/neu starten/);
   });
 });

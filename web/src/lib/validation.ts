@@ -200,6 +200,41 @@ export const notesSchema = z.object({
 
 export type NotesPayload = z.infer<typeof notesSchema>;
 
+const secretsSchema = z
+  .record(z.string().regex(PLACEHOLDER, "Platzhalter: Buchstaben, Ziffern, Unterstrich"), z.string().max(MAX_SECRET))
+  .refine((r) => Object.keys(r).length <= 20, "Höchstens 20 Platzhalter");
+
+// Ein Ziel darf keine Anführungszeichen enthalten – sie beenden es in der Schritt-Sprache
+const targetText = z.string().trim().min(1).max(200).regex(/^[^"\x00-\x1f]*$/, "Ungültiges Ziel");
+
+export const LIVE_KEYS = ["Enter", "Tab", "Escape", "ArrowDown", "ArrowUp", "Space", "Backspace"] as const;
+
+/** Vorführen, POST /api/flow/live/start: ein angefangener Ablauf (beginnt mit „öffne“) und die Werte seiner Platzhalter. */
+export const liveStartSchema = z.object({
+  steps: z
+    .string()
+    .max(MAX_STEPS)
+    .refine((v) => /^\s*öffne\s+https?:\/\//i.test(v), "Der Ablauf muss mit „öffne https://…“ beginnen."),
+  secrets: secretsSchema.optional(),
+});
+
+/** Vorführen, POST /api/flow/live/act: ein Klick auf ein Element, eine Eingabe oder eine Taste. */
+export const liveActSchema = z.object({
+  session: z.string().regex(/^[0-9a-f]{32}$/, "Unbekannte Sitzung"),
+  secrets: secretsSchema.optional(),
+  action: z.discriminatedUnion("type", [
+    z.object({ type: z.literal("pick"), mark: z.string().regex(/^\d{1,4}$/), measuring: z.boolean().optional() }),
+    z.object({ type: z.literal("press"), key: z.enum(LIVE_KEYS), measuring: z.boolean().optional() }),
+    z.object({
+      type: z.literal("fill"),
+      target: z.object({ target: targetText, near: targetText.optional(), nth: z.number().int().min(1).max(999).optional() }),
+      text: z.string().max(4000).regex(/^[^\n\r]*$/, "Der Text muss eine Zeile sein"),
+      enter: z.boolean().optional(),
+      measuring: z.boolean().optional(),
+    }),
+  ]),
+});
+
 export const modelsRequestSchema = z.object({
   base_url: baseUrl,
   api_key: z.string().max(512).optional(),

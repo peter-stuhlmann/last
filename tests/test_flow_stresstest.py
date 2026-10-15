@@ -9,6 +9,7 @@ import unittest
 import uuid
 
 from aiohttp import web
+from aiohttp.test_utils import AioHTTPTestCase
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -65,6 +66,31 @@ class SchrittSprache(unittest.TestCase):
             fl.parse_steps("klicke \"Los\"\nmessen ab hier\nklicke \"Senden\"")
         with self.assertRaisesRegex(ValueError, "Nach „messen"):
             fl.parse_steps("öffne https://x/\nmessen ab hier")
+
+    def test_angefangener_ablauf_zum_abtasten(self):
+        steps = fl.parse_steps("öffne https://x/\nklicke \"Los\"", partial=True)
+        self.assertEqual([s["kind"] for s in steps], ["open", "click"])
+        self.assertEqual(len(fl.parse_steps("öffne https://x/\nmessen ab hier", partial=True)), 2)
+        with self.assertRaisesRegex(ValueError, "öffne"):
+            fl.parse_steps("klicke \"Los\"", partial=True)
+        with self.assertRaisesRegex(ValueError, "einmal"):
+            fl.parse_steps("öffne https://x/\nmessen ab hier\nmessen ab hier", partial=True)
+        with self.assertRaisesRegex(ValueError, "Zeile 2"):
+            fl.parse_steps("öffne https://x/\nhüpfe dreimal", partial=True)
+
+    def test_mehrfache_ziele_und_ruhige_seite(self):
+        steps = fl.parse_steps('öffne https://x/\nklicke "Löschen" bei "Bestellung 4711"\nklicke "Löschen" (Nr. 3)\n'
+                               'tippe in "Menge" bei "Zeile 2" (Nr. 2) "3"\nmessen ab hier\ndrücke Enter\n'
+                               'warte bis die Seite ruhig ist (2,5 s)')
+        self.assertEqual(steps[1], {"kind": "click", "line": 2, "target": "Löschen", "near": "Bestellung 4711"})
+        self.assertEqual(steps[2]["nth"], 3)
+        self.assertEqual((steps[3]["near"], steps[3]["nth"], steps[3]["text"]), ("Zeile 2", 2, "3"))
+        self.assertEqual(steps[6], {"kind": "wait_quiet", "line": 7, "quiet": 2.5})
+        # und wieder als Text – so schickt das Vorführen die Schritte an die Oberfläche
+        self.assertEqual([fl.format_step(s) for s in steps[1:]], [
+            'klicke "Löschen" bei "Bestellung 4711"', 'klicke "Löschen" (Nr. 3)', 'tippe in "Menge" bei "Zeile 2" (Nr. 2) "3"',
+            "messen ab hier", "drücke Enter", "warte bis die Seite ruhig ist (2,5 s)"])
+        self.assertEqual(fl.format_step({"kind": "fill", "target": "E-Mail", "text": "{email}"}), 'tippe in "E-Mail" {email}')
 
     def test_selektor_oder_sichtbarer_text(self):
         self.assertTrue(fl.is_selector("#chat-input"))
@@ -285,6 +311,55 @@ class Eingaben(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class VorfuehrenEndpunkt(AioHTTPTestCase):
+    """Eingaben prüfen, bevor ein Browser startet – das Vorführen selbst steht in test_flow_recorder.py."""
+
+    async def get_application(self):
+        return sw.make_app(tempfile.mkdtemp())
+
+    async def post(self, op, body):
+        import unittest.mock as mock
+        with mock.patch.dict(sw.FEATURES, {"flow": True}):
+            r = await self.client.post(f"/api/flow/live/{op}", json=body)
+            return r.status, await r.json()
+
+    async def test_lehnt_kaputte_schritte_ab(self):
+        status, data = await self.post("start", {"steps": "klicke \"Los\""})
+        self.assertEqual((status, "öffne" in data["error"]), (400, True))
+        status, data = await self.post("start", {"steps": "öffne https://x.test/\nhüpfe"})
+        self.assertEqual((status, "Zeile 2" in data["error"]), (400, True))
+        status, _ = await self.post("start", {"steps": "öffne https://x.test/", "secrets": {"a": 1}})
+        self.assertEqual(status, 400)
+        status, _ = await self.post("start", ["kein", "objekt"])
+        self.assertEqual(status, 400)
+
+    async def test_prueft_aktionen_streng(self):
+        for action in ({"type": "eval", "js": "1"}, {"type": "pick", "mark": "a1"}, {"type": "press", "key": "F12"},
+                       {"type": "fill", "target": {"target": 'x"y'}, "text": "a"},
+                       {"type": "fill", "target": {"target": "x", "nth": 0}, "text": "a"},
+                       {"type": "fill", "target": {"target": "x"}, "text": "zwei\nzeilen"}):
+            status, _ = await self.post("act", {"session": "x", "action": action})
+            self.assertEqual(status, 400, action)
+        self.assertEqual(sw.clean_live_action({"type": "fill", "target": {"target": "Menge", "near": "Zeile 2", "nth": 2},
+                                               "text": "3", "enter": True, "extra": 1}),
+                         {"type": "fill", "target": {"target": "Menge", "near": "Zeile 2", "nth": 2}, "text": "3", "enter": True,
+                          "measuring": False})
+
+    async def test_ohne_sitzung_klare_ansage(self):
+        status, data = await self.post("act", {"session": "weg", "action": {"type": "press", "key": "Enter"}})
+        self.assertEqual(status, 410)
+        self.assertIn("neu starten", data["error"])
+        status, _ = await self.post("stop", {})
+        self.assertEqual(status, 200)
+
+    async def test_ohne_browser_klare_absage(self):
+        import unittest.mock as mock
+        with mock.patch.dict(sw.FEATURES, {"flow": False}):
+            r = await self.client.post("/api/flow/live/start", json={"steps": "öffne https://x.test/"})
+        self.assertEqual(r.status, 400)
+        self.assertIn("keinen Browser", (await r.json())["error"])
 
 
 class OhneBrowser(unittest.TestCase):

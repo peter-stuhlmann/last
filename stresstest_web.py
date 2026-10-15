@@ -49,6 +49,7 @@ TRASH_DAYS = 7
 NOTES_FILE = "notes.json"
 TAG_RE = re.compile(r"^[a-z0-9äöüß][a-z0-9äöüß._-]{0,23}$")
 MAX_TITLE, MAX_NOTE, MAX_TAGS = 80, 2000, 10
+LIVE_TIMEOUT = 150           # Vorführen: so lange darf ein Schritt dauern (eine Chat-Antwort zum Beispiel)
 
 
 class Runner:
@@ -290,8 +291,130 @@ async def start(req):
         a = build_args(cfg)
     except ValueError as e:
         return web.json_response({"error": str(e)}, status=400)
+    await close_live(req.app)                    # ein offener Vorführ-Browser würde die Messung stören
     name = runner.start(a)
     return web.json_response({"ok": True, "run": name})
+
+
+LIVE_KEYS = {"Enter", "Tab", "Escape", "ArrowDown", "ArrowUp", "Space", "Backspace"}
+_TARGET_FIELDS = {"target": str, "near": str, "nth": int}
+
+
+def clean_live_action(a):
+    """Eine Aktion beim Vorführen – streng geprüft, weil sie direkt im Browser ausgeführt wird."""
+    if not isinstance(a, dict) or a.get("type") not in ("pick", "fill", "press"):
+        raise ValueError("Unbekannte Aktion.")
+    if a["type"] == "pick":
+        if not isinstance(a.get("mark"), str) or not a["mark"].isdigit():
+            raise ValueError("Unbekanntes Element.")
+        return {"type": "pick", "mark": a["mark"], "measuring": a.get("measuring") is True}
+    if a["type"] == "press":
+        if a.get("key") not in LIVE_KEYS:
+            raise ValueError("Unbekannte Taste.")
+        return {"type": "press", "key": a["key"], "measuring": a.get("measuring") is True}
+    t, text = a.get("target"), a.get("text")
+    if not isinstance(t, dict) or not isinstance(t.get("target"), str) or not t["target"].strip():
+        raise ValueError("Unbekanntes Feld.")
+    target = {}
+    for k, typ in _TARGET_FIELDS.items():
+        v = t.get(k)
+        if v is None:
+            continue
+        if not isinstance(v, typ) or isinstance(v, bool) or (typ is str and ('"' in v or len(v) > 200)) or \
+                (typ is int and not 1 <= v <= 999):
+            raise ValueError(f"Ungültiger Wert für {k}.")
+        target[k] = v
+    if not isinstance(text, str) or len(text) > 4000 or "\n" in text:
+        raise ValueError("Der Text muss eine Zeile sein (höchstens 4000 Zeichen).")
+    return {"type": "fill", "target": target, "text": text, "enter": a.get("enter") is True,
+            "measuring": a.get("measuring") is True}
+
+
+def clean_secrets(v):
+    v = v or {}
+    if not isinstance(v, dict) or not all(isinstance(k, str) and isinstance(x, str) for k, x in v.items()):
+        raise ValueError("Platzhalter-Werte müssen Text sein.")
+    return v
+
+
+class LiveSlot:
+    """Platz für die eine Vorführ-Sitzung (aiohttp mag es nicht, wenn eine laufende App neue Werte bekommt)."""
+    session = None
+
+
+async def close_live(app):
+    slot = app["live"]
+    live, slot.session = slot.session, None
+    if live is not None:
+        async with live.lock:
+            await live.close()
+
+
+async def _live_reaper(app):
+    """Räumt eine vergessene Sitzung ab – ein offener Browser kostet Speicher."""
+    while True:
+        await asyncio.sleep(30)
+        if app["live"].session is not None and app["live"].session.expired:
+            await close_live(app)
+
+
+@routes.post("/api/flow/live/{op:start|act|stop}")
+async def flow_live(req):
+    """Vorführen: start öffnet die Seite und spielt die bisherigen Schritte ab, act führt einen Klick, eine
+    Eingabe oder eine Taste aus, stop schließt den Browser."""
+    app, op = req.app, req.match_info["op"]
+    if op == "stop":
+        await close_live(app)
+        return web.json_response({"ok": True})
+    if not FEATURES["flow"]:
+        return web.json_response({"error": flow.NO_BROWSER}, status=400)
+    if app["runner"].running:
+        return web.json_response({"error": "Während ein Test läuft, geht Vorführen nicht – das würde die Messung "
+                                           "verfälschen."}, status=409)
+    try:
+        cfg = await req.json()
+        if not isinstance(cfg, dict):
+            raise ValueError("Ungültige Anfrage.")
+        secrets = clean_secrets(cfg.get("secrets"))
+        if op == "start":
+            steps = flow.parse_steps(cfg.get("steps") or "", partial=True)
+        else:
+            action = clean_live_action(cfg.get("action"))
+    except ValueError as e:
+        return web.json_response({"error": str(e)}, status=400)
+    import flow_live  # Playwright nur laden, wenn wirklich vorgeführt wird
+    if op == "start":
+        await close_live(app)
+        live = app["live"].session = flow_live.LiveSession()
+        failed = None
+        async with live.lock:
+            try:
+                result = await asyncio.wait_for(live.open(steps, secrets), LIVE_TIMEOUT)
+            except lt.PreflightError as e:
+                failed = str(e)
+            except TimeoutError:
+                failed = f"Die Seite hat nach {LIVE_TIMEOUT} s nicht geantwortet."
+            except Exception as e:  # noqa – z. B. Browser startet nicht; dann nichts offen lassen
+                failed = f"Der Browser ließ sich nicht starten: {type(e).__name__}."
+        if failed:                               # erst nach dem Freigeben schließen – close_live braucht die Sperre
+            await close_live(app)
+            return web.json_response({"error": failed}, status=400)
+        return web.json_response(result)
+    live = app["live"].session
+    if live is None or cfg.get("session") != live.id:
+        return web.json_response({"error": "Der Browser wurde inzwischen geschlossen – bitte neu starten."}, status=410)
+    if live.lock.locked():
+        return web.json_response({"error": "Einen Moment – der letzte Schritt läuft noch."}, status=409)
+    async with live.lock:
+        try:
+            result = await asyncio.wait_for(live.act(action, secrets), LIVE_TIMEOUT)
+        except TimeoutError:
+            result = None
+    if result is None:                           # erst nach dem Freigeben schließen – close_live braucht die Sperre
+        await close_live(app)
+        return web.json_response({"error": f"Nach {LIVE_TIMEOUT} s keine Antwort – der Browser wurde geschlossen."},
+                                 status=504)
+    return web.json_response(result)
 
 
 @routes.post("/api/stop")
@@ -575,7 +698,18 @@ def make_app(results_root):
     empty_trash(results_root)
     app = web.Application()
     app["runner"] = Runner(results_root)
+    app["live"] = LiveSlot()
     app.add_routes(routes)
+
+    async def start_reaper(app):
+        app["live_reaper"] = asyncio.create_task(_live_reaper(app))
+
+    async def stop_live(app):
+        app["live_reaper"].cancel()
+        await close_live(app)
+
+    app.on_startup.append(start_reaper)
+    app.on_cleanup.append(stop_live)
     return app
 
 

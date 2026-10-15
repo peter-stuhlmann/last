@@ -2,7 +2,9 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
+import { FlowSteps } from "@/components/flow/FlowSteps";
 import { FALLBACK_API, FALLBACK_FLOW, FALLBACK_WEB } from "@/lib/profile";
+import { withStart } from "@/lib/steps";
 import type { ModelInfo, RunKind } from "@/lib/types";
 import { MAX_ACCOUNTS, METHODS, parseBaseUrl, parseHeaderLines } from "@/lib/validation";
 
@@ -68,15 +70,6 @@ export function parseAccounts(text: string, placeholders: string[]): Record<stri
   if (accounts.length > MAX_ACCOUNTS) throw new Error(`Konten: höchstens ${MAX_ACCOUNTS}.`);
   return accounts;
 }
-
-const STEP_EXAMPLE = `tippe in "E-Mail" {email}
-tippe in "Passwort" {passwort}
-klicke "Anmelden"
-warte auf Text "Willkommen"
-messen ab hier
-tippe in "Nachricht" "Was ist ein Lasttest?"
-drücke Enter
-warte bis ".antwort" fertig ist (2 s ruhig)`;
 
 const STEP_WORDS: [string, string][] = [
   ['tippe in "Feld" Text', "Feld = Beschriftung, Platzhaltertext oder CSS-Selektor; {name} wird zum Passwortfeld"],
@@ -282,6 +275,16 @@ export function NewTestForm({
     setFormError(null);
   }
 
+  /** Zugangsdaten fürs Vorführen: die eingetragenen Werte, bei mehreren Konten zusätzlich die des ersten. */
+  function liveSecrets(): Record<string, string> {
+    if (!manyAccounts || !placeholders.length) return secrets;
+    try {
+      return { ...secrets, ...parseAccounts(accountsText, placeholders)[0] };
+    } catch {
+      return secrets;
+    }
+  }
+
   function validUrl(): string | null {
     const url = parseBaseUrl(form[urlField]);
     if (!url) {
@@ -349,8 +352,7 @@ export function NewTestForm({
           return;
         }
       }
-      // Die Startseite steht oben – wer selbst mit „öffne“ anfängt, behält seine Zeile
-      steps = /^öffne\s/i.test(own) ? own : `öffne ${base_url}\n${own}`;
+      steps = withStart(own, base_url);
     }
 
     const number = (name: string) => (form[name] === "" ? undefined : Number(form[name].replace(",", ".")));
@@ -566,27 +568,13 @@ export function NewTestForm({
       {isFlow && (
         <fieldset>
           <legend className={legend}>Was passiert auf der Seite?</legend>
-          <label htmlFor="flow_steps" className="mb-1 block text-xs font-medium text-white/70">
-            Die Schritte
-          </label>
-          <textarea
-            id="flow_steps"
-            name="flow_steps"
-            rows={9}
-            autoComplete="off"
-            autoCapitalize="none"
-            spellCheck={false}
-            placeholder={STEP_EXAMPLE}
+          <FlowSteps
             value={form.flow_steps}
-            onChange={set("flow_steps")}
-            aria-describedby="flow_steps-hilfe"
-            className="field font-mono text-[13px] leading-relaxed"
+            onChange={(text) => setForm((f) => ({ ...f, flow_steps: text }))}
+            baseUrl={parseBaseUrl(form.flow_url)}
+            secrets={liveSecrets()}
+            onSecret={(name, value) => setSecrets((s) => ({ ...s, [name]: value }))}
           />
-          <p id="flow_steps-hilfe" className="mt-1.5 text-xs text-white/60">
-            Ein Schritt je Zeile, so wie ein Mensch es tun würde. Die Startseite oben wird zuerst geöffnet. Ab „messen ab hier“ zeichnet ein
-            unsichtbarer Browser auf, was die Seite an den Server schickt – unter Last wird genau das hunderte Male abgespielt. Zugangsdaten
-            als {"{platzhalter}"} schreiben, dann erscheinen unten Felder dafür.
-          </p>
           {placeholders.length > 0 && (
             <label className="mt-3 flex cursor-pointer items-start gap-3 text-sm text-white/85">
               <input

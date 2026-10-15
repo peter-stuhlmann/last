@@ -24,6 +24,7 @@ test("Ablauf-Test: aufzeichnen, abspielen, Bericht mit Bildschirmfotos", async (
   await page.goto("/");
   await page.locator("label", { hasText: "Ablauf" }).click();
   await page.getByRole("textbox", { name: "Adresse der Startseite" }).fill(START);
+  await page.getByRole("button", { name: "Als Text" }).click();
   await page.getByRole("textbox", { name: "Die Schritte" }).fill(STEPS);
   // Zwei Konten: beide werden aufgezeichnet und kommen unter Last reihum dran
   await page.getByRole("checkbox", { name: /Mehrere Konten/ }).check();
@@ -67,4 +68,60 @@ test("Ablauf-Test: aufzeichnen, abspielen, Bericht mit Bildschirmfotos", async (
       expect(text.includes(secret)).toBe(false);
     }
   }
+});
+
+test("Ablauf vorführen: durchklicken, daraus testen", async ({ page }) => {
+  await page.route("**/api/start", async (route) => {
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    await route.continue({
+      postData: JSON.stringify({ ...body, levels: "1,2", level_seconds: 5, warmup_seconds: 1, min_samples: 2, baseline_requests: 2, tests: "baseline,ramp" }),
+    });
+  });
+  await page.goto("/");
+  await page.locator("label", { hasText: "Ablauf" }).click();
+  await page.getByRole("textbox", { name: "Adresse der Startseite" }).fill(START);
+  await page.getByRole("button", { name: /Ablauf vorführen/ }).click();
+  const dialog = page.getByRole("dialog", { name: "Ablauf vorführen" });
+
+  // Anmelden – wie ein Mensch: ins Feld klicken, Text eingeben, auf den Knopf klicken
+  const type = async (field: string, value: string, enter = false) => {
+    await dialog.getByRole("button", { name: `Eingeben in „${field}“` }).click({ timeout: 60_000 });
+    await dialog.getByLabel(`Was soll in „${field}“ hinein?`).fill(value);
+    if (enter) await dialog.getByRole("checkbox", { name: /Danach Enter drücken/ }).check();
+    await dialog.getByRole("button", { name: "Eingeben", exact: true }).click();
+  };
+  await type("E-Mail", "tester@example.de");
+  await type("Passwort", "sehr-geheim-42");
+  await dialog.getByRole("button", { name: "Klicken auf „Anmelden“" }).click({ timeout: 60_000 });
+
+  // Auf der Chat-Seite: ab hier messen, eine Frage stellen
+  await expect(dialog.getByRole("button", { name: "Eingeben in „Nachricht“" })).toBeVisible({ timeout: 60_000 });
+  await dialog.getByRole("button", { name: "⏱ Ab hier messen" }).click();
+  await type("Nachricht", "Was ist ein Lasttest?", true);
+  await expect(dialog.getByText("Warten, bis die Seite fertig ist")).toBeVisible({ timeout: 60_000 });
+
+  const axe = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
+  expect(axe.violations.map((v) => v.id)).toEqual([]);
+  await dialog.getByRole("button", { name: "Fertig" }).click();
+
+  await page.getByRole("button", { name: "Als Text" }).click();
+  await expect(page.getByRole("textbox", { name: "Die Schritte" })).toHaveValue(
+    [
+      'tippe in "E-Mail" {email}',
+      'tippe in "Passwort" {passwort}',
+      'klicke "Anmelden"',
+      "messen ab hier",
+      'tippe in "Nachricht" "Was ist ein Lasttest?"',
+      "drücke Enter",
+      "warte bis die Seite ruhig ist (2 s)",
+    ].join("\n"),
+  );
+  // Die beim Vorführen eingegebenen Zugangsdaten stehen schon im Formular
+  await expect(page.getByLabel("Wert für {passwort}")).toHaveValue("sehr-geheim-42");
+
+  await page.getByRole("checkbox", { name: /eigene Anwendung/ }).check();
+  await page.getByRole("button", { name: "Test starten" }).click();
+  await expect(page).toHaveURL(/\/lauf$/);
+  await page.getByRole("link", { name: /Ergebnis ansehen/ }).click({ timeout: 150_000 });
+  await expect(page.getByText(/POST \/api\/conversations\/\{v1\}\/messages/)).toBeVisible();
 });

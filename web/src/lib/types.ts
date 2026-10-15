@@ -230,3 +230,46 @@ export interface ModelInfo {
   id: string;
   max_len: number | null;
 }
+
+/** Ein Feld oder Knopf auf dem Bildschirmfoto beim Vorführen – klickbare Fläche in Pixeln der Seite. */
+export interface LiveElement {
+  mark: string;
+  kind: "field" | "button" | "link" | "check";
+  label: string;
+  box: { x: number; y: number; w: number; h: number };
+}
+
+export interface LiveSnapshot {
+  url: string;
+  title: string;
+  viewport: { w: number; h: number };
+  screenshot: string | null;
+  elements: LiveElement[];
+}
+
+/** So findet ein Schritt das Element wieder – vom Backend gewählt und geprüft. */
+export interface LiveTarget {
+  kind: "fill" | "click";
+  target: string;
+  near?: string;
+  nth?: number;
+  label: string;
+  /** Feld für Zugangsdaten: dann schlägt die Oberfläche einen Platzhalter vor */
+  secret: "email" | "passwort" | null;
+}
+
+/** Antwort auf start oder act. */
+export interface LiveReply {
+  session?: string;
+  snapshot?: LiveSnapshot;
+  /** neue Schritte als Zeilen der Schritt-Sprache */
+  steps?: string[];
+  /** Ausschnitt des angeklickten Elements – zum Wiedererkennen im Ablauf */
+  thumb?: string | null;
+  /** bei einem Feld: erst fragen, was hinein soll */
+  need?: "text";
+  target?: LiveTarget;
+  /** start: so viele Schritte liefen durch; error.index ist der erste, der hakte */
+  steps_done?: number;
+  error?: string | { index: number; message: string } | null;
+}

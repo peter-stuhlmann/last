@@ -61,13 +61,16 @@ SECRET_HEADERS = {"authorization", "cookie", "x-api-key", "x-csrf-token", "x-xsr
 
 _Q = r'"([^"]+)"'
 _NUM = r"(\d+(?:[.,]\d+)?)"
+# Gibt es ein Feld oder einen Knopf mehrfach: „bei“ nennt Text in der Nähe, „(Nr. 2)“ zählt in Lesereihenfolge
+_WHERE = r'(?:\s+bei\s+"([^"]+)")?(?:\s*\(Nr\.\s*(\d{1,3})\))?'
 PATTERNS = [
     ("open", re.compile(r"^öffne\s+(\S+)$", re.I)),
-    ("fill", re.compile(r"^tippe in\s+" + _Q + r"\s+(.+)$", re.I)),
-    ("click", re.compile(r"^klicke\s+" + _Q + r"$", re.I)),
+    ("fill", re.compile(r"^tippe in\s+" + _Q + _WHERE + r"\s+(.+)$", re.I)),
+    ("click", re.compile(r"^klicke\s+" + _Q + _WHERE + r"$", re.I)),
     ("press", re.compile(r"^drücke\s+(\w+)$", re.I)),
     ("wait_text", re.compile(r"^warte auf text\s+" + _Q + r"$", re.I)),
     ("wait_first", re.compile(r"^warte auf erste antwort in\s+" + _Q + r"$", re.I)),
+    ("wait_quiet", re.compile(r"^warte bis die seite ruhig ist(?:\s*\(" + _NUM + r"\s*s\))?$", re.I)),
     ("wait_done", re.compile(r"^warte bis\s+" + _Q + r"\s+fertig ist(?:\s*\(" + _NUM + r"\s*s ruhig\))?$", re.I)),
     ("wait_sel", re.compile(r"^warte auf\s+" + _Q + r"$", re.I)),
     ("wait_s", re.compile(r"^warte\s+" + _NUM + r"\s*s$", re.I)),
@@ -81,8 +84,45 @@ def _num(s):
     return float(s.replace(",", "."))
 
 
-def parse_steps(text):
-    """Schritte aus dem Formular → Liste von Dicts. Meldet Fehler mit Zeilennummer."""
+def _where(m):
+    """„bei …“ und „(Nr. …)“ – nur, wenn sie in der Zeile stehen."""
+    out = {}
+    if m.group(2):
+        out["near"] = m.group(2)
+    if m.group(3) and int(m.group(3)) >= 1:
+        out["nth"] = int(m.group(3))
+    return out
+
+
+def _fmt_num(x):
+    return f"{x:g}".replace(".", ",")
+
+
+def format_step(step):
+    """Gegenstück zu parse_steps: ein Schritt als Zeile – so, wie ihn die Oberfläche anzeigt und zurückschickt."""
+    k = step["kind"]
+    where = (f' bei "{step["near"]}"' if step.get("near") else "") + (f" (Nr. {step['nth']})" if step.get("nth") else "")
+    if k == "open":
+        return f"öffne {step['url']}"
+    if k == "fill":
+        text = step["text"]
+        return f'tippe in "{step["target"]}"{where} ' + (text if PLACEHOLDER.fullmatch(text) else f'"{text}"')
+    if k == "click":
+        return f'klicke "{step["target"]}"{where}'
+    if k == "press":
+        return f"drücke {step['key']}"
+    if k == "wait_quiet":
+        return f"warte bis die Seite ruhig ist ({_fmt_num(step['quiet'])} s)"
+    if k == "wait_s":
+        return f"warte {_fmt_num(step['seconds'])} s"
+    if k == "measure":
+        return "messen ab hier"
+    raise ValueError(f"Unbekannte Art von Schritt: {k}")
+
+
+def parse_steps(text, partial=False):
+    """Schritte aus dem Formular → Liste von Dicts. Meldet Fehler mit Zeilennummer.
+    partial=True: ein angefangener Ablauf zum Abtasten der Seite – „messen ab hier“ ist dann freiwillig."""
     if len(text or "") > MAX_STEPS_TEXT:
         raise ValueError("Der Ablauf ist zu lang (höchstens 20 kB).")
     steps = []
@@ -101,17 +141,21 @@ def parse_steps(text):
                     raise ValueError(f"Zeile {n}: „öffne“ braucht eine Adresse mit http:// oder https://")
                 step["url"] = url
             elif kind == "fill":
-                value = m.group(2).strip()
+                value = m.group(4).strip()
                 if len(value) >= 2 and value[0] == value[-1] == '"':
                     value = value[1:-1]
-                step.update(target=m.group(1), text=value)
-            elif kind in ("click", "wait_text", "wait_first", "wait_sel"):
+                step.update(target=m.group(1), text=value, **_where(m))
+            elif kind == "click":
+                step.update(target=m.group(1), **_where(m))
+            elif kind in ("wait_text", "wait_first", "wait_sel"):
                 step["target"] = m.group(1)
             elif kind == "press":
                 key = m.group(1)
                 step["key"] = KEYS.get(key.lower(), key)
             elif kind == "wait_done":
                 step.update(target=m.group(1), quiet=_num(m.group(2)) if m.group(2) else 3.0)
+            elif kind == "wait_quiet":
+                step["quiet"] = min(30.0, _num(m.group(1))) if m.group(1) else 2.0
             elif kind == "wait_s":
                 step["seconds"] = min(60.0, _num(m.group(1)))
             steps.append(step)
@@ -119,8 +163,14 @@ def parse_steps(text):
         else:
             raise ValueError(f"Zeile {n}: „{line[:60]}“ verstehe ich nicht. Erlaubt sind: öffne, tippe in, "
                              "klicke, drücke, warte auf Text, warte auf, warte N s, messen ab hier, "
-                             "warte auf erste Antwort in, warte bis … fertig ist.")
+                             "warte auf erste Antwort in, warte bis … fertig ist, warte bis die Seite ruhig ist.")
     kinds = [s["kind"] for s in steps]
+    if partial:
+        if not kinds or kinds[0] != "open":
+            raise ValueError("Der Ablauf muss mit „öffne https://…“ beginnen.")
+        if kinds.count("measure") > 1:
+            raise ValueError("„messen ab hier“ darf nur einmal vorkommen.")
+        return steps
     if kinds.count("measure") != 1:
         raise ValueError("Genau eine Zeile „messen ab hier“ ist nötig – davor Anmeldung und Vorbereitung, "
                          "danach das, was gemessen werden soll.")

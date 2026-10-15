@@ -43,7 +43,7 @@ CMD ["python", "stresstest_web.py", "--host", "0.0.0.0", "--port", "8090", "--re
 # ── slim: ohne Browser ───────────────────────────────────────────────────────
 FROM base AS slim
 RUN pip install --no-cache-dir -r requirements.txt
-COPY VERSION llm_stresstest.py web_stresstest.py flow_stresstest.py flow_recorder.py report_web.py report_pptx.py \
+COPY VERSION llm_stresstest.py web_stresstest.py flow_stresstest.py flow_recorder.py flow_live.py report_web.py report_pptx.py \
      report_pdf.py report_compare.py stresstest_web.py stresstest_ui.html LIESMICH.md ./
 USER tester
 
@@ -56,6 +56,6 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
 RUN pip install --no-cache-dir -r requirements-browser.txt \
  && playwright install --with-deps chromium \
  && rm -rf /var/lib/apt/lists/*
-COPY VERSION llm_stresstest.py web_stresstest.py flow_stresstest.py flow_recorder.py report_web.py report_pptx.py \
+COPY VERSION llm_stresstest.py web_stresstest.py flow_stresstest.py flow_recorder.py flow_live.py report_web.py report_pptx.py \
      report_pdf.py report_compare.py stresstest_web.py stresstest_ui.html LIESMICH.md ./
 USER tester

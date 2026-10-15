@@ -277,6 +277,7 @@ describe("NewTestForm für Abläufe", () => {
   it("bietet Schritte an und macht aus Platzhaltern Passwortfelder", async () => {
     const user = setupFlow();
     await user.click(screen.getByRole("radio", { name: /Ablauf/ }));
+    await user.click(screen.getByRole("button", { name: "Als Text" }));
     expect(screen.getByRole("textbox", { name: "Adresse der Startseite" })).toBeInTheDocument();
     expect(screen.getByRole("spinbutton", { name: /Nutzer gleichzeitig/ })).toBeInTheDocument();
     expect(screen.getByRole("spinbutton", { name: /Antwort fertig nach höchstens/ })).toHaveValue(10);
@@ -292,6 +293,7 @@ describe("NewTestForm für Abläufe", () => {
     fetchMock.mockResolvedValue(Response.json({ ok: true, run: "results_1" }));
     const user = setupFlow();
     await user.click(screen.getByRole("radio", { name: /Ablauf/ }));
+    await user.click(screen.getByRole("button", { name: "Als Text" }));
     await user.type(screen.getByRole("textbox", { name: "Adresse der Startseite" }), "https://chat.example/login");
     await user.type(screen.getByRole("textbox", { name: "Die Schritte" }), steps.replaceAll("{", "{{"));
     await user.type(screen.getByLabelText("Wert für {email}"), "tester@example.de");
@@ -314,6 +316,7 @@ describe("NewTestForm für Abläufe", () => {
   it("verlangt Schritte und Platzhalter-Werte vor dem Start", async () => {
     const user = setupFlow();
     await user.click(screen.getByRole("radio", { name: /Ablauf/ }));
+    await user.click(screen.getByRole("button", { name: "Als Text" }));
     await user.type(screen.getByRole("textbox", { name: "Adresse der Startseite" }), "https://chat.example/login");
     await user.click(screen.getByRole("checkbox", { name: /eigene Anwendung/ }));
     await user.click(screen.getByRole("button", { name: /Test starten/ }));
@@ -357,6 +360,7 @@ describe("Abläufe mit mehreren Konten", () => {
     const user = userEvent.setup();
     render(<NewTestForm defaults={defaults} quick={quick} flow={flow} />);
     await user.click(screen.getByRole("radio", { name: /Ablauf/ }));
+    await user.click(screen.getByRole("button", { name: "Als Text" }));
     await user.type(screen.getByRole("textbox", { name: "Adresse der Startseite" }), "https://chat.example/login");
     await user.type(screen.getByRole("textbox", { name: "Die Schritte" }), 'tippe in "Passwort" {{passwort}\nmessen ab hier\nklicke "Senden"');
     await user.click(screen.getByRole("checkbox", { name: /Mehrere Konten/ }));

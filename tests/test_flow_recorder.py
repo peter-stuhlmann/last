@@ -1,5 +1,6 @@
 """Aufzeichnen mit echtem Browser und anschließendes Abspielen – braucht Chromium (im Docker-Image enthalten)."""
 import asyncio
+import json
 import os
 import sys
 import tempfile
@@ -195,6 +196,115 @@ class Aufzeichnen(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Willkommen", msg)
         self.assertNotIn("falsch", msg)
         self.assertTrue(os.path.isfile(os.path.join(self.out, "schritt_fehler.png")))
+
+
+LIST_PAGE = """<!doctype html><html lang="de"><body>
+<h1>Bestellungen</h1>
+<table>
+<tr><td>Bestellung 4711</td><td><button onclick="done('4711')">Löschen</button></td></tr>
+<tr><td>Bestellung 4712</td><td><button onclick="done('4712')">Löschen</button></td></tr>
+</table>
+<div><button onclick="done('a')">Löschen</button></div><div><button onclick="done('b')">Löschen</button></div>
+<p id="out"></p>
+<script>function done(x) { document.getElementById('out').textContent = 'weg: ' + x; }</script>
+</body></html>"""
+
+
+class ListSite(ChatSite):
+    async def handle(self, req):
+        if req.path == "/liste":
+            return web.Response(text=LIST_PAGE, content_type="text/html")
+        return await super().handle(req)
+
+
+@unittest.skipUnless(HAS_BROWSER, "Playwright/Chromium nicht installiert")
+class Vorfuehren(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        import flow_live
+        self.site = ListSite()
+        self.base = await self.site.start()
+        self.live = flow_live.LiveSession()
+
+    async def asyncTearDown(self):
+        await self.live.close()
+        await self.site.runner.cleanup()
+
+    async def open(self, path="/login", lines="", **secrets):
+        return await self.live.open(fl.parse_steps(f"öffne {self.base}{path}\n{lines}", partial=True), secrets)
+
+    @staticmethod
+    def mark(snap, label):
+        return next(e["mark"] for e in snap["elements"] if e["label"] == label)
+
+    async def test_anmelden_und_chatten_durch_klicken(self):
+        r = await self.open()
+        self.assertIsNone(r["error"])
+        snap = r["snapshot"]
+        self.assertTrue(snap["screenshot"].startswith("data:image/jpeg;base64,"))
+        self.assertTrue(all(e["box"]["w"] > 0 for e in snap["elements"]))
+        secrets = {"email": "tester@example.de", "passwort": "sehr-geheim-42"}
+
+        # Ein Feld: erst die Rückfrage, was hinein soll – samt Vorschlag für den Platzhalter
+        ask = await self.live.act({"type": "pick", "mark": self.mark(snap, "E-Mail")}, secrets)
+        self.assertEqual(ask["need"], "text")
+        self.assertEqual((ask["target"]["target"], ask["target"]["secret"]), ("E-Mail", "email"))
+        self.assertTrue(ask["thumb"].startswith("data:image/jpeg"))
+        r = await self.live.act({"type": "fill", "target": ask["target"], "text": "{email}"}, secrets)
+        self.assertEqual(r["steps"], ['tippe in "E-Mail" {email}'])
+        ask = await self.live.act({"type": "pick", "mark": self.mark(r["snapshot"], "Passwort")}, secrets)
+        r = await self.live.act({"type": "fill", "target": ask["target"], "text": "{passwort}"}, secrets)
+        self.assertEqual(r["steps"], ['tippe in "Passwort" {passwort}'])
+
+        # Ein Knopf: wird sofort geklickt, die nächste Seite ist danach geladen
+        r = await self.live.act({"type": "pick", "mark": self.mark(r["snapshot"], "Anmelden")}, secrets)
+        self.assertEqual(r["steps"], ['klicke "Anmelden"'])
+        self.assertTrue(r["snapshot"]["url"].endswith("/chat"))
+
+        # Text mit Enter: die gestreamte Antwort wird erkannt und Warten ergänzt
+        ask = await self.live.act({"type": "pick", "mark": self.mark(r["snapshot"], "Nachricht")}, secrets)
+        r = await self.live.act({"type": "fill", "target": ask["target"], "text": "Was ist ein Lasttest?", "enter": True,
+                                 "measuring": True}, secrets)
+        self.assertEqual(r["steps"], ['tippe in "Nachricht" "Was ist ein Lasttest?"', "drücke Enter",
+                                      "warte bis die Seite ruhig ist (2 s)"])
+        self.assertEqual(len(self.site.messages), 1)
+        self.assertNotIn("sehr-geheim-42", json.dumps(r))
+
+        # Was so entstanden ist, lässt sich genau so aufzeichnen
+        lines = ['tippe in "E-Mail" {email}', 'tippe in "Passwort" {passwort}', 'klicke "Anmelden"', "messen ab hier",
+                 'tippe in "Nachricht" "Was ist ein Lasttest?"', "drücke Enter", "warte bis die Seite ruhig ist (2 s)"]
+        args = sw.build_args({"kind": "flow", "confirm_owner": True, "secrets": secrets,
+                              "steps": f"öffne {self.base}/login\n" + "\n".join(lines)})
+        from flow_recorder import record
+        plans, info = await record(args, tempfile.mkdtemp())
+        self.assertEqual([q["method"] for q in info["requests"]], ["POST", "POST"])
+
+    async def test_gleiche_knoepfe_werden_eindeutig_beschrieben(self):
+        snap = (await self.open("/liste"))["snapshot"]
+        marks = [e["mark"] for e in snap["elements"] if e["label"] == "Löschen"]
+        self.assertEqual(len(marks), 4)
+        got = []
+        for mark in marks:
+            r = await self.live.act({"type": "pick", "mark": mark}, {})
+            got.append((r["steps"][0], r["snapshot"]))
+            snap = r["snapshot"]
+        self.assertEqual([s for s, _ in got], ['klicke "Löschen" bei "Bestellung 4711"', 'klicke "Löschen" bei "Bestellung 4712"',
+                                               'klicke "Löschen" (Nr. 3)', 'klicke "Löschen" (Nr. 4)'])
+        # … und beim Abspielen trifft jede Zeile wieder genau ihren Knopf
+        for line, expect in zip([s for s, _ in got], ["4711", "4712", "a", "b"]):
+            live = type(self.live)()
+            try:
+                await live.open(fl.parse_steps(f"öffne {self.base}/liste\n{line}", partial=True), {})
+                self.assertEqual(await live.page.inner_text("#out"), f"weg: {expect}")
+            finally:
+                await live.close()
+
+    async def test_scheiternder_schritt_wird_gezeigt(self):
+        r = await self.open(lines='tippe in "E-Mail" {email}\ntippe in "Passwort" {passwort}\nklicke "Anmelden"\n'
+                                  'warte auf Text "Willkommen"', email="tester@example.de", passwort="falsch")
+        self.assertEqual(r["error"]["index"], 4)
+        self.assertIn("Willkommen", r["error"]["message"])
+        self.assertNotIn("falsch", r["error"]["message"])
+        self.assertTrue(any(e["label"] == "Anmelden" for e in r["snapshot"]["elements"]))
 
 
 if __name__ == "__main__":
