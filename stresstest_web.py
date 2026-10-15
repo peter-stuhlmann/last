@@ -156,11 +156,12 @@ def check_features(cfg):
 def build_args(cfg):
     """JSON aus dem Formular → argparse-Namespace mit denselben Defaults wie die CLI."""
     kind = cfg.get("kind") or "llm"
+    # Ein Lasttest sieht für fremde Server, Websites und APIs aus wie ein Angriff – ohne ausdrückliche
+    # Bestätigung startet er nicht.
+    if kind in ("llm", "web", "api", "flow") and cfg.get("confirm_owner") is not True:
+        thing = {"llm": "diesen Server", "api": "diese API", "flow": "diese Anwendung"}.get(kind, "diese Website")
+        raise ValueError(f"Bitte bestätigen, dass ihr {thing} testen dürft.")
     if kind in ("web", "api", "flow"):
-        # Ein Lasttest sieht für fremde Websites und APIs aus wie ein Angriff – ohne ausdrückliche
-        # Bestätigung startet er nicht.
-        if cfg.get("confirm_owner") is not True:
-            raise ValueError("Bitte bestätigen, dass ihr diese " + {"api": "API", "flow": "Anwendung"}.get(kind, "Website") + " testen dürft.")
         return ws.build_args(cfg)
     if kind != "llm":
         raise ValueError(f"Unbekannte Art von Test: {kind!r}")

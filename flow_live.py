@@ -12,8 +12,17 @@ import time
 import uuid
 
 import llm_stresstest as lt
-from flow_recorder import (VIEWPORT, _run_step, _short_error, describe, element_thumb, find_target, page_text,
-                           snapshot, wait_if_writing)
+from flow_recorder import (
+    VIEWPORT,
+    _run_step,
+    _short_error,
+    describe,
+    element_thumb,
+    find_target,
+    page_text,
+    snapshot,
+    wait_if_writing,
+)
 from flow_stresstest import STEP_TIMEOUT_MS, format_step
 
 LIVE_IDLE_S = 600

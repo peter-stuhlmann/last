@@ -163,10 +163,10 @@ export const startSchema = z
     cloud_price_in: num(0, 10_000).optional(),
     cloud_price_out: num(0, 10_000).optional(),
   })
-  // Ein Lasttest sieht für fremde Websites und APIs aus wie ein Angriff – ohne Bestätigung kein Start.
-  .refine((v) => !["web", "api", "flow"].includes(v.kind ?? "llm") || v.confirm_owner === true, {
+  // Ein Lasttest sieht für fremde Server, Websites und APIs aus wie ein Angriff – ohne Bestätigung kein Start.
+  .refine((v) => v.confirm_owner === true, {
     path: ["confirm_owner"],
-    message: "Bitte bestätigen, dass ihr diese Website oder API testen dürft.",
+    message: "Bitte bestätigen, dass ihr diesen Server, diese Website oder API testen dürft.",
   })
   .refine((v) => v.kind !== "flow" || (v.steps ?? "").trim().length > 0, {
     path: ["steps"],

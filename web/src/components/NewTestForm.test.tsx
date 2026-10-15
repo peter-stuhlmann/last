@@ -62,11 +62,17 @@ describe("NewTestForm", () => {
     await user.type(url, "http://spark.buero.lan:8000/v1");
     await user.type(screen.getByRole("spinbutton", { name: /Nutzer im Team/ }), "80");
     await user.click(screen.getByRole("button", { name: /Test starten/ }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/bestätig/i);
+    expect(screen.getByRole("checkbox", { name: /eigener Server/ })).toHaveFocus();
+    expect(fetchMock).not.toHaveBeenCalled();
 
+    await user.click(screen.getByRole("checkbox", { name: /eigener Server/ }));
+    await user.click(screen.getByRole("button", { name: /Test starten/ }));
     await waitFor(() => expect(push).toHaveBeenCalledWith("/lauf"));
     expect(fetchMock.mock.calls[0][0]).toBe("/api/start");
     expect(sentBody()).toMatchObject({
       base_url: "http://spark.buero.lan:8000/v1",
+      confirm_owner: true,
       target_users: 80,
       slo_ttft: 2,
       slo_user_tps: 10,
@@ -80,6 +86,7 @@ describe("NewTestForm", () => {
     fetchMock.mockResolvedValue(Response.json({ ok: true, run: "results_1" }));
     const { user } = setup();
     await user.click(screen.getByRole("radio", { name: /Gründlich/ }));
+    await user.click(screen.getByRole("checkbox", { name: /eigener Server/ }));
     await user.click(screen.getByRole("button", { name: /Test starten/ }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     expect(sentBody()).toMatchObject({ levels: "1,2,4,8,16,32,64,128,256", level_seconds: 60, soak_minutes: 15 });
@@ -88,6 +95,7 @@ describe("NewTestForm", () => {
   it("lässt sich mit Enter im Adressfeld starten", async () => {
     fetchMock.mockResolvedValue(Response.json({ ok: true, run: "results_1" }));
     const { user } = setup();
+    await user.click(screen.getByRole("checkbox", { name: /eigener Server/ }));
     await user.type(screen.getByRole("textbox", { name: "Adresse des Servers" }), "{Enter}");
     await waitFor(() => expect(push).toHaveBeenCalledWith("/lauf"));
   });
@@ -108,6 +116,7 @@ describe("NewTestForm", () => {
   it("zeigt Fehler des Servers an", async () => {
     fetchMock.mockResolvedValue(Response.json({ error: "Es läuft bereits ein Test." }, { status: 409 }));
     const { user } = setup();
+    await user.click(screen.getByRole("checkbox", { name: /eigener Server/ }));
     await user.click(screen.getByRole("button", { name: /Test starten/ }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Es läuft bereits ein Test.");
     expect(push).not.toHaveBeenCalled();
@@ -129,6 +138,7 @@ describe("NewTestForm", () => {
     await user.click(screen.getByText("Weitere Einstellungen"));
     const more = within(screen.getByRole("group", { name: "Weitere Einstellungen" }));
     await user.type(more.getByLabelText("API-Schlüssel"), "sk-geheim");
+    await user.click(screen.getByRole("checkbox", { name: /eigener Server/ }));
     await user.click(screen.getByRole("button", { name: /Test starten/ }));
     await waitFor(() => expect(push).toHaveBeenCalled());
 

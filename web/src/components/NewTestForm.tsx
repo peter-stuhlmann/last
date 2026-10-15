@@ -123,7 +123,14 @@ const KINDS: { value: RunKind; icon: string; label: string }[] = [
   { value: "flow", icon: "⇶", label: "Ablauf" },
 ];
 
-const THING: Record<RunKind, string> = { llm: "Server", web: "Website", api: "API", flow: "Anwendung" };
+// „Server“ ist männlich, der Rest weiblich – die Sätze der Bestätigung brauchen beide Formen.
+const OWN: Record<RunKind, string> = {
+  llm: "Das ist unser eigener Server – oder ich habe die Erlaubnis, ihn zu testen.",
+  web: "Das ist unsere eigene Website – oder ich habe die Erlaubnis, sie zu testen.",
+  api: "Das ist unsere eigene API – oder ich habe die Erlaubnis, sie zu testen.",
+  flow: "Das ist unsere eigene Anwendung – oder ich habe die Erlaubnis, sie zu testen.",
+};
+const THIS: Record<RunKind, string> = { llm: "diesen Server", web: "diese Website", api: "diese API", flow: "diese Anwendung" };
 const THINGS: Record<RunKind, string> = { llm: "Server", web: "Websites", api: "APIs", flow: "Anwendungen" };
 const URL_LABEL: Record<RunKind, string> = {
   llm: "Adresse des Servers",
@@ -325,7 +332,7 @@ export function NewTestForm({
     setConfirmError(false);
     const base_url = validUrl();
     if (!base_url) return;
-    if (!isLlm && !confirmed) {
+    if (!confirmed) {
       setConfirmError(true);
       confirmRef.current?.focus();
       return;
@@ -409,6 +416,7 @@ export function NewTestForm({
         : {
             ...profileValues(profile, quick, defaults),
             base_url,
+            confirm_owner: true,
             model: form.model || undefined,
             api_key: form.api_key || undefined,
             target_users: number("target_users") ?? 0,
@@ -439,7 +447,6 @@ export function NewTestForm({
     { key: "full", title: "Gründlich", values: source.defaults, hint: "für die Entscheidung" },
   ];
   const urlLabel = URL_LABEL[kind];
-  const thing = THING[kind];
   const legend = "mb-2 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-white/65";
   const focusRing =
     "has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-cyan";
@@ -883,36 +890,34 @@ export function NewTestForm({
             Testumgebung richten.
           </p>
         )}
-        {!isLlm && (
-          <div
-            className={`mb-4 rounded-xl border px-4 py-3 ${confirmError ? "border-rose/60 bg-rose/10" : "border-amber/35 bg-amber/[0.07]"}`}
-          >
-            <label className="flex cursor-pointer items-start gap-3 text-sm text-white/90">
-              <input
-                ref={confirmRef}
-                type="checkbox"
-                checked={confirmed}
-                onChange={(e) => {
-                  setConfirmed(e.target.checked);
-                  setConfirmError(false);
-                }}
-                aria-invalid={confirmError ? true : undefined}
-                aria-describedby="bestaetigung-hilfe"
-                className="mt-0.5 size-5 shrink-0 accent-violet"
-              />
-              <span>Das ist unsere eigene {thing} – oder ich habe die Erlaubnis, sie zu testen.</span>
-            </label>
-            <p id="bestaetigung-hilfe" className="mt-1.5 pl-8 text-xs text-white/65">
-              Für fremde {THINGS[kind]} sieht ein Lasttest aus wie ein Angriff und kann strafbar sein. Der Test gibt sich als
-              „LAST-Lasttest“ zu erkennen.
+        <div
+          className={`mb-4 rounded-xl border px-4 py-3 ${confirmError ? "border-rose/60 bg-rose/10" : "border-amber/35 bg-amber/[0.07]"}`}
+        >
+          <label className="flex cursor-pointer items-start gap-3 text-sm text-white/90">
+            <input
+              ref={confirmRef}
+              type="checkbox"
+              checked={confirmed}
+              onChange={(e) => {
+                setConfirmed(e.target.checked);
+                setConfirmError(false);
+              }}
+              aria-invalid={confirmError ? true : undefined}
+              aria-describedby="bestaetigung-hilfe"
+              className="mt-0.5 size-5 shrink-0 accent-violet"
+            />
+            <span>{OWN[kind]}</span>
+          </label>
+          <p id="bestaetigung-hilfe" className="mt-1.5 pl-8 text-xs text-white/65">
+            Für fremde {THINGS[kind]} sieht ein Lasttest aus wie ein Angriff und kann strafbar sein. Der Test gibt sich als
+            „LAST-Lasttest“ zu erkennen.
+          </p>
+          {confirmError && (
+            <p role="alert" className="mt-1.5 pl-8 text-sm text-rose-soft">
+              Bitte erst bestätigen, dass ihr {THIS[kind]} testen dürft.
             </p>
-            {confirmError && (
-              <p role="alert" className="mt-1.5 pl-8 text-sm text-rose-soft">
-                Bitte erst bestätigen, dass ihr diese {thing} testen dürft.
-              </p>
-            )}
-          </div>
-        )}
+          )}
+        </div>
         {(serverError || formError) && (
           <p role="alert" className="mb-3 rounded-xl border border-rose/45 bg-rose/10 px-4 py-3 text-sm text-rose-soft">
             {serverError ?? formError}
@@ -932,7 +937,7 @@ export function NewTestForm({
           </kbd>
         </button>
         <p className="mt-5 text-xs text-white/60">
-          {isLlm ? "Nur gegen eigene Server testen." : `Nur eigene ${THINGS[kind]} testen.`} · Läuft im Hintergrund weiter – du kannst die
+          Nur eigene {THINGS[kind]} testen. · Läuft im Hintergrund weiter – du kannst die
           Seite schließen.
         </p>
       </div>

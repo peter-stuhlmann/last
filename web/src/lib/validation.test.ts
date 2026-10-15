@@ -17,7 +17,7 @@ describe("parseBaseUrl", () => {
 });
 
 describe("startSchema", () => {
-  const ok = { base_url: "http://spark.buero.lan:8000/v1", slo_ttft: 2, slo_user_tps: 10, target_users: 80 };
+  const ok = { base_url: "http://spark.buero.lan:8000/v1", slo_ttft: 2, slo_user_tps: 10, target_users: 80, confirm_owner: true };
 
   it("nimmt eine gültige Anfrage an", () => {
     const r = startSchema.safeParse({ ...ok, levels: "1,4,16,32,64", tests: "baseline,ramp" });
@@ -69,8 +69,9 @@ describe("startSchema für Websites", () => {
     expect(startSchema.safeParse({ ...web, confirm_owner: true, levels: "1,4,2000" }).success).toBe(false);
   });
 
-  it("braucht die Bestätigung beim KI-Server nicht", () => {
-    expect(startSchema.safeParse({ base_url: "http://spark:8000/v1" }).success).toBe(true);
+  it("verlangt die Bestätigung auch beim KI-Server", () => {
+    expect(startSchema.safeParse({ base_url: "http://spark:8000/v1" }).success).toBe(false);
+    expect(startSchema.safeParse({ base_url: "http://spark:8000/v1", confirm_owner: true }).success).toBe(true);
   });
 });
 

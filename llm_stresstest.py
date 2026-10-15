@@ -72,6 +72,7 @@ def read_version():
 
 
 VERSION = read_version()
+USER_AGENT = "LAST-Lasttest/1.0 (Lasttest des eigenen KI-Servers)"  # der Test gibt sich zu erkennen
 
 
 def is_local_url(url):
@@ -312,7 +313,7 @@ class Client:
     def __init__(self, args):
         self.args = args
         self.url = args.base_url.rstrip("/") + "/chat/completions"
-        self.headers = {"Content-Type": "application/json"}
+        self.headers = {"Content-Type": "application/json", "User-Agent": USER_AGENT}
         if args.api_key:
             self.headers["Authorization"] = f"Bearer {args.api_key}"
         self.use_ignore_eos = not args.no_ignore_eos

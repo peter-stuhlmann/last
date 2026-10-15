@@ -31,6 +31,7 @@ describe("POST /api/start", () => {
         base_url: "http://spark.buero.lan:8000/v1/",
         api_key: "sk-geheim",
         target_users: "80",
+        confirm_owner: true,
         out: "/etc",
       }),
     );
@@ -40,7 +41,14 @@ describe("POST /api/start", () => {
     const [url, init] = fetchMock.mock.calls[0];
     expect(String(url)).toBe("http://127.0.0.1:8090/api/start");
     const sent = JSON.parse(init.body);
-    expect(sent).toEqual({ base_url: "http://spark.buero.lan:8000/v1", api_key: "sk-geheim", target_users: 80 });
+    expect(sent).toEqual({ base_url: "http://spark.buero.lan:8000/v1", api_key: "sk-geheim", target_users: 80, confirm_owner: true });
+  });
+
+  it("startet auch einen KI-Server nur mit Bestätigung", async () => {
+    const res = await start(post("http://localhost/api/start", { base_url: "http://spark.buero.lan:8000/v1" }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/bestätigen/);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("lehnt ungültige Eingaben ab, ohne das Backend zu fragen", async () => {
@@ -59,14 +67,14 @@ describe("POST /api/start", () => {
 
   it("gibt Backend-Fehler verständlich weiter", async () => {
     fetchMock.mockResolvedValue(Response.json({ error: "Es läuft bereits ein Test." }, { status: 409 }));
-    const res = await start(post("http://localhost/api/start", { base_url: "http://x/v1" }));
+    const res = await start(post("http://localhost/api/start", { base_url: "http://x/v1", confirm_owner: true }));
     expect(res.status).toBe(409);
     expect(await res.json()).toEqual({ error: "Es läuft bereits ein Test." });
   });
 
   it("meldet ein nicht erreichbares Backend ohne interne Details", async () => {
     fetchMock.mockRejectedValue(new Error("connect ECONNREFUSED 10.0.0.5:8090"));
-    const res = await start(post("http://localhost/api/start", { base_url: "http://x/v1" }));
+    const res = await start(post("http://localhost/api/start", { base_url: "http://x/v1", confirm_owner: true }));
     expect(res.status).toBe(502);
     expect(JSON.stringify(await res.json())).not.toContain("10.0.0.5");
   });

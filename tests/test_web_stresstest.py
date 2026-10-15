@@ -86,8 +86,12 @@ class BuildArgs(unittest.TestCase):
         self.assertFalse(a.include_assets)
         self.assertNotIn("context", a.tests)
 
+    def test_ki_server_nur_mit_bestaetigung(self):
+        with self.assertRaisesRegex(ValueError, "diesen Server"):
+            sw.build_args({"base_url": "http://spark:8000/v1"})
+
     def test_ki_server_bleibt_wie_bisher(self):
-        a = sw.build_args({"base_url": "http://spark:8000/v1"})
+        a = sw.build_args({"base_url": "http://spark:8000/v1", "confirm_owner": True})
         self.assertEqual(a.kind, "llm")
 
     def test_unbekannte_art(self):
