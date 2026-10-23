@@ -19,7 +19,7 @@ function cleanSnapshot(v: unknown): LiveSnapshot | undefined {
   const vp = obj(d.viewport) ?? {};
   const elements = (Array.isArray(d.elements) ? d.elements : [])
     .map(obj)
-    .filter((e): e is Record<string, unknown> => !!e && KINDS.has(String(e.kind)) && /^\d{1,4}$/.test(String(e.mark)))
+    .filter((e): e is Record<string, unknown> => !!e && KINDS.has(String(e.kind)) && /^\d{1,7}$/.test(String(e.mark)))
     .slice(0, 200)
     .map((e): LiveElement => {
       const b = obj(e.box) ?? {};

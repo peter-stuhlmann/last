@@ -86,9 +86,10 @@ test("Ablauf vorführen: durchklicken, daraus testen", async ({ page }) => {
   // Anmelden – wie ein Mensch: ins Feld klicken, Text eingeben, auf den Knopf klicken
   const type = async (field: string, value: string, enter = false) => {
     await dialog.getByRole("button", { name: `Eingeben in „${field}“` }).click({ timeout: 60_000 });
-    await dialog.getByLabel(`Was soll in „${field}“ hinein?`).fill(value);
-    if (enter) await dialog.getByRole("checkbox", { name: /Danach Enter drücken/ }).check();
-    await dialog.getByRole("button", { name: "Eingeben", exact: true }).click();
+    // direkt im Feld auf dem Bild: Enter schickt ab, Tab übernimmt nur
+    const input = dialog.getByLabel(`Was soll in „${field}“ hinein?`);
+    await input.fill(value);
+    await input.press(enter ? "Enter" : "Tab");
   };
   await type("E-Mail", "tester@example.de");
   await type("Passwort", "sehr-geheim-42");
@@ -98,7 +99,7 @@ test("Ablauf vorführen: durchklicken, daraus testen", async ({ page }) => {
   await expect(dialog.getByRole("button", { name: "Eingeben in „Nachricht“" })).toBeVisible({ timeout: 60_000 });
   await dialog.getByRole("button", { name: "⏱ Ab hier messen" }).click();
   await type("Nachricht", "Was ist ein Lasttest?", true);
-  await expect(dialog.getByText("Warten, bis die Seite fertig ist")).toBeVisible({ timeout: 60_000 });
+  await expect(dialog.getByRole("complementary", { name: "Der Ablauf bisher" }).getByText("Warten, bis die Seite fertig ist")).toBeVisible({ timeout: 60_000 });
 
   const axe = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
   expect(axe.violations.map((v) => v.id)).toEqual([]);

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { formatSteps, parseLine, parseSteps, stepProblems } from "@/lib/steps";
 import { FlowCanvas, formatKey, type Row } from "./FlowCanvas";
 import { LiveRecorder } from "./LiveRecorder";
+import type { SiteAuth } from "@/lib/validation";
 
 let lastId = 0;
 const toRows = (text: string): Row[] => parseSteps(text).map((step) => ({ id: ++lastId, step }));
@@ -14,6 +15,7 @@ export function FlowSteps({
   onChange,
   baseUrl,
   secrets,
+  siteAuth,
   onSecret,
 }: {
   value: string;
@@ -22,6 +24,8 @@ export function FlowSteps({
   baseUrl: string | null;
   /** Werte der Platzhalter – das Vorführen braucht sie, um sich anzumelden */
   secrets: Record<string, string>;
+  /** Seitenschutz (.htaccess) – das Vorführen meldet sich damit an */
+  siteAuth?: SiteAuth | null;
   onSecret: (name: string, value: string) => void;
 }) {
   const [mode, setMode] = useState<"visual" | "text">("visual");
@@ -155,6 +159,7 @@ export function FlowSteps({
           text={value}
           baseUrl={baseUrl}
           secrets={secrets}
+          siteAuth={siteAuth}
           sidebar={canvas}
           onAppend={append}
           onTruncate={truncate}

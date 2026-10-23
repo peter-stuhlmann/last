@@ -3,6 +3,13 @@ import { z } from "zod";
 const MAX_URL = 2048;
 export const MAX_STEPS = 20 * 1024;
 export const MAX_SECRET = 1024;
+
+/** Seitenschutz (.htaccess = HTTP Basic Auth) beim Ablauf – wie die Platzhalter-Werte nie gemerkt. */
+export const siteAuthSchema = z.object({
+  user: z.string().max(200).regex(/^[^:\x00-\x1f\x7f]*$/, "Seitenschutz: Benutzer ohne Doppelpunkt, eine Zeile"),
+  password: z.string().max(MAX_SECRET).regex(/^[^\x00-\x1f\x7f]*$/, "Seitenschutz: Passwort in einer Zeile"),
+});
+export type SiteAuth = z.infer<typeof siteAuthSchema>;
 export const MAX_ACCOUNTS = 50;
 const PLACEHOLDER = /^[a-zA-Z][a-zA-Z0-9_]{0,31}$/;
 const TEST_KEYS = ["baseline", "ramp", "rate", "context", "spike", "soak"];
@@ -129,6 +136,7 @@ export const startSchema = z
       .refine((r) => Object.keys(r).length <= 20, "Höchstens 20 Platzhalter")
       .optional(),
     // mehrere Konten: eine Werte-Zuordnung je Konto; kommen unter Last reihum dran
+    site_auth: siteAuthSchema.optional(),
     accounts: z
       .array(
         z
@@ -216,15 +224,21 @@ export const liveStartSchema = z.object({
     .max(MAX_STEPS)
     .refine((v) => /^\s*öffne\s+https?:\/\//i.test(v), "Der Ablauf muss mit „öffne https://…“ beginnen."),
   secrets: secretsSchema.optional(),
+  site_auth: siteAuthSchema.optional(),
 });
+
+/** Vorführen, POST /api/flow/live/look: nur ein frisches Bild der Seite. */
+export const liveLookSchema = z.object({ session: z.string().regex(/^[0-9a-f]{32}$/, "Unbekannte Sitzung") });
 
 /** Vorführen, POST /api/flow/live/act: ein Klick auf ein Element, eine Eingabe oder eine Taste. */
 export const liveActSchema = z.object({
   session: z.string().regex(/^[0-9a-f]{32}$/, "Unbekannte Sitzung"),
   secrets: secretsSchema.optional(),
   action: z.discriminatedUnion("type", [
-    z.object({ type: z.literal("pick"), mark: z.string().regex(/^\d{1,4}$/), measuring: z.boolean().optional() }),
+    z.object({ type: z.literal("pick"), mark: z.string().regex(/^\d{1,7}$/), measuring: z.boolean().optional() }),
     z.object({ type: z.literal("press"), key: z.enum(LIVE_KEYS), measuring: z.boolean().optional() }),
+    // Blättern an einer Stelle der Seite (Koordinaten im Browserfenster 1280×800) – kein Schritt im Ablauf
+    z.object({ type: z.literal("scroll"), x: z.number().min(0).max(1280), y: z.number().min(0).max(800), dy: z.number().min(-5000).max(5000) }),
     z.object({
       type: z.literal("fill"),
       target: z.object({ target: targetText, near: targetText.optional(), nth: z.number().int().min(1).max(999).optional() }),

@@ -132,7 +132,7 @@ describe("NewTestForm", () => {
     expect(fetchMock.mock.calls[0][1].method).toBe("POST");
   });
 
-  it("speichert Einstellungen, aber niemals den API-Schlüssel", async () => {
+  it("merkt sich Einstellungen und den API-Schlüssel – der lässt sich wieder löschen", async () => {
     fetchMock.mockResolvedValue(Response.json({ ok: true, run: "results_1" }));
     const { user } = setup();
     await user.click(screen.getByText("Weitere Einstellungen"));
@@ -143,9 +143,33 @@ describe("NewTestForm", () => {
     await waitFor(() => expect(push).toHaveBeenCalled());
 
     expect(sentBody().api_key).toBe("sk-geheim");
-    const stored = JSON.stringify({ ...localStorage });
-    expect(stored).toContain("host.docker.internal");
-    expect(stored).not.toContain("sk-geheim");
+    expect(localStorage.getItem("last.form.v1")).toContain("host.docker.internal");
+    expect(localStorage.getItem("last.form.v1")).not.toContain("sk-geheim");
+    expect(JSON.parse(localStorage.getItem("last.secrets.v1")!).api_key).toBe("sk-geheim");
+  });
+
+  it("merkt sich die Adresse schon beim Tippen – ein Neuladen verliert sie nicht", async () => {
+    const { user, unmount } = setup();
+    const url = screen.getByRole("textbox", { name: "Adresse des Servers" });
+    await user.clear(url);
+    await user.type(url, "http://spark.buero.lan:8000/v1");
+    await waitFor(() => expect(localStorage.getItem("last.form.v1")).toContain("spark.buero.lan"));
+    unmount();
+    setup();
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Adresse des Servers" })).toHaveValue("http://spark.buero.lan:8000/v1"));
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("setzt gemerkte Zugangsdaten wieder ein und löscht sie auf Wunsch", async () => {
+    localStorage.setItem("last.secrets.v1", JSON.stringify({ api_key: "sk-gemerkt" }));
+    const { user } = setup();
+    await user.click(screen.getByText("Weitere Einstellungen"));
+    const key = within(screen.getByRole("group", { name: "Weitere Einstellungen" })).getByLabelText("API-Schlüssel");
+    await waitFor(() => expect(key).toHaveValue("sk-gemerkt"));
+    await user.click(screen.getByRole("button", { name: "Gemerkte Zugangsdaten löschen" }));
+    expect(key).toHaveValue("");
+    await waitFor(() => expect(localStorage.getItem("last.secrets.v1")).toBeNull());
+    expect(screen.queryByRole("button", { name: "Gemerkte Zugangsdaten löschen" })).not.toBeInTheDocument();
   });
 });
 
@@ -236,7 +260,7 @@ describe("NewTestForm für HTTP-APIs", () => {
     expect(screen.getByText(/verändert der Test Daten/)).toBeInTheDocument();
   });
 
-  it("schickt Kopfzeilen und Body mit, speichert sie aber nicht", async () => {
+  it("schickt Kopfzeilen und Body mit und merkt sie sich getrennt", async () => {
     fetchMock.mockResolvedValue(Response.json({ ok: true, run: "results_1" }));
     const user = setupApi();
     await user.click(screen.getByRole("radio", { name: /HTTP-API/ }));
@@ -255,8 +279,11 @@ describe("NewTestForm für HTTP-APIs", () => {
       headers: [{ name: "Authorization", value: "Bearer geheim" }], body: '{"name": "x"}',
       confirm_owner: true, slo_load: 0.5, levels: "1,4,16,32,64", tests: "baseline,ramp,rate,spike,soak",
     });
-    expect(JSON.stringify({ ...localStorage })).not.toContain("geheim");
-    expect(JSON.stringify({ ...localStorage })).not.toContain('"name"');
+    expect(localStorage.getItem("last.form.v1")).not.toContain("geheim");
+    expect(JSON.parse(localStorage.getItem("last.secrets.v1")!)).toMatchObject({
+      headers_text: "Authorization: Bearer geheim",
+      body_text: '{"name": "x"}',
+    });
   });
 
   it("meldet fehlerhafte Kopfzeilen vor dem Start", async () => {
@@ -299,7 +326,7 @@ describe("NewTestForm für Abläufe", () => {
     expect(screen.getByLabelText("Wert für {passwort}")).toHaveAttribute("type", "password");
   });
 
-  it("schickt Schritte und Platzhalter-Werte, merkt sich aber keine Werte", async () => {
+  it("schickt Schritte und Platzhalter-Werte und merkt sich die Werte getrennt", async () => {
     fetchMock.mockResolvedValue(Response.json({ ok: true, run: "results_1" }));
     const user = setupFlow();
     await user.click(screen.getByRole("radio", { name: /Ablauf/ }));
@@ -317,10 +344,31 @@ describe("NewTestForm für Abläufe", () => {
       secrets: { email: "tester@example.de", passwort: "sehr-geheim" }, confirm_owner: true,
       slo_load: 10, think_time: 60, levels: "1,2,4,8,16", tests: "baseline,ramp,rate,spike,soak",
     });
-    const stored = JSON.stringify({ ...localStorage });
-    expect(stored).not.toContain("geheim");
-    expect(stored).not.toContain("tester@");
-    expect(stored).toContain("klicke");
+    const form = localStorage.getItem("last.form.v1")!;
+    expect(form).not.toContain("geheim");
+    expect(form).toContain("klicke");
+    expect(JSON.parse(localStorage.getItem("last.secrets.v1")!).secrets).toEqual({ email: "tester@example.de", passwort: "sehr-geheim" });
+  });
+
+  it("schickt den Seitenschutz (.htaccess) mit und merkt ihn sich", async () => {
+    fetchMock.mockResolvedValue(Response.json({ ok: true, run: "results_1" }));
+    const user = setupFlow();
+    await user.click(screen.getByRole("radio", { name: /Ablauf/ }));
+    await user.click(screen.getByRole("button", { name: "Als Text" }));
+    await user.type(screen.getByRole("textbox", { name: "Adresse der Startseite" }), "https://intern.example/");
+    await user.type(screen.getByRole("textbox", { name: "Die Schritte" }), 'messen ab hier\nklicke "Laden"');
+    await user.click(screen.getByText(/Seitenschutz/));
+    await user.type(screen.getByLabelText("Benutzer"), "admin");
+    const pw = screen.getByLabelText("Passwort");
+    expect(pw).toHaveAttribute("type", "password");
+    await user.type(pw, "tür-zu-77");
+    await user.click(screen.getByRole("checkbox", { name: /eigene Anwendung/ }));
+    await user.click(screen.getByRole("button", { name: /Test starten/ }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/lauf"));
+
+    expect(sentBody()).toMatchObject({ kind: "flow", site_auth: { user: "admin", password: "tür-zu-77" } });
+    expect(JSON.parse(localStorage.getItem("last.secrets.v1")!).siteAuth).toEqual({ user: "admin", password: "tür-zu-77" });
+    expect(localStorage.getItem("last.form.v1")).not.toContain("tür-zu-77");
   });
 
   it("verlangt Schritte und Platzhalter-Werte vor dem Start", async () => {
@@ -382,6 +430,8 @@ describe("Abläufe mit mehreren Konten", () => {
     const body = sentBody();
     expect(body.accounts).toEqual([{ passwort: "geheim-eins" }, { passwort: "geheim-zwei" }]);
     expect(body).not.toHaveProperty("secrets");
-    expect(JSON.stringify({ ...localStorage })).not.toContain("geheim");
+    expect(localStorage.getItem("last.form.v1")).not.toContain("geheim");
+    expect(JSON.parse(localStorage.getItem("last.secrets.v1")!)).toMatchObject({ manyAccounts: true });
+    expect(JSON.parse(localStorage.getItem("last.secrets.v1")!).accountsText).toContain("geheim-zwei");
   });
 });

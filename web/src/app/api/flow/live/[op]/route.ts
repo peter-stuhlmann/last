@@ -1,6 +1,6 @@
 import { BACKEND_DOWN, backendFetch, jsonError, readJson } from "@/lib/backend";
 import { cleanLiveReply } from "@/lib/live";
-import { firstIssue, liveActSchema, liveStartSchema } from "@/lib/validation";
+import { firstIssue, liveActSchema, liveLookSchema, liveStartSchema } from "@/lib/validation";
 
 // Das Backend bricht nach 150 s selbst ab (eine lange Chat-Antwort); etwas Luft für den Start des Browsers
 const TIMEOUT_MS = 170_000;
@@ -8,13 +8,13 @@ const TIMEOUT_MS = 170_000;
 /** Vorführen eines Ablaufs: start öffnet den Browser, act führt einen Klick oder eine Eingabe aus, stop schließt ihn. */
 export async function POST(request: Request, { params }: { params: Promise<{ op: string }> }) {
   const { op } = await params;
-  if (op !== "start" && op !== "act" && op !== "stop") return jsonError("Nicht gefunden.", 404);
+  if (op !== "start" && op !== "act" && op !== "look" && op !== "stop") return jsonError("Nicht gefunden.", 404);
 
   let payload: unknown = {};
   if (op !== "stop") {
     const body = await readJson(request);
     if ("response" in body) return body.response;
-    const parsed = (op === "start" ? liveStartSchema : liveActSchema).safeParse(body.data);
+    const parsed = (op === "start" ? liveStartSchema : op === "look" ? liveLookSchema : liveActSchema).safeParse(body.data);
     if (!parsed.success) return jsonError(firstIssue(parsed.error), 400);
     payload = parsed.data;
   }

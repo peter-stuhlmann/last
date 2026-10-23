@@ -251,14 +251,22 @@ describe("POST /api/flow/live/…", () => {
         },
       }),
     );
-    const res = await live(post("http://localhost/api/flow/live/start", { steps: "öffne https://a.test/login", secrets: { email: "a@b.de" }, out: "/etc" }), op("start"));
+    const res = await live(post("http://localhost/api/flow/live/start", { steps: "öffne https://a.test/login", secrets: { email: "a@b.de" }, site_auth: { user: "admin", password: "zu" }, out: "/etc" }), op("start"));
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data).not.toHaveProperty("extra");
     expect(data.snapshot.elements).toEqual([{ mark: "0", kind: "field", label: "Nachricht", box: { x: 1, y: 2, w: 3, h: 4 } }]);
     const [url, init] = fetchMock.mock.calls[0];
     expect(String(url)).toBe("http://127.0.0.1:8090/api/flow/live/start");
-    expect(JSON.parse(init.body)).toEqual({ steps: "öffne https://a.test/login", secrets: { email: "a@b.de" } });
+    expect(JSON.parse(init.body)).toEqual({ steps: "öffne https://a.test/login", secrets: { email: "a@b.de" }, site_auth: { user: "admin", password: "zu" } });
+  });
+
+  it("holt mit look nur ein frisches Bild – mit nichts als der Sitzung", async () => {
+    fetchMock.mockResolvedValue(Response.json({ snapshot: null }));
+    const res = await live(post("http://localhost/api/flow/live/look", { session: SID, action: { type: "press", key: "Enter" } }), op("look"));
+    expect(res.status).toBe(200);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ session: SID });
+    expect((await live(post("http://localhost/api/flow/live/look", { session: "x" }), op("look"))).status).toBe(400);
   });
 
   it("prüft Aktionen, bevor sie im Browser landen", async () => {
@@ -268,6 +276,8 @@ describe("POST /api/flow/live/…", () => {
       { type: "press", key: "F12" },
       { type: "fill", target: { target: 'a"b' }, text: "x" },
       { type: "fill", target: { target: "a" }, text: "zwei\nzeilen" },
+      { type: "scroll", x: 10, y: 10, dy: 99999 },
+      { type: "scroll", x: -1, y: 10, dy: 100 },
     ]) {
       const res = await live(post("http://localhost/api/flow/live/act", { session: SID, action }), op("act"));
       expect(res.status, JSON.stringify(action)).toBe(400);

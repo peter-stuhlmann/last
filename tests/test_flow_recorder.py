@@ -76,6 +76,7 @@ class ChatSite:
         self.known = set()
         self.messages = []
         self.sessions_seen = []
+        self.think = 0.1                     # so lange „denkt“ die KI, bevor das erste Wort kommt
 
     async def handle(self, req):
         p = req.path
@@ -105,7 +106,7 @@ class ChatSite:
             self.messages.append((cid, (await req.json())["text"]))
             resp = web.StreamResponse(headers={"Content-Type": "text/event-stream"})
             await resp.prepare(req)
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(self.think)
             for word in ("Ein", "Lasttest", "prüft", "die", "Belastbarkeit."):
                 await resp.write(f"data: {word}\n\n".encode())
                 await asyncio.sleep(0.02)
@@ -210,10 +211,63 @@ LIST_PAGE = """<!doctype html><html lang="de"><body>
 </body></html>"""
 
 
+# Eine Single-Page-App: Das HTML ist leer, das Skript kommt verzögert und holt erst noch Daten
+SPA_PAGE = """<!doctype html><html lang="de"><body><div id="app"></div><script async src="/app.js"></script></body></html>"""
+SPA_JS = """fetch('/daten').then(r => r.json()).then(d => {
+  document.getElementById('app').innerHTML = '<h1>' + d.titel + '</h1><button>Weiter</button>';
+});"""
+
+
+# Anmeldungen, die nicht nach Lehrbuch gebaut sind – jede schickt E-Mail und Passwort an /anmelden
+LOGIN_FORMS = {
+    # keine Beschriftung, nur Text davor; automatische IDs; Knopf nur mit Symbol
+    "/ohne-beschriftung": """<form method="post" action="/anmelden"><div>Benutzer</div><input id="in-8f3a1" name="email">
+      <div>Kennwort</div><input id="in-2b7c9" name="passwort" type="password">
+      <button type="submit"><svg width="20" height="20"><circle cx="10" cy="10" r="8"/></svg></button></form>""",
+    # Web Component (Shadow DOM)
+    "/shadow": """<login-box></login-box><script>customElements.define('login-box', class extends HTMLElement {
+      connectedCallback() { this.attachShadow({mode: 'open'}).innerHTML = '<form method="post" action="/anmelden">' +
+        '<label>E-Mail <input name="email"></label><label>Passwort <input name="passwort" type="password"></label>' +
+        '<button>Anmelden</button></form>'; } });</script>""",
+    # eingebettetes Anmeldefenster (iframe)
+    "/eingebettet": """<h1>Portal</h1><iframe src="/rahmen" width="500" height="300"></iframe>""",
+    # Kacheln wie in einem Dashboard: ganzer Link mit langem Text, daneben ein Pfeil-Link nur mit Symbol;
+    # der Hauptteil blättert für sich (innerer Bereich), ganz unten noch ein Knopf
+    "/kacheln": """<div style="display:flex;height:100vh"><nav style="width:200px"><a href="/modul/a">Dashboard</a></nav>
+      <main id="haupt" style="flex:1;overflow-y:auto">""" + "".join(
+        f"""<div class="kachel" style="display:flex;margin:20px;border:1px solid #ccc">
+          <a href="/modul/{k}?von=start" style="flex:1;padding:20px;display:block"><b>{name}</b><br>{text}</a>
+          <a href="/modul/{k}/los" style="width:60px;background:#00a;display:block"><svg width="20" height="20"><path d="M2 10h16"/></svg></a>
+        </div>""" for k, name, text in (
+            ("a", "KnowledgeBot (Intern)", "Intelligente Unterstützung für Analysen und Auswertungen im ganzen Unternehmen"),
+            ("b", "Web-Recherche (Extern)", "KI-gestützte Recherche aus dem gesamten öffentlichen Internet mit Quellen"))) + """
+      <div style="height:1600px"></div><button onclick="document.body.append('Unten geklickt')">Ganz unten</button></main></div>""",
+    "/rahmen": """<form method="post" action="/anmelden" target="_top"><label for="e">E-Mail</label><input id="e" name="email">
+      <label for="p">Passwort</label><input id="p" name="passwort" type="password"><button>Anmelden</button></form>""",
+}
+
+
 class ListSite(ChatSite):
     async def handle(self, req):
         if req.path == "/liste":
             return web.Response(text=LIST_PAGE, content_type="text/html")
+        if req.path in LOGIN_FORMS:
+            return web.Response(text=f"<!doctype html><html lang='de'><body>{LOGIN_FORMS[req.path]}</body></html>",
+                                content_type="text/html")
+        if req.path.startswith("/modul/"):
+            self.visited.append(req.path)
+            return web.Response(text=f"<h1>Modul {req.path}</h1>", content_type="text/html")
+        if req.path == "/anmelden" and req.method == "POST":
+            self.logins.append(dict(await req.post()))
+            return web.Response(text="<h1>Willkommen</h1>", content_type="text/html")
+        if req.path == "/spa":
+            return web.Response(text=SPA_PAGE, content_type="text/html")
+        if req.path == "/app.js":
+            await asyncio.sleep(0.5)
+            return web.Response(text=SPA_JS, content_type="application/javascript")
+        if req.path == "/daten":
+            await asyncio.sleep(0.3)
+            return web.json_response({"titel": "Willkommen"})
         return await super().handle(req)
 
 
@@ -236,6 +290,11 @@ class Vorfuehren(unittest.IsolatedAsyncioTestCase):
     def mark(snap, label):
         return next(e["mark"] for e in snap["elements"] if e["label"] == label)
 
+    async def test_single_page_app_ist_beim_ersten_bild_schon_aufgebaut(self):
+        r = await self.open("/spa")
+        self.assertIsNone(r["error"])
+        self.assertEqual([e["label"] for e in r["snapshot"]["elements"]], ["Weiter"])
+
     async def test_anmelden_und_chatten_durch_klicken(self):
         r = await self.open()
         self.assertIsNone(r["error"])
@@ -257,7 +316,7 @@ class Vorfuehren(unittest.IsolatedAsyncioTestCase):
 
         # Ein Knopf: wird sofort geklickt, die nächste Seite ist danach geladen
         r = await self.live.act({"type": "pick", "mark": self.mark(r["snapshot"], "Anmelden")}, secrets)
-        self.assertEqual(r["steps"], ['klicke "Anmelden"'])
+        self.assertEqual(r.get("steps"), ['klicke "Anmelden"'], r.get("error"))
         self.assertTrue(r["snapshot"]["url"].endswith("/chat"))
 
         # Text mit Enter: die gestreamte Antwort wird erkannt und Warten ergänzt
@@ -277,6 +336,97 @@ class Vorfuehren(unittest.IsolatedAsyncioTestCase):
         from flow_recorder import record
         plans, info = await record(args, tempfile.mkdtemp())
         self.assertEqual([q["method"] for q in info["requests"]], ["POST", "POST"])
+
+    async def test_ki_denkt_lange_nach_es_wird_auf_die_ganze_antwort_gewartet(self):
+        self.site.think = 4.0
+        secrets = {"email": "tester@example.de", "passwort": "sehr-geheim-42"}
+        r = await self.open(lines='tippe in "E-Mail" {email}\ntippe in "Passwort" {passwort}\nklicke "Anmelden"', **secrets)
+        ask = await self.live.act({"type": "pick", "mark": self.mark(r["snapshot"], "Nachricht")}, secrets)
+        r = await self.live.act({"type": "fill", "target": ask["target"], "text": "Was ist ein Lasttest?", "enter": True,
+                                 "measuring": True}, secrets)
+        self.assertEqual(r["steps"][-1], "warte bis die Seite ruhig ist (2 s)")
+        self.assertIn("Belastbarkeit", await self.live.page.inner_text(".antwort"))
+        self.assertTrue((await self.live.look())["snapshot"]["screenshot"].startswith("data:image/jpeg"))
+
+        # Aufzeichnen mit diesem Ablauf: die gestreamte Antwort ist drin, nicht nur die Frage
+        lines = ['tippe in "E-Mail" {email}', 'tippe in "Passwort" {passwort}', 'klicke "Anmelden"', "messen ab hier",
+                 *r["steps"]]
+        args = sw.build_args({"kind": "flow", "confirm_owner": True, "secrets": secrets,
+                              "steps": f"öffne {self.base}/login\n" + "\n".join(lines)})
+        from flow_recorder import record
+        plans, info = await record(args, tempfile.mkdtemp())
+        self.assertEqual([q["method"] for q in info["requests"]], ["POST", "POST"])
+        self.assertTrue(info["requests"][info["main"]]["stream"])
+
+    async def test_alte_marke_nach_seitenwechsel(self):
+        r = await self.open()
+        old = self.mark(r["snapshot"], "Anmelden")
+        await self.live.page.goto(f"{self.base}/liste")
+        r = await self.live.act({"type": "pick", "mark": old}, {})
+        self.assertIn("geändert", r["error"])
+
+    async def login_by_clicking(self, path):
+        """Wie ein Mensch: erstes Feld, zweites Feld, Knopf – dann den entstandenen Ablauf frisch abspielen."""
+        self.site.logins = []
+        secrets = {"email": "tester@example.de", "passwort": "sehr-geheim-42"}
+        r = await self.open(path)
+        lines = [f"öffne {self.base}{path}"]
+        fields = [e for e in r["snapshot"]["elements"] if e["kind"] == "field"]
+        self.assertEqual(len(fields), 2, r["snapshot"]["elements"])
+        for el, name in zip(fields, ("email", "passwort")):
+            ask = await self.live.act({"type": "pick", "mark": el["mark"]}, secrets)
+            self.assertEqual(ask.get("need"), "text", ask)
+            r = await self.live.act({"type": "fill", "target": {k: v for k, v in ask["target"].items()
+                                                                if k in ("target", "near", "nth")},
+                                     "text": "{" + name + "}"}, secrets)
+            self.assertNotIn("error", r)
+            lines += r["steps"]
+        button = next(e for e in r["snapshot"]["elements"] if e["kind"] == "button")
+        r = await self.live.act({"type": "pick", "mark": button["mark"]}, secrets)
+        self.assertNotIn("error", r)
+        lines += r["steps"]
+        self.assertEqual(self.site.logins, [secrets])
+        await self.live.close()
+        self.live = __import__("flow_live").LiveSession()
+        r = await self.live.open(fl.parse_steps("\n".join(lines), partial=True), secrets)
+        self.assertIsNone(r["error"])
+        self.assertEqual(self.site.logins, [secrets, secrets])
+        return fields, lines
+
+    async def test_kacheln_mit_langem_text_und_pfeil_ohne_text(self):
+        self.site.visited = []
+        for pick, expected in ((lambda els: next(e for e in els if e["label"].startswith("Web-Recherche")), "/modul/b"),
+                               (lambda els: [e for e in els if e["kind"] == "link" and not e["label"]][0], "/modul/a/los")):
+            r = await self.open("/kacheln")
+            r = await self.live.act({"type": "pick", "mark": pick(r["snapshot"]["elements"])["mark"]}, {})
+            self.assertNotIn("error", r)
+            self.assertEqual(self.site.visited[-1], expected)
+            # Abspielen trifft dasselbe Ziel
+            await self.live.close()
+            self.live = __import__("flow_live").LiveSession()
+            await self.open("/kacheln", "\n".join(r["steps"]))
+            self.assertEqual(self.site.visited[-1], expected)
+
+    async def test_blaettern_im_inneren_bereich(self):
+        r = await self.open("/kacheln")
+        self.assertFalse(any(e["label"] == "Ganz unten" for e in r["snapshot"]["elements"]))
+        r = await self.live.act({"type": "scroll", "x": 700, "y": 400, "dy": 3000}, {})
+        self.assertEqual(r["steps"], [])
+        button = next(e for e in r["snapshot"]["elements"] if e["label"] == "Ganz unten")
+        r = await self.live.act({"type": "pick", "mark": button["mark"]}, {})
+        self.assertEqual(r["steps"][0], 'klicke "Ganz unten"')
+
+    async def test_anmeldung_ohne_beschriftung(self):
+        fields, lines = await self.login_by_clicking("/ohne-beschriftung")
+        self.assertEqual([f["label"] for f in fields], ["Benutzer", "Kennwort"])   # so sieht es ein Mensch
+        self.assertTrue(all("sehr-geheim" not in line for line in lines))
+
+    async def test_anmeldung_im_shadow_dom(self):
+        await self.login_by_clicking("/shadow")
+
+    async def test_anmeldung_im_iframe(self):
+        fields, _ = await self.login_by_clicking("/eingebettet")
+        self.assertTrue(all(f["box"]["y"] > 30 for f in fields))                   # Lage auf der Seite, nicht im Rahmen
 
     async def test_gleiche_knoepfe_werden_eindeutig_beschrieben(self):
         snap = (await self.open("/liste"))["snapshot"]
@@ -305,6 +455,90 @@ class Vorfuehren(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Willkommen", r["error"]["message"])
         self.assertNotIn("falsch", r["error"]["message"])
         self.assertTrue(any(e["label"] == "Anmelden" for e in r["snapshot"]["elements"]))
+
+
+# Seitenschutz wie per .htaccess: alles unter /geheim nur mit Benutzer und Passwort (HTTP Basic Auth)
+SITE_AUTH = {"user": "admin", "password": "tür-zu-77"}
+PROTECTED_PAGE = """<!doctype html><html lang="de"><body>
+<h1>Intern</h1><button onclick="laden()">Laden</button><p id="out"></p>
+<script>async function laden() {
+  const d = await (await fetch('/geheim/daten')).json();
+  document.getElementById('out').textContent = 'Fertig: ' + d.wert;
+}</script></body></html>"""
+
+
+class ProtectedSite(ChatSite):
+    def __init__(self):
+        super().__init__()
+        self.authorized = 0
+        self.expected = fl.basic_header(SITE_AUTH)
+
+    async def handle(self, req):
+        if req.path.startswith("/geheim/"):
+            if req.headers.get("Authorization") != self.expected:
+                return web.Response(status=401, headers={"WWW-Authenticate": 'Basic realm="Intern"'})
+            self.authorized += 1
+            if req.path == "/geheim/start":
+                return web.Response(text=PROTECTED_PAGE, content_type="text/html")
+            if req.path == "/geheim/daten":
+                return web.json_response({"wert": 42})
+        return await super().handle(req)
+
+
+@unittest.skipUnless(HAS_BROWSER, "Playwright/Chromium nicht installiert")
+class Seitenschutz(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.site = ProtectedSite()
+        self.base = await self.site.start()
+        self.out = tempfile.mkdtemp()
+
+    async def asyncTearDown(self):
+        await self.site.runner.cleanup()
+
+    async def vorfuehren(self, site_auth):
+        import flow_live
+        live = flow_live.LiveSession()
+        try:
+            return await live.open(fl.parse_steps(f"öffne {self.base}/geheim/start", partial=True), {}, site_auth)
+        finally:
+            await live.close()
+
+    async def test_ohne_zugangsdaten_klare_meldung_statt_weisser_seite(self):
+        with self.assertRaisesRegex(sw.lt.PreflightError, "401"):
+            await self.vorfuehren(None)
+        with self.assertRaisesRegex(sw.lt.PreflightError, "Seitenschutz"):
+            await self.vorfuehren({"user": "admin", "password": "falsch"})
+
+    async def test_vorfuehren_mit_zugangsdaten(self):
+        r = await self.vorfuehren(SITE_AUTH)
+        self.assertIsNone(r["error"])
+        self.assertEqual([e["label"] for e in r["snapshot"]["elements"]], ["Laden"])
+
+    async def test_aufzeichnen_und_abspielen_mit_zugangsdaten(self):
+        steps = f'öffne {self.base}/geheim/start\nmessen ab hier\nklicke "Laden"\nwarte auf Text "Fertig: 42"'
+        args = sw.build_args({"kind": "flow", "confirm_owner": True, "steps": steps, "site_auth": SITE_AUTH,
+                              "levels": "1,2", "level_seconds": 1, "warmup_seconds": 0, "min_samples": 2,
+                              "baseline_requests": 2, "cooldown": 0, "spike_idle": 0, "tests": "baseline,ramp"})
+        st = fl.FlowStressTest(args, self.out)
+        before = self.site.authorized
+        await st.run()
+        self.assertEqual(st.summary["baseline"]["errors"], 0)
+        self.assertGreaterEqual(self.site.authorized - before, 2 + 2 + 2)   # Seite + Daten beim Aufzeichnen, dann je Lauf
+        self.assertNotIn("site_auth", st.summary["config"])
+        for name in os.listdir(self.out):
+            if name.endswith(".png"):
+                continue
+            with open(os.path.join(self.out, name), encoding="utf-8", errors="replace") as f:
+                content = f.read()
+            for secret in ("tür-zu-77", self.site.expected.split()[1]):
+                self.assertNotIn(secret, content, name)
+
+    def test_zugangsdaten_werden_geprueft(self):
+        base = {"kind": "flow", "confirm_owner": True, "steps": "öffne http://x.test/\nmessen ab hier\nklicke \"Los\""}
+        self.assertIsNone(sw.build_args({**base, "site_auth": {"user": "", "password": ""}}).site_auth)
+        for bad in ({"user": "a:b", "password": "x"}, {"user": "", "password": "x"}, {"user": "a"}, "admin:x"):
+            with self.assertRaises(ValueError):
+                sw.build_args({**base, "site_auth": bad})
 
 
 if __name__ == "__main__":

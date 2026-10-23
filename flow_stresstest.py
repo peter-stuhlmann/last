@@ -200,10 +200,50 @@ def fill_text(text, secrets):
     return PLACEHOLDER.sub(sub, text)
 
 
+# ════════════════════════════════════════════════════════════════════════════
+#  Seitenschutz (.htaccess = HTTP Basic Auth) – gilt nur für die Adresse der Startseite
+# ════════════════════════════════════════════════════════════════════════════
+
+AUTH_NEEDED = ("Die Seite verlangt Benutzer und Passwort (HTTP 401, z. B. .htaccess) – bitte unter „Seitenschutz“ "
+               "eintragen bzw. prüfen")
+
+
+def clean_site_auth(value):
+    """{"user", "password"} oder None. Wie die Platzhalter-Werte: nie gespeichert, nie im Bericht."""
+    if not value:
+        return None
+    if not isinstance(value, dict) or not all(isinstance(value.get(k), str) for k in ("user", "password")):
+        raise ValueError("Seitenschutz: Benutzer und Passwort als Text.")
+    user, password = value["user"], value["password"]
+    if not user and not password:
+        return None
+    if not user or ":" in user or len(user) > 200 or len(password) > 1024 or \
+            any(ord(ch) < 32 or ch == "\x7f" for ch in user + password):
+        raise ValueError("Seitenschutz: Benutzer (ohne Doppelpunkt) und Passwort, jeweils eine Zeile.")
+    return {"user": user, "password": password}
+
+
+def _origin(url):
+    parts = urlsplit(url)
+    return f"{parts.scheme}://{parts.netloc}".lower()
+
+
+def browser_credentials(site_auth, url):
+    """Für Playwrights new_context – nur an den Server der Startseite, nie an fremde Server."""
+    if not site_auth:
+        return None
+    return {"username": site_auth["user"], "password": site_auth["password"], "origin": _origin(url)}
+
+
+def basic_header(site_auth):
+    return aiohttp.encode_basic_auth(site_auth["user"], site_auth["password"])
+
+
 def is_selector(target):
     """CSS-Selektor (#id, .klasse, [attr], div > p) oder sichtbarer Text?"""
     t = target.strip()
-    return bool(t) and (t[0] in "#.[" or any(ch in t for ch in "<>=") or bool(re.match(r"^[a-z]+[.#\[]", t)))
+    return bool(t) and (t[0] in "#.[" or any(ch in t for ch in "<>=") or bool(re.match(r"^[a-z]+[.#\[]", t))
+                        or bool(re.match(r"^(input|textarea|button|select)([:\[.#\s,]|$)", t)))
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -330,6 +370,8 @@ class FlowClient(WebClient):
         self.outdir = outdir
         self.record_info = None
         self._turn = 0
+        site_auth = getattr(args, "site_auth", None)
+        self._auth = (_origin(args.steps[0]["url"]), basic_header(site_auth)) if site_auth else None
 
     @property
     def plan(self):
@@ -370,6 +412,9 @@ class FlowClient(WebClient):
             for k, tpl in enumerate(plan["requests"]):
                 url = render(tpl["url"], variables)
                 headers = {h: render(v, variables) for h, v in tpl["headers"].items()}
+                if self._auth and _origin(url) == self._auth[0] and \
+                        not any(h.lower() == "authorization" for h in headers):
+                    headers["Authorization"] = self._auth[1]
                 body = render(tpl["body"], variables).encode("utf-8") if tpl["body"] else None
                 async with session.request(tpl["method"], url, data=body, headers=headers,
                                            allow_redirects=False) as resp:
@@ -419,6 +464,7 @@ class FlowStressTest(WebStressTest):
         # Zugangsdaten raus, Schritte als Text rein (ohne eingesetzte Werte)
         cfg.pop("secrets", None)
         cfg.pop("accounts", None)
+        cfg.pop("site_auth", None)
         cfg.pop("steps", None)
         cfg["steps_text"] = args.steps_text
         cfg["placeholders"] = placeholders(args.steps)

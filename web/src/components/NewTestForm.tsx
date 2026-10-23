@@ -6,14 +6,29 @@ import { FlowSteps } from "@/components/flow/FlowSteps";
 import { FALLBACK_API, FALLBACK_FLOW, FALLBACK_WEB } from "@/lib/profile";
 import { withStart } from "@/lib/steps";
 import type { ModelInfo, RunKind } from "@/lib/types";
-import { MAX_ACCOUNTS, METHODS, parseBaseUrl, parseHeaderLines } from "@/lib/validation";
+import { MAX_ACCOUNTS, METHODS, parseBaseUrl, parseHeaderLines, type SiteAuth } from "@/lib/validation";
 
 type Values = Record<string, unknown>;
 type Profile = "quick" | "full";
 
-// Nur diese Felder werden im Browser gemerkt. Bewusst nicht dabei: der API-Schlüssel
-// und die Bestätigung, dass die Website getestet werden darf (die gilt nur für diesen einen Start).
+// Diese Felder werden schon beim Tippen im Browser gemerkt (nicht erst beim Start – auch Vorführen braucht sie). Bewusst nicht dabei: die Bestätigung,
+// dass die Website getestet werden darf (die gilt nur für diesen einen Start).
 const STORAGE_KEY = "last.form.v1";
+// Zugangsdaten getrennt davon – schon beim Tippen gemerkt (auch fürs Vorführen) und mit einem Knopf zu löschen.
+// Sie liegen unverschlüsselt im localStorage dieses Browsers; in Bericht und Ergebnis landen sie nie.
+const SECRETS_KEY = "last.secrets.v1";
+
+interface StoredSecrets {
+  secrets?: Record<string, string>;
+  siteAuth?: SiteAuth;
+  accountsText?: string;
+  manyAccounts?: boolean;
+  api_key?: string;
+  headers_text?: string;
+  body_text?: string;
+}
+
+const str = (v: unknown) => (typeof v === "string" ? v : "");
 const REMEMBERED = [
   "base_url",
   "model",
@@ -38,7 +53,7 @@ const REMEMBERED = [
   "flow_users",
   "flow_slo",
   "flow_think",
-  // Die Schritte enthalten nur Platzhalter – die Werte dazu werden nie gemerkt
+  // Die Schritte enthalten nur Platzhalter – die Werte dazu stehen unter SECRETS_KEY
   "flow_steps",
 ] as const;
 
@@ -217,7 +232,7 @@ export function NewTestForm({
     api_slo: text(api.defaults.slo_load ?? 0.5),
     expect_status: "2xx",
     method: "GET",
-    // Kopfzeilen und Body werden bewusst nicht gemerkt – sie enthalten oft Zugangsdaten
+    // Kopfzeilen und Body enthalten oft Zugangsdaten – gemerkt unter SECRETS_KEY
     headers_text: "",
     body_text: "",
     flow_url: "",
@@ -226,8 +241,10 @@ export function NewTestForm({
     flow_think: text(flow.defaults.think_time ?? 60),
     flow_steps: "",
   }));
-  // Werte der Platzhalter: nur im Arbeitsspeicher, nie im localStorage
+  // Werte der Platzhalter und Seitenschutz (.htaccess) der Startseite – gemerkt unter SECRETS_KEY
   const [secrets, setSecrets] = useState<Record<string, string>>({});
+  const [siteAuth, setSiteAuth] = useState<SiteAuth>({ user: "", password: "" });
+  const siteAuthValue = siteAuth.user || siteAuth.password ? siteAuth : null;
   const [manyAccounts, setManyAccounts] = useState(false);
   const [accountsText, setAccountsText] = useState("");
   const [profile, setProfile] = useState<Profile>("quick");
@@ -239,6 +256,9 @@ export function NewTestForm({
   const [formError, setFormError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [check, setCheck] = useState<Check>({ state: "idle" });
+  // Erst nach dem Einlesen speichern – sonst überschreibt der leere Anfangszustand das Gemerkte
+  const [loaded, setLoaded] = useState(false);
+  const [secretsStored, setSecretsStored] = useState(false);
 
   const isWeb = kind === "web";
   const isApi = kind === "api";
@@ -265,6 +285,71 @@ export function NewTestForm({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- nur einmal beim ersten Rendern
   }, []);
+
+  // Gemerkte Zugangsdaten ebenso erst nach dem ersten Rendern einsetzen
+  useEffect(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem(SECRETS_KEY) ?? "null") as StoredSecrets | null;
+      if (stored && typeof stored === "object") {
+        if (stored.secrets && typeof stored.secrets === "object") {
+          // eslint-disable-next-line react-hooks/set-state-in-effect -- einmalige Übernahme aus localStorage
+          setSecrets(Object.fromEntries(Object.entries(stored.secrets).filter(([, v]) => typeof v === "string")));
+        }
+        setSiteAuth({ user: str(stored.siteAuth?.user), password: str(stored.siteAuth?.password) });
+        setAccountsText(str(stored.accountsText));
+        setManyAccounts(stored.manyAccounts === true);
+        setForm((f) => ({ ...f, api_key: str(stored.api_key), headers_text: str(stored.headers_text), body_text: str(stored.body_text) }));
+      }
+    } catch {
+      // wie oben
+    }
+    setLoaded(true);
+  }, []);
+
+  const storedSecrets: StoredSecrets = {
+    secrets: Object.fromEntries(Object.entries(secrets).filter(([, v]) => v)),
+    siteAuth,
+    accountsText,
+    manyAccounts,
+    api_key: form.api_key,
+    headers_text: form.headers_text,
+    body_text: form.body_text,
+  };
+  const hasSecrets =
+    Object.keys(storedSecrets.secrets!).length > 0 ||
+    !!(siteAuth.user || siteAuth.password || accountsText.trim() || form.api_key || form.headers_text.trim() || form.body_text.trim());
+  const storedJson = hasSecrets ? JSON.stringify(storedSecrets) : null;
+
+  // Adresse, Art des Tests und Einstellungen sofort merken – ein Neuladen soll nichts verlieren
+  const rememberedJson = JSON.stringify({ ...Object.fromEntries(REMEMBERED.map((k) => [k, form[k]])), profile, kind });
+  useEffect(() => {
+    if (!loaded) return;
+    try {
+      localStorage.setItem(STORAGE_KEY, rememberedJson);
+    } catch {
+      // Merken ist nur Komfort.
+    }
+  }, [loaded, rememberedJson]);
+
+  useEffect(() => {
+    if (!loaded) return;
+    try {
+      if (storedJson) localStorage.setItem(SECRETS_KEY, storedJson);
+      else localStorage.removeItem(SECRETS_KEY);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- spiegelt nur, ob etwas im Speicher liegt
+      setSecretsStored(!!storedJson);
+    } catch {
+      // Merken ist nur Komfort.
+    }
+  }, [loaded, storedJson]);
+
+  function forgetSecrets() {
+    setSecrets({});
+    setSiteAuth({ user: "", password: "" });
+    setAccountsText("");
+    setManyAccounts(false);
+    setForm((f) => ({ ...f, api_key: "", headers_text: "", body_text: "" }));
+  }
 
   const set = (name: string) => (e: { target: { value: string } }) => {
     setForm((f) => ({ ...f, [name]: e.target.value }));
@@ -381,6 +466,7 @@ export function NewTestForm({
           ...(accounts
             ? { accounts }
             : { secrets: Object.fromEntries(placeholders.map((p) => [p, secrets[p]])) }),
+          ...(siteAuthValue ? { site_auth: siteAuthValue } : {}),
           confirm_owner: true,
           tests: String(flow.defaults.tests ?? "baseline,ramp,rate,spike,soak"),
           target_users: number("flow_users") ?? 0,
@@ -431,12 +517,6 @@ export function NewTestForm({
       setBusy(false);
       setServerError(String(data.error ?? "Der Test konnte nicht gestartet werden."));
       return;
-    }
-    try {
-      const remembered = { ...Object.fromEntries(REMEMBERED.map((k) => [k, form[k]])), profile, kind };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(remembered));
-    } catch {
-      // Merken ist nur Komfort.
     }
     router.push("/lauf");
   }
@@ -575,11 +655,53 @@ export function NewTestForm({
       {isFlow && (
         <fieldset>
           <legend className={legend}>Was passiert auf der Seite?</legend>
+          <details open={!!siteAuthValue} className="mb-4 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3">
+            <summary className="cursor-pointer text-sm font-medium text-white/85">Seitenschutz – fragt die Seite nach Benutzer und Passwort (.htaccess)?</summary>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <div>
+                <label htmlFor="site_auth_user" className="mb-1 block text-xs font-medium text-white/70">
+                  Benutzer
+                </label>
+                <input
+                  id="site_auth_user"
+                  name="site_auth_user"
+                  autoComplete="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  value={siteAuth.user}
+                  onChange={(e) => setSiteAuth((a) => ({ ...a, user: e.target.value }))}
+                  aria-describedby="site_auth-hilfe"
+                  className="field font-mono"
+                />
+              </div>
+              <div>
+                <label htmlFor="site_auth_password" className="mb-1 block text-xs font-medium text-white/70">
+                  Passwort
+                </label>
+                <input
+                  id="site_auth_password"
+                  name="site_auth_password"
+                  type="password"
+                  autoComplete="off"
+                  spellCheck={false}
+                  value={siteAuth.password}
+                  onChange={(e) => setSiteAuth((a) => ({ ...a, password: e.target.value }))}
+                  aria-describedby="site_auth-hilfe"
+                  className="field font-mono"
+                />
+              </div>
+              <p id="site_auth-hilfe" className="text-xs text-white/60 sm:col-span-2">
+                Gilt nur für den Server der Startseite – beim Vorführen, Aufzeichnen und unter Last. Wird in diesem Browser gemerkt, nie im
+                Bericht.
+              </p>
+            </div>
+          </details>
           <FlowSteps
             value={form.flow_steps}
             onChange={(text) => setForm((f) => ({ ...f, flow_steps: text }))}
             baseUrl={parseBaseUrl(form.flow_url)}
             secrets={liveSecrets()}
+            siteAuth={siteAuthValue}
             onSecret={(name, value) => setSecrets((s) => ({ ...s, [name]: value }))}
           />
           {placeholders.length > 0 && (
@@ -617,8 +739,8 @@ export function NewTestForm({
                 className="field font-mono text-[13px]"
               />
               <p id="accounts_text-hilfe" className="mt-1 text-xs text-white/60">
-                Erste Zeile: die Platzhalter-Namen. Darunter je Zeile ein Konto, Werte mit Komma, Semikolon oder Tab getrennt. Wird nur für
-                diesen Start benutzt – nicht gemerkt, nicht gespeichert, nicht im Bericht.
+                Erste Zeile: die Platzhalter-Namen. Darunter je Zeile ein Konto, Werte mit Komma, Semikolon oder Tab getrennt. Wird in
+                diesem Browser gemerkt, nie im Bericht.
               </p>
             </div>
           )}
@@ -643,7 +765,7 @@ export function NewTestForm({
                 </div>
               ))}
               <p id="secrets-hilfe" className="text-xs text-white/60 sm:col-span-2">
-                Wird nur für diesen Start benutzt – nicht gemerkt, nicht gespeichert, nicht im Bericht.
+                Wird in diesem Browser gemerkt, nie im Bericht.
               </p>
             </div>
           )}
@@ -772,7 +894,7 @@ export function NewTestForm({
                 className="field font-mono text-[13px]"
               />
               <p id="headers_text-hilfe" className="mt-1 text-xs text-white/60">
-                Eine je Zeile als „Name: Wert“. Werden nicht gespeichert und erscheinen nicht im Ergebnis.
+                Eine je Zeile als „Name: Wert“. Werden in diesem Browser gemerkt, erscheinen aber nicht im Ergebnis.
               </p>
             </div>
             {writes && (
@@ -793,7 +915,7 @@ export function NewTestForm({
                   className="field font-mono text-[13px]"
                 />
                 <p id="body_text-hilfe" className="mt-1 text-xs text-white/60">
-                  Wird mit jeder Anfrage unverändert gesendet (ohne eigene Kopfzeile als application/json). Wird nicht gespeichert.
+                  Wird mit jeder Anfrage unverändert gesendet (ohne eigene Kopfzeile als application/json). Wird in diesem Browser gemerkt.
                 </p>
               </div>
             )}
@@ -851,7 +973,7 @@ export function NewTestForm({
                 className="field font-mono"
               />
               <p id="api_key-hilfe" className="mt-1 text-xs text-white/60">
-                Nur nötig, wenn der Server einen verlangt. Wird nicht gespeichert.
+                Nur nötig, wenn der Server einen verlangt. Wird in diesem Browser gemerkt.
               </p>
             </div>
             <fieldset className="sm:col-span-2">
@@ -939,6 +1061,14 @@ export function NewTestForm({
         <p className="mt-5 text-xs text-white/60">
           Nur eigene {THINGS[kind]} testen. · Läuft im Hintergrund weiter – du kannst die
           Seite schließen.
+          {secretsStored && (
+            <>
+              {" · "}
+              <button type="button" onClick={forgetSecrets} className="underline underline-offset-2 hover:text-white">
+                Gemerkte Zugangsdaten löschen
+              </button>
+            </>
+          )}
         </p>
       </div>
     </form>

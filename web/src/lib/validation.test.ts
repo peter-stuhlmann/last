@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { modelsRequestSchema, parseBaseUrl, parseHeaderLines, startSchema } from "./validation";
+import { liveStartSchema, modelsRequestSchema, parseBaseUrl, parseHeaderLines, startSchema } from "./validation";
 
 describe("parseBaseUrl", () => {
   it("akzeptiert http(s)-Adressen und entfernt den Schrägstrich am Ende", () => {
@@ -139,5 +139,12 @@ describe("startSchema mit mehreren Konten", () => {
     expect(startSchema.safeParse({ ...flow, accounts: [] }).success).toBe(false);
     expect(startSchema.safeParse({ ...flow, accounts: Array.from({ length: 51 }, () => ({ pw: "a" })) }).success).toBe(false);
     expect(startSchema.safeParse({ ...flow, accounts: [{ "böse name": "a" }] }).success).toBe(false);
+  });
+
+  it("nimmt den Seitenschutz (.htaccess) an und prüft ihn", () => {
+    expect(startSchema.parse({ ...flow, site_auth: { user: "admin", password: "tür:zu" } }).site_auth).toEqual({ user: "admin", password: "tür:zu" });
+    expect(startSchema.safeParse({ ...flow, site_auth: { user: "a:b", password: "x" } }).success).toBe(false);
+    expect(startSchema.safeParse({ ...flow, site_auth: { user: "a", password: "x\ny" } }).success).toBe(false);
+    expect(liveStartSchema.parse({ steps: "öffne https://a.test/", site_auth: { user: "a", password: "b" } }).site_auth).toEqual({ user: "a", password: "b" });
   });
 });

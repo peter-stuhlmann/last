@@ -303,10 +303,16 @@ _TARGET_FIELDS = {"target": str, "near": str, "nth": int}
 
 def clean_live_action(a):
     """Eine Aktion beim Vorführen – streng geprüft, weil sie direkt im Browser ausgeführt wird."""
-    if not isinstance(a, dict) or a.get("type") not in ("pick", "fill", "press"):
+    if not isinstance(a, dict) or a.get("type") not in ("pick", "fill", "press", "scroll"):
         raise ValueError("Unbekannte Aktion.")
+    if a["type"] == "scroll":
+        vals = [a.get(k) for k in ("x", "y", "dy")]
+        if not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in vals) or \
+                not (0 <= vals[0] <= 1280 and 0 <= vals[1] <= 800 and -5000 <= vals[2] <= 5000):
+            raise ValueError("Ungültiges Blättern.")
+        return {"type": "scroll", "x": float(vals[0]), "y": float(vals[1]), "dy": float(vals[2])}
     if a["type"] == "pick":
-        if not isinstance(a.get("mark"), str) or not a["mark"].isdigit():
+        if not isinstance(a.get("mark"), str) or not a["mark"].isdigit() or len(a["mark"]) > 7:
             raise ValueError("Unbekanntes Element.")
         return {"type": "pick", "mark": a["mark"], "measuring": a.get("measuring") is True}
     if a["type"] == "press":
@@ -359,7 +365,7 @@ async def _live_reaper(app):
             await close_live(app)
 
 
-@routes.post("/api/flow/live/{op:start|act|stop}")
+@routes.post("/api/flow/live/{op:start|act|look|stop}")
 async def flow_live(req):
     """Vorführen: start öffnet die Seite und spielt die bisherigen Schritte ab, act führt einen Klick, eine
     Eingabe oder eine Taste aus, stop schließt den Browser."""
@@ -379,6 +385,9 @@ async def flow_live(req):
         secrets = clean_secrets(cfg.get("secrets"))
         if op == "start":
             steps = flow.parse_steps(cfg.get("steps") or "", partial=True)
+            site_auth = flow.clean_site_auth(cfg.get("site_auth"))
+        elif op == "look":
+            pass
         else:
             action = clean_live_action(cfg.get("action"))
     except ValueError as e:
@@ -390,7 +399,7 @@ async def flow_live(req):
         failed = None
         async with live.lock:
             try:
-                result = await asyncio.wait_for(live.open(steps, secrets), LIVE_TIMEOUT)
+                result = await asyncio.wait_for(live.open(steps, secrets, site_auth), LIVE_TIMEOUT)
             except lt.PreflightError as e:
                 failed = str(e)
             except TimeoutError:
@@ -404,6 +413,8 @@ async def flow_live(req):
     live = app["live"].session
     if live is None or cfg.get("session") != live.id:
         return web.json_response({"error": "Der Browser wurde inzwischen geschlossen – bitte neu starten."}, status=410)
+    if op == "look":                             # nur ein Bild – ohne Sperre, damit es auch während einer Aktion geht
+        return web.json_response(await live.look())
     if live.lock.locked():
         return web.json_response({"error": "Einen Moment – der letzte Schritt läuft noch."}, status=409)
     async with live.lock:

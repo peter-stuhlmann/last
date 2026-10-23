@@ -14,8 +14,10 @@ import uuid
 import llm_stresstest as lt
 from flow_recorder import (
     VIEWPORT,
+    _frame_of,
     _run_step,
     _short_error,
+    activity,
     describe,
     element_thumb,
     find_target,
@@ -23,7 +25,7 @@ from flow_recorder import (
     snapshot,
     wait_if_writing,
 )
-from flow_stresstest import STEP_TIMEOUT_MS, format_step
+from flow_stresstest import STEP_TIMEOUT_MS, browser_credentials, format_step
 
 LIVE_IDLE_S = 600
 LIVE_MAX_S = 3600
@@ -42,7 +44,7 @@ class LiveSession:
         now = time.monotonic()
         return now - self.touched > LIVE_IDLE_S or now - self.started > LIVE_MAX_S
 
-    async def open(self, steps, secrets):
+    async def open(self, steps, secrets, site_auth=None):
         """Browser starten und die bisherigen Schritte durchspielen. Scheitert einer, bleibt die Seite an dieser
         Stelle stehen – man sieht, wo es hakt, und kann von dort weitermachen."""
         try:
@@ -52,8 +54,10 @@ class LiveSession:
                                     "enthalten; sonst: python -m pip install playwright && playwright install chromium") from None
         self._pw = await async_playwright().start()
         self._browser = await self._pw.chromium.launch(args=["--no-sandbox", "--disable-dev-shm-usage"])
-        context = await self._browser.new_context(viewport=VIEWPORT)
+        context = await self._browser.new_context(viewport=VIEWPORT,
+                                                   http_credentials=browser_credentials(site_auth, steps[0]["url"]))
         self.page = await context.new_page()
+        activity(self.page)
         self.page.set_default_timeout(STEP_TIMEOUT_MS)
         state = {"measuring": False}
         done, error = 0, None
@@ -75,8 +79,21 @@ class LiveSession:
         self.touched = time.monotonic()
         page, t = self.page, action["type"]
         steps, thumb = [], None
+        if t == "scroll":
+            # Blättern ist kein Schritt – beim Abspielen findet der Browser die Elemente auch weiter unten.
+            # Mit der Maus an der Stelle, damit auch innere Bereiche (Seitenleiste, Hauptteil) blättern.
+            try:
+                await page.mouse.move(action["x"], action["y"])
+                await page.mouse.wheel(0, action["dy"])
+                await page.wait_for_timeout(350)
+            except Exception as err:                        # noqa – erklären, Seite zeigen
+                return {"error": f"Blättern hat nicht geklappt: {_short_error(err)}.", "snapshot": await snapshot(page)}
+            return {"steps": [], "snapshot": await snapshot(page)}
         try:
             if t == "pick":
+                if await _frame_of(page, action["mark"]) is None:
+                    return {"error": "Die Seite hat sich gerade geändert – bitte noch einmal klicken.",
+                            "snapshot": await snapshot(page)}
                 target = await find_target(page, action["mark"])
                 if target is None:
                     return {"error": "Dieses Element lässt sich nicht sicher wiederfinden – bitte ein anderes "
@@ -104,6 +121,14 @@ class LiveSession:
         except Exception as err:                            # noqa – erklären, Seite zeigen, weitermachen
             return {"error": f"Hat nicht geklappt: {_short_error(err)}.", "snapshot": await snapshot(page)}
         return {"steps": [format_step(s) for s in steps], "thumb": thumb, "snapshot": await snapshot(page)}
+
+    async def look(self):
+        """Nur hinsehen: ein frisches Bild, auch während eine Aktion noch wartet (die Oberfläche fragt laufend)."""
+        self.touched = time.monotonic()
+        try:
+            return {"snapshot": await snapshot(self.page)}
+        except Exception:                                   # noqa – Seite wechselt gerade; beim nächsten Mal
+            return {"snapshot": None}
 
     async def close(self):
         for thing in (self._browser, self._pw):

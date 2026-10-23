@@ -147,6 +147,8 @@ def build_args(cfg):
                                  + f"Für den Platzhalter {{{missing[0]}}} fehlt ein Wert.")
             a.accounts.append(clean)
         a.secrets = a.accounts[0]
+        from flow_stresstest import clean_site_auth
+        a.site_auth = clean_site_auth(cfg.get("site_auth"))
         cfg = {**cfg, "base_url": a.steps[0]["url"]}
     for key, default in DEFAULTS.items():
         val = cfg.get(key)

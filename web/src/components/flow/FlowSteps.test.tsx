@@ -1,6 +1,6 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LiveReply, LiveSnapshot } from "@/lib/types";
 import { expectAccessible } from "@/test/setup";
@@ -25,12 +25,20 @@ const SNAP: LiveSnapshot = {
 };
 
 /** Wie im Formular: Text und Zugangsdaten liegen beim Eltern-Element. */
-function Harness({ initial = "", baseUrl = "https://chat.example/login" }: { initial?: string; baseUrl?: string | null }) {
+function Harness({
+  initial = "",
+  baseUrl = "https://chat.example/login",
+  siteAuth = null,
+}: {
+  initial?: string;
+  baseUrl?: string | null;
+  siteAuth?: { user: string; password: string } | null;
+}) {
   const [text, setText] = useState(initial);
   const [secrets, setSecrets] = useState<Record<string, string>>({});
   return (
     <>
-      <FlowSteps value={text} onChange={setText} baseUrl={baseUrl} secrets={secrets} onSecret={(k, v) => setSecrets((s) => ({ ...s, [k]: v }))} />
+      <FlowSteps value={text} onChange={setText} baseUrl={baseUrl} secrets={secrets} siteAuth={siteAuth} onSecret={(k, v) => setSecrets((s) => ({ ...s, [k]: v }))} />
       <output data-testid="text">{text}</output>
       <output data-testid="secrets">{JSON.stringify(secrets)}</output>
     </>
@@ -114,7 +122,9 @@ describe("Vorführen", () => {
     const input = await within(dialog).findByLabelText("Was soll in „E-Mail“ hinein?");
     expect(input).toHaveAttribute("type", "password");
     await user.type(input, "tester@example.de");
-    await user.click(within(dialog).getByRole("button", { name: "Eingeben" }));
+    // Tab übernimmt den Text ohne Enter – getippt wird direkt im Feld auf dem Bild
+    expect(within(dialog).getByRole("button", { name: /Zugangsdaten – im Ablauf nur \{email\}/ })).toHaveAttribute("aria-pressed", "true");
+    await user.keyboard("{Tab}");
     expect(sent(2)).toMatchObject({ action: { type: "fill", target: { target: "E-Mail" }, text: "{email}", enter: false }, secrets: { email: "tester@example.de" } });
     await waitFor(() => expect(text()).toBe('tippe in "E-Mail" {email}'));
     expect(screen.getByTestId("secrets").textContent).toContain("tester@example.de");
@@ -162,6 +172,92 @@ describe("Vorführen", () => {
     await user.type(screen.getByLabelText("Wert für {passwort}"), "geheim");
     await user.click(screen.getByRole("button", { name: "Starten" }));
     expect(sent(0).secrets).toEqual({ passwort: "geheim" });
+  });
+
+  it("tippt direkt im Feld auf dem Bild: Enter schickt ab, Esc bricht ab", async () => {
+    fetchMock
+      .mockResolvedValueOnce(reply({ session: "a".repeat(32), snapshot: SNAP, steps_done: 1, error: null }))
+      .mockResolvedValueOnce(reply({ need: "text", target: { kind: "fill", target: "E-Mail", label: "E-Mail", secret: null } }))
+      .mockResolvedValueOnce(reply({ need: "text", target: { kind: "fill", target: "E-Mail", label: "E-Mail", secret: null } }))
+      .mockResolvedValueOnce(reply({ steps: ['tippe in "E-Mail" "hallo"', "drücke Enter"], snapshot: SNAP }))
+      .mockResolvedValue(reply({ ok: true } as LiveReply));
+    const user = userEvent.setup();
+    render(<Harness />);
+    await user.click(screen.getByRole("button", { name: /Ablauf vorführen/ }));
+    const dialog = screen.getByRole("dialog", { name: "Ablauf vorführen" });
+    const field = await within(dialog).findByRole("button", { name: "Eingeben in „E-Mail“" });
+
+    await user.click(field);
+    const input = await within(dialog).findByLabelText("Was soll in „E-Mail“ hinein?");
+    expect(input).toHaveAttribute("type", "text");
+    expect(input).toHaveFocus();
+    expect(input.parentElement!.style.left).toBe(field.style.left);          // genau dort, wo das Feld ist
+    await user.type(input, "weg{Escape}");
+    expect(within(dialog).queryByLabelText("Was soll in „E-Mail“ hinein?")).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    await user.click(await within(dialog).findByRole("button", { name: "Eingeben in „E-Mail“" }));
+    await user.type(await within(dialog).findByLabelText("Was soll in „E-Mail“ hinein?"), "hallo{Enter}");
+    await waitFor(() => expect(text()).toBe('tippe in "E-Mail" "hallo"\ndrücke Enter'));
+    expect(sent(3).action).toMatchObject({ type: "fill", text: "hallo", enter: true });
+  });
+
+  it("schickt beim Eingeben nicht das umgebende Test-Formular ab", async () => {
+    fetchMock
+      .mockResolvedValueOnce(reply({ session: "a".repeat(32), snapshot: SNAP, steps_done: 1, error: null }))
+      .mockResolvedValueOnce(
+        reply({ need: "text", target: { kind: "fill", target: "E-Mail", label: "E-Mail", secret: "email" }, thumb: null }),
+      )
+      .mockResolvedValueOnce(reply({ steps: ['tippe in "E-Mail" {email}'], snapshot: SNAP }))
+      .mockResolvedValue(reply({ ok: true } as LiveReply));
+    const outer = vi.fn((e: FormEvent) => e.preventDefault());
+    const user = userEvent.setup();
+    render(
+      <form onSubmit={outer}>
+        <Harness />
+      </form>,
+    );
+    await user.click(screen.getByRole("button", { name: /Ablauf vorführen/ }));
+    const dialog = screen.getByRole("dialog", { name: "Ablauf vorführen" });
+    expect(dialog.closest("form")).toBeNull();
+    await user.click(await within(dialog).findByRole("button", { name: "Eingeben in „E-Mail“" }));
+    await user.type(await within(dialog).findByLabelText("Was soll in „E-Mail“ hinein?"), "tester@example.de{Enter}");
+    await waitFor(() => expect(text()).toBe('tippe in "E-Mail" {email}'));
+    expect(outer).not.toHaveBeenCalled();
+  });
+
+  it("blättert die Seite mit ▼ und mit dem Mausrad – ohne neuen Schritt", async () => {
+    fetchMock
+      .mockResolvedValueOnce(reply({ session: "a".repeat(32), snapshot: SNAP, steps_done: 1, error: null }))
+      .mockResolvedValue(reply({ steps: [], snapshot: SNAP }));
+    const user = userEvent.setup();
+    render(<Harness />);
+    await user.click(screen.getByRole("button", { name: /Ablauf vorführen/ }));
+    const dialog = screen.getByRole("dialog", { name: "Ablauf vorführen" });
+    const down = await within(dialog).findByRole("button", { name: "Seite nach unten blättern" });
+    await waitFor(() => expect(down).toBeEnabled());
+    await user.click(down);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(sent(1).action).toMatchObject({ type: "scroll", x: 640, y: 400, dy: 600 });
+
+    const shot = within(dialog).getByRole("img");
+    // jsdom kennt keine Maße – das Bild bekommt hier welche
+    shot.parentElement!.getBoundingClientRect = () => ({ left: 0, top: 0, width: 640, height: 400 }) as DOMRect;
+    await waitFor(() => expect(down).toBeEnabled());
+    const wheel = new WheelEvent("wheel", { deltaY: 120, clientX: 0, clientY: 0, bubbles: true, cancelable: true });
+    shot.dispatchEvent(wheel);
+    expect(wheel.defaultPrevented).toBe(true);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    expect(sent(2).action).toEqual({ type: "scroll", x: 0, y: 0, dy: 240, measuring: false });
+    expect(text()).toBe("");
+  });
+
+  it("schickt den Seitenschutz beim Start mit", async () => {
+    fetchMock.mockResolvedValue(reply({ session: "a".repeat(32), snapshot: SNAP, steps_done: 1, error: null }));
+    const user = userEvent.setup();
+    render(<Harness siteAuth={{ user: "admin", password: "zu" }} />);
+    await user.click(screen.getByRole("button", { name: /Ablauf vorführen/ }));
+    expect(sent(0)).toEqual({ steps: "öffne https://chat.example/login", secrets: {}, site_auth: { user: "admin", password: "zu" } });
   });
 
   it("meldet Fehler des Backends", async () => {
