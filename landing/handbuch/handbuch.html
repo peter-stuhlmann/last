@@ -1,0 +1,1285 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <title>LAST – Benutzerhandbuch</title>
+    <link rel="stylesheet" href="handbuch.css" />
+  </head>
+  <body>
+    <!-- ───────────── Titelseite ───────────── -->
+    <section class="cover">
+      <div class="brand"><img src="../icon.svg" alt="" />LAST</div>
+      <p class="eyebrow">Benutzerhandbuch · Version 1.2</p>
+      <h1>Wie viel hält<br />euer Server <em>aus?</em></h1>
+      <p class="sub">
+        So testest du KI-Server, Websites, APIs und ganze Abläufe mit LAST – Schritt für Schritt erklärt, für Entwickler und alle anderen.
+      </p>
+      <img class="art" src="../nutzerstrom.svg" alt="" />
+      <p class="meta">
+        <b>LAST</b> · Lasttests für KI-Server, APIs, Websites und Abläufe<br />macOS · Windows · Ubuntu · Docker<br />Stand: Oktober 2026
+      </p>
+    </section>
+
+    <!-- ───────────── Inhalt ───────────── -->
+    <section class="pg">
+      <div class="kap">
+        <span class="nr">··</span>
+        <h1>Inhalt</h1>
+      </div>
+      <p class="lead">
+        Du musst nicht programmieren können, um LAST zu benutzen. Wer es kann, findet am Ende jedes Themas einen Kasten mit den technischen
+        Details.
+      </p>
+      <ol class="toc">
+        <li><span class="n">01</span>Was ist LAST?<span class="d">Die Idee in drei Minuten</span><span class="s">–</span></li>
+        <li><span class="n">02</span>Installieren<span class="d">Windows, macOS, Ubuntu oder Docker</span><span class="s">–</span></li>
+        <li><span class="n">03</span>Dein erster Test<span class="d">In sieben Schritten zum Ergebnis</span><span class="s">–</span></li>
+        <li>
+          <span class="n">04</span>Die Einstellungen erklärt<span class="d">Was die Felder bedeuten und was du eintragen sollst</span
+          ><span class="s">–</span>
+        </li>
+        <li><span class="n">05</span>Während der Test läuft<span class="d">Die Live-Ansicht lesen</span><span class="s">–</span></li>
+        <li>
+          <span class="n">06</span>Das Ergebnis verstehen<span class="d">Urteil, Kennzahlen und Berichte</span><span class="s">–</span>
+        </li>
+        <li>
+          <span class="n">07</span>KI-Server, Website und API<span class="d">Besonderheiten je Art des Tests</span><span class="s">–</span>
+        </li>
+        <li>
+          <span class="n">08</span>Abläufe testen<span class="d">Anmelden, dann zum Beispiel einen Chat benutzen</span
+          ><span class="s">–</span>
+        </li>
+        <li>
+          <span class="n">09</span>Läufe verwalten und vergleichen<span class="d">Titel, Tags, Verlauf, Vorher-nachher</span
+          ><span class="s">–</span>
+        </li>
+        <li>
+          <span class="n">10</span>Für Entwickler<span class="d">Kommandozeile, Docker, Ordner und Optionen</span><span class="s">–</span>
+        </li>
+        <li>
+          <span class="n">11</span>Verantwortung und Grenzen<span class="d">Was LAST nicht kann – und was du beachten musst</span
+          ><span class="s">–</span>
+        </li>
+        <li>
+          <span class="n">12</span>Hilfe bei Problemen<span class="d">Häufige Fragen und kleines Wörterbuch</span><span class="s">–</span>
+        </li>
+      </ol>
+      <h2>So erkennst du die Hinweise</h2>
+      <div class="box">
+        <b>Tipp</b>
+        <p>Eine Abkürzung oder ein Rat aus der Praxis.</p>
+      </div>
+      <div class="box warn">
+        <b>Achtung</b>
+        <p>Hier kann etwas schiefgehen – bitte lesen, bevor du weitermachst.</p>
+      </div>
+      <div class="box dev">
+        <b>Für Entwickler</b>
+        <p>Technische Details, Befehle und Hintergründe. Zum Benutzen nicht nötig.</p>
+      </div>
+    </section>
+
+    <!-- ───────────── 01 Was ist LAST ───────────── -->
+    <section class="pg">
+      <div class="kap">
+        <span class="nr">01</span>
+        <h1>Was ist LAST?</h1>
+      </div>
+      <p class="lead">
+        LAST beantwortet eine einfache Frage:
+        <strong>Wie viele Personen halten euer System gleichzeitig aus – bevor es langsam wird oder ausfällt?</strong>
+      </p>
+      <p>
+        Stell dir vor, ihr führt einen KI-Chat im Unternehmen ein oder startet eine neue Website. Bei zehn Nutzern läuft alles. Aber was
+        passiert mit hundert? Das herauszufinden, wenn es ernst wird, ist zu spät. LAST probiert es vorher aus: mit simulierten Personen,
+        die genau das tun, was echte tun würden.
+      </p>
+
+      <div class="flow-line">
+        <span>1 Person</span><i>→</i><span>4</span><i>→</i><span>16</span><i>→</i><span>32</span><i>→</i><span>64 …</span><i>→</i
+        ><span>Urteil in einfachen Worten</span>
+      </div>
+      <p>
+        LAST schickt erst eine, dann immer mehr simulierte Personen los und misst bei jeder Stufe, <strong>wie schnell</strong> und
+        <strong>wie fehlerfrei</strong> geantwortet wird. Am Ende steht kein Zahlenfriedhof, sondern ein Satz wie
+        <em>„Reicht für etwa 12.400 Besucher gleichzeitig“</em> – dazu ein Bericht, den du weitergeben kannst.
+      </p>
+
+      <h2>Vier Arten von Tests</h2>
+      <div class="cols c2">
+        <div class="card">
+          <span class="tag">KI-Server</span>
+          <h3>Wie viele können gleichzeitig chatten?</h3>
+          <p>
+            Für Modellserver mit OpenAI-kompatibler Schnittstelle (vLLM, SGLang, llama.cpp, Ollama). Gemessen werden Wartezeit bis zum
+            ersten Wort, Lesetempo und die Zahl der Personen, für die es reicht.
+          </p>
+        </div>
+        <div class="card">
+          <span class="tag">Website</span>
+          <h3>Wie viele Besucher gleichzeitig?</h3>
+          <p>
+            Jeder simulierte Besucher lädt die Seite samt Bildern, Styles und Skripten – wie ein Browser beim ersten Besuch. Gemessen wird
+            die Ladezeit.
+          </p>
+        </div>
+        <div class="card">
+          <span class="tag">HTTP-API</span>
+          <h3>Wie viele Anfragen pro Minute?</h3>
+          <p>Für Schnittstellen, die Programme ansprechen (GET, POST …). Gemessen werden Antwortzeit und Fehlerquote.</p>
+        </div>
+        <div class="card">
+          <span class="tag">Ablauf</span>
+          <h3>Hält das ganze Zusammenspiel durch?</h3>
+          <p>
+            Für alles mit mehreren Schritten, etwa „anmelden, dann eine Frage stellen“. Du führst den Ablauf einmal vor, LAST spielt ihn
+            hundertfach ab.
+          </p>
+        </div>
+      </div>
+
+      <h2>Wie LAST misst</h2>
+      <ul>
+        <li>
+          <strong>Einschwingen:</strong> Bei jeder Stufe zählt nur der „eingeschwungene“ Zustand. Anlauf und Auslauf werden ignoriert.
+        </li>
+        <li>
+          <strong>Wie echte Menschen:</strong> Nach einem Fehler wartet jede simulierte Person kurz, bevor sie es erneut versucht. So wird
+          ein überlasteter Server nicht zusätzlich geflutet.
+        </li>
+        <li>
+          <strong>Messrechner prüfen:</strong> LAST kontrolliert, ob dein eigener Rechner hinterherkam. War er überlastet, steht eine
+          Warnung im Urteil – denn dann wären die Zahlen zu schlecht.
+        </li>
+      </ul>
+      <div class="box ok">
+        <b>Alles bleibt bei dir</b>
+        <p>
+          LAST läuft auf deinem Rechner. Adressen, Zugangsdaten und Ergebnisse werden nicht an Dritte geschickt. Die Ergebnisse liegen in
+          einem Ordner auf deiner Festplatte (<code>Dokumente/LAST</code> bzw. <code>results/</code>).
+        </p>
+      </div>
+    </section>
+
+    <!-- ───────────── 02 Installieren ───────────── -->
+    <section class="pg">
+      <div class="kap">
+        <span class="nr">02</span>
+        <h1>Installieren</h1>
+      </div>
+      <p class="lead">
+        Es gibt vier Wege. Für die meisten ist die <strong>Desktop-App</strong> der einfachste: installieren, öffnen, loslegen. Sie bringt
+        alles mit – auch den Browser für Abläufe.
+      </p>
+
+      <div class="cols c2">
+        <div class="card">
+          <span class="tag">Windows</span>
+          <h3>Installer (.exe)</h3>
+          <ol>
+            <li><code>LAST Setup ….exe</code> doppelklicken.</li>
+            <li>Wähle „nur für mich“ (ohne Admin-Rechte) oder „für alle Benutzer“ und den Ordner.</li>
+            <li>Fertig – LAST startet.</li>
+          </ol>
+          <p>
+            <strong>Warnt SmartScreen?</strong> Die App ist noch nicht signiert: „Weitere Informationen“ →
+            <strong>Trotzdem ausführen</strong>.
+          </p>
+          <p>Deinstallieren: Einstellungen → Apps → LAST.</p>
+        </div>
+        <div class="card">
+          <span class="tag">macOS</span>
+          <h3>Image (.dmg)</h3>
+          <ol>
+            <li>Die Datei <code>LAST-….dmg</code> öffnen.</li>
+            <li>LAST in „Programme“ ziehen.</li>
+            <li>Beim ersten Start <strong>Rechtsklick → Öffnen</strong>.</li>
+          </ol>
+          <p>Die App ist noch nicht von Apple signiert, deshalb die Rückfrage beim ersten Mal. Läuft auf Apple Silicon (M1 oder neuer).</p>
+        </div>
+        <div class="card">
+          <span class="tag">Ubuntu / Linux</span>
+          <h3>Paket (.deb) oder AppImage</h3>
+          <pre>sudo apt install ./last-desktop_….deb</pre>
+          <p>
+            Oder die <code>.AppImage</code> ausführbar machen (Rechtsklick → Eigenschaften, oder <code>chmod +x</code>) und starten. Ubuntu
+            22.04 oder neuer, 64-Bit.
+          </p>
+        </div>
+        <div class="card">
+          <span class="tag">Open Source</span>
+          <h3>Selbst starten mit Docker</h3>
+          <pre>
+git clone https://github.com/
+  peter-stuhlmann/last.git
+cd last
+docker compose up --build</pre
+          >
+          <p>
+            Dann im Browser <code>http://localhost:8090</code> öffnen. Beenden mit <code>Strg+C</code> oder
+            <code>docker compose down</code>.
+          </p>
+        </div>
+      </div>
+
+      <h2>Wo liegen meine Ergebnisse?</h2>
+      <table>
+        <tr>
+          <th>Variante</th>
+          <th>Ergebnisse</th>
+          <th>Protokolle bei Problemen</th>
+        </tr>
+        <tr>
+          <td>Desktop-App</td>
+          <td><code>Dokumente/LAST</code></td>
+          <td>
+            macOS <code>~/Library/Logs/LAST</code> · Windows <code>%APPDATA%\LAST\logs</code> · Ubuntu <code>~/.config/LAST/logs</code>
+          </td>
+        </tr>
+        <tr>
+          <td>Docker</td>
+          <td>Ordner <code>results/</code> neben dem Projekt</td>
+          <td><code>make logs</code> oder <code>docker compose logs</code></td>
+        </tr>
+      </table>
+
+      <div class="box dev">
+        <b>Für Entwickler</b>
+        <p>
+          Docker braucht Docker Desktop (Windows/macOS) bzw. Docker mit Compose-Plugin (Linux). Mit <code>make</code> geht es kürzer:
+          <code>make up</code>, <code>make down</code>, <code>make rebuild</code>, <code>make logs</code> (Windows:
+          <code>winget install ezwinports.make</code>).
+        </p>
+        <p>
+          Das Backend-Image gibt es als <code>browser</code> (Standard, ≈ 2 GB, mit Chromium für Abläufe) und <code>slim</code> (≈ 300 MB,
+          ohne Abläufe): <code>make up SLIM=1</code>. Die Desktop-App selbst bauen: <code>make desktop</code> (Python 3.12 und Node nötig).
+        </p>
+      </div>
+    </section>
+
+    <!-- ───────────── 03 Dein erster Test ───────────── -->
+    <section class="pg">
+      <div class="kap">
+        <span class="nr">03</span>
+        <h1>Dein erster Test</h1>
+      </div>
+      <p class="lead">
+        Der erste Test dauert etwa zwei Minuten Einrichtung und rund zehn Minuten Laufzeit. Wir testen als Beispiel eine Website.
+      </p>
+      <div class="cols" style="grid-template-columns: 86mm 1fr; align-items: start">
+        <figure>
+          <div class="shot">
+            <img src="shots/form-website.png" alt="Das Formular für einen neuen Test" />
+            <span class="m" style="left: 4%; top: 5.9%">1</span>
+            <span class="m" style="left: 4%; top: 21.5%">2</span>
+            <span class="m" style="left: 4%; top: 41.8%">3</span>
+            <span class="m" style="left: 4%; top: 58.8%">4</span>
+            <span class="m" style="left: 4%; top: 70.2%">5</span>
+            <span class="m" style="left: 4%; top: 79%">6</span>
+            <span class="m" style="left: 4%; top: 92%">7</span>
+          </div>
+          <figcaption>
+            Das Formular „Neuer Test“ (Beispiel: Website). „Ablauf“ ist hier grau, weil dieses Test-Backend ohne Browser läuft.
+          </figcaption>
+        </figure>
+        <ol class="steps">
+          <li>
+            <strong>Adresse eintragen.</strong> Sie beginnt mit <code>http://</code> oder <code>https://</code>. Bei einem KI-Server steht
+            hier die Adresse mit <code>/v1</code>, zum Beispiel <code>http://spark.buero.lan:8000/v1</code>.
+          </li>
+          <li><strong>Art wählen.</strong> KI-Server, HTTP-API, Website oder Ablauf. Die Felder darunter passen sich an.</li>
+          <li>
+            <strong>Wie gründlich?</strong> <em>Schnell</em> (rund 10–15 Minuten) gibt einen ersten Eindruck. <em>Gründlich</em> (rund 35–50
+            Minuten) ist für Entscheidungen.
+          </li>
+          <li>
+            <strong>Was ist euch wichtig?</strong> Wie viele Personen erwartet ihr, und wie lange dürfen sie höchstens warten? Mehr dazu im
+            nächsten Kapitel.
+          </li>
+          <li><strong>Weitere Einstellungen</strong> sind optional. Die Voreinstellungen passen fast immer.</li>
+          <li><strong>Bestätigen.</strong> Hake an, dass es euer eigenes System ist oder du die Erlaubnis hast.</li>
+          <li><strong>Test starten</strong> – oder einfach <span class="kbd">Enter</span> in der Adressleiste drücken.</li>
+        </ol>
+      </div>
+      <div class="box">
+        <b>Tipp</b>
+        <p>
+          Du kannst die Seite nach dem Start schließen. Der Test läuft im Hintergrund weiter; unter „Läufe“ findest du ihn wieder. Es läuft
+          immer nur <strong>ein</strong> Test gleichzeitig.
+        </p>
+      </div>
+      <div class="box warn">
+        <b>Achtung: nur eigene Systeme testen</b>
+        <p>
+          Ein Lasttest sieht für fremde Betreiber aus wie ein Angriff und kann strafbar sein. Deshalb verlangt LAST die Bestätigung. Läuft
+          deine Website bei einem Hoster oder hinter einem CDN, gib dort vorher Bescheid – sonst sperrt dessen Schutz den Test (oder euch)
+          aus.
+        </p>
+      </div>
+    </section>
+
+    <!-- ───────────── 04 Einstellungen ───────────── -->
+    <section class="pg">
+      <div class="kap">
+        <span class="nr">04</span>
+        <h1>Die Einstellungen erklärt</h1>
+      </div>
+      <p class="lead">
+        Unter „Was ist euch wichtig?“ sagst du LAST, was für euch <em>gut genug</em> bedeutet. Daran misst es am Ende, ob das Ergebnis grün,
+        gelb oder rot wird.
+      </p>
+
+      <h2>Die drei Zielfelder je Art</h2>
+      <table class="rs">
+        <tr>
+          <th>Art</th>
+          <th>Feld</th>
+          <th>Bedeutung</th>
+          <th>Vorgabe</th>
+        </tr>
+        <tr>
+          <td rowspan="3"><strong>KI-Server</strong></td>
+          <td><strong>Nutzer im Team</strong></td>
+          <td>Wie viele Personen sollen den Server gleichzeitig nutzen? Daraus folgt die Ampel.</td>
+          <td>–</td>
+        </tr>
+        <tr>
+          <td><strong>Warten höchstens</strong></td>
+          <td>Wie lange darf es bis zum <em>ersten Wort</em> der Antwort dauern?</td>
+          <td>2 s</td>
+        </tr>
+        <tr>
+          <td><strong>Lesetempo mindestens</strong></td>
+          <td>Wie schnell soll der Text erscheinen? Ab etwa 10 Tokens pro Sekunde liest es sich flüssig mit.</td>
+          <td>10 tok/s</td>
+        </tr>
+        <tr>
+          <td rowspan="3"><strong>Website</strong></td>
+          <td><strong>Besucher gleichzeitig</strong></td>
+          <td>Wie viele erwartet ihr gleichzeitig auf der Seite?</td>
+          <td>–</td>
+        </tr>
+        <tr>
+          <td><strong>Seite geladen nach höchstens</strong></td>
+          <td>Bis die Seite samt Dateien komplett da ist.</td>
+          <td>3 s</td>
+        </tr>
+        <tr>
+          <td><strong>Pause zwischen zwei Klicks</strong></td>
+          <td>Wie lange liest ein Besucher, bevor er weiterklickt? Daraus wird die Besucherzahl geschätzt.</td>
+          <td>30 s</td>
+        </tr>
+        <tr>
+          <td rowspan="3"><strong>HTTP-API</strong></td>
+          <td><strong>Anfragen pro Minute</strong></td>
+          <td>Wie viel Verkehr erwartet ihr?</td>
+          <td>–</td>
+        </tr>
+        <tr>
+          <td><strong>Antwort nach höchstens</strong></td>
+          <td>Bis die Antwort vollständig da ist.</td>
+          <td>0,5 s</td>
+        </tr>
+        <tr>
+          <td><strong>Erwarteter Status</strong></td>
+          <td>Welcher Antwortcode gilt als richtig? Zum Beispiel <code>2xx</code> (alles, was mit 2 beginnt).</td>
+          <td>2xx</td>
+        </tr>
+        <tr>
+          <td rowspan="2"><strong>Ablauf</strong></td>
+          <td><strong>Antwortzeit</strong></td>
+          <td>Wie lange darf der ganze Ablauf dauern?</td>
+          <td>10 s</td>
+        </tr>
+        <tr>
+          <td><strong>Pause zwischen Durchläufen</strong></td>
+          <td>Wie lange „denkt“ ein Nutzer zwischen zwei Durchläufen?</td>
+          <td>60 s</td>
+        </tr>
+      </table>
+
+      <h2>Weitere Einstellungen (aufklappen)</h2>
+      <table>
+        <tr>
+          <th>Art</th>
+          <th>Was du dort findest</th>
+        </tr>
+        <tr>
+          <td>KI-Server</td>
+          <td>
+            <strong>Modell</strong> (leer lassen = das erste des Servers), <strong>API-Schlüssel</strong> (nur wenn der Server einen
+            verlangt) und <strong>Kosten</strong> für den Vergleich mit der Cloud: Kaufpreis, Stromverbrauch, Strompreis, Cloud-Preise.
+          </td>
+        </tr>
+        <tr>
+          <td>Website</td>
+          <td>
+            Haken <strong>„Auch Bilder, Styles und Skripte laden“</strong>. Ohne Haken wird nur das HTML geholt – das misst vor allem den
+            Server selbst.
+          </td>
+        </tr>
+        <tr>
+          <td>HTTP-API</td>
+          <td>
+            <strong>Methode</strong> (GET, POST, PUT, PATCH, DELETE), <strong>Kopfzeilen</strong> (<code>Name: Wert</code>, eine je Zeile,
+            z. B. für die Anmeldung) und <strong>Body</strong>.
+          </td>
+        </tr>
+      </table>
+    </section>
+
+    <section class="pg">
+      <p class="cont">04 · Die Einstellungen erklärt · Fortsetzung</p>
+      <h2>Weitere Einstellungen im Bild</h2>
+      <p>
+        Je nach Art öffnet sich unter „Weitere Einstellungen“ etwas anderes. Die Voreinstellungen passen fast immer – ändere nur, was du
+        wirklich brauchst.
+      </p>
+      <div class="cols" style="grid-template-columns: 1fr 1fr; align-items: start; margin-top: 3mm">
+        <figure>
+          <div class="shot crop" style="aspect-ratio: 632/700">
+            <img src="shots/form-ki.png" alt="KI-Server: Weitere Einstellungen" style="margin-top: -69.6%" />
+          </div>
+          <figcaption>KI-Server: Zielfelder und „Weitere Einstellungen“ mit Modell, API-Schlüssel und Kosten.</figcaption>
+        </figure>
+        <figure>
+          <div class="shot crop" style="aspect-ratio: 632/568">
+            <img src="shots/form-api.png" alt="HTTP-API: Weitere Einstellungen" style="margin-top: -69.6%" />
+          </div>
+          <figcaption>
+            HTTP-API: Die Methode steht im Adressfeld (GET, POST …); unter „Weitere Einstellungen“ folgen Kopfzeilen und Body.
+          </figcaption>
+        </figure>
+      </div>
+      <div class="box warn">
+        <b>Achtung bei POST, PUT, PATCH und DELETE</b>
+        <p>
+          Jede simulierte Anfrage wird wirklich ausgeführt – hunderte Male pro Minute. Das verändert Daten. Richte solche Tests nur gegen
+          eine <strong>Testumgebung</strong>.
+        </p>
+      </div>
+      <div class="box warn">
+        <b>Kosten-Werte sind Platzhalter</b>
+        <p>
+          Kaufpreis, Stromverbrauch und Preise sind Beispielwerte. Trage vor dem Test die echten ein, sonst stimmt der Kostenvergleich
+          nicht.
+        </p>
+      </div>
+    </section>
+
+    <!-- ───────────── 05 Während der Test läuft ───────────── -->
+    <section class="pg">
+      <div class="kap">
+        <span class="nr">05</span>
+        <h1>Während der Test läuft</h1>
+      </div>
+      <p class="lead">Die Live-Ansicht zeigt dir in Echtzeit, wo der Test steht und wie sich dein System schlägt.</p>
+      <figure style="width: 86%; margin: 0 auto">
+        <div class="shot">
+          <img src="shots/live.png" alt="Die Live-Ansicht eines laufenden Tests" />
+          <span class="m" style="left: 2.6%; top: 13.5%">1</span>
+          <span class="m" style="left: 29.5%; top: 24.5%">2</span>
+          <span class="m" style="left: 49.6%; top: 28.5%">3</span>
+          <span class="m" style="left: 25.7%; top: 62.7%">4</span>
+          <span class="m" style="left: 75.6%; top: 10.5%">5</span>
+          <span class="m" style="left: 75.6%; top: 43%">6</span>
+          <span class="m" style="left: 87.8%; top: 3.4%">7</span>
+        </div>
+        <figcaption>Die Live-Ansicht (hier: Website-Test kurz vor Schluss, Schritt 6 von 7).</figcaption>
+      </figure>
+      <div class="cols c2" style="margin-top: 4mm">
+        <ol class="legend">
+          <li><strong>Ablauf.</strong> Alle Schritte mit Haken, aktuellem Schritt, Fortschritt in Prozent und geschätzter Restzeit.</li>
+          <li>
+            <strong>Der Ring.</strong> Zeigt, wie viele simulierte Personen gerade gleichzeitig aktiv sind – und darüber in einem Satz, wie
+            es aussieht.
+          </li>
+          <li><strong>Kennzahlen.</strong> Antwort- oder Ladezeit mit Ziel-Haken, erste Antwort, Durchsatz und Fehlerquote.</li>
+          <li><strong>Diagramm.</strong> Jeder Punkt ist eine Stufe: Wie viel schafft das System, wenn mehr Personen kommen?</li>
+          <li><strong>Prognose.</strong> Die geschätzte Zahl der Personen, für die es reicht. Wird genauer, je länger der Test läuft.</li>
+          <li><strong>Protokoll.</strong> Das Logbuch mit allen Messungen – für Entwickler.</li>
+          <li><strong>Abbrechen.</strong> Beendet den Test sofort. Bisherige Ergebnisse bleiben erhalten.</li>
+        </ol>
+        <div>
+          <h3>Die Stufen eines Tests</h3>
+          <table>
+            <tr>
+              <td>Vorab-Check</td>
+              <td>Ist das Ziel erreichbar? Ist der Server frei?</td>
+            </tr>
+            <tr>
+              <td>Einer allein</td>
+              <td>Der Bestwert ohne Andrang.</td>
+            </tr>
+            <tr>
+              <td>Immer mehr</td>
+              <td>1, 4, 16, 32, 64 … gleichzeitig.</td>
+            </tr>
+            <tr>
+              <td>Echter Andrang</td>
+              <td>Anfragen kommen zufällig, wie im Alltag.</td>
+            </tr>
+            <tr>
+              <td>Großer Ansturm</td>
+              <td>Viele auf einmal, dann Erholung.</td>
+            </tr>
+            <tr>
+              <td>Ausdauer</td>
+              <td>Gleichmäßige Last über Minuten.</td>
+            </tr>
+            <tr>
+              <td>Kontrolle</td>
+              <td>Noch so schnell wie am Anfang?</td>
+            </tr>
+          </table>
+          <p style="font-size: 8.4pt; color: var(--muted)">Nur beim KI-Server gibt es zusätzlich „Lange Texte“ und Kontrollfragen.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ───────────── 06 Ergebnis ───────────── -->
+    <section class="pg">
+      <div class="kap">
+        <span class="nr">06</span>
+        <h1>Das Ergebnis verstehen</h1>
+      </div>
+      <p class="lead">Am Ende bekommst du ein Urteil in einem Satz, die wichtigsten Zahlen und Berichte zum Weitergeben.</p>
+      <figure>
+        <div class="shot crop" style="aspect-ratio: 1440/738">
+          <img src="shots/result.png" alt="Die Ergebnisseite" />
+          <span class="m" style="left: 21%; top: 27%">1</span>
+          <span class="m" style="left: 65.6%; top: 27.6%">2</span>
+          <span class="m" style="left: 21.4%; top: 54%">3</span>
+          <span class="m" style="left: 1.6%; top: 73.4%">4</span>
+        </div>
+        <figcaption>Die Ergebnisseite eines abgeschlossenen Laufs (Beispiel: eine kleine Testseite auf dem eigenen Rechner).</figcaption>
+      </figure>
+      <div class="cols c2" style="margin-top: 4mm">
+        <ol class="legend">
+          <li>
+            <strong>Das Urteil</strong> als Ampel: „Grünes“, „Gelbes“ oder „Rotes Licht“, dazu ein Satz und die Gründe in Stichpunkten.
+          </li>
+          <li><strong>Wie viele passen drauf?</strong> Die geschätzte Kapazität im Vergleich zu eurem Bedarf.</li>
+          <li>
+            <strong>Berichte und Aktionen:</strong> PowerPoint herunterladen, PDF (eine Seite), Rohdaten und <em>Vergleichen</em> mit
+            anderen Läufen.
+          </li>
+          <li><strong>Vier Kennzahlen</strong> – siehe rechts.</li>
+        </ol>
+        <div>
+          <table>
+            <tr>
+              <td><span class="amp g"></span>Grün</td>
+              <td>Ziel erreicht.</td>
+            </tr>
+            <tr>
+              <td><span class="amp y"></span>Gelb</td>
+              <td>Geht, aber spürbar.</td>
+            </tr>
+            <tr>
+              <td><span class="amp r"></span>Rot</td>
+              <td>Problem.</td>
+            </tr>
+          </table>
+          <h3>Die vier Kennzahlen</h3>
+          <table>
+            <tr>
+              <td>Einer allein</td>
+              <td>Bestwert, wenn sonst niemand da ist.</td>
+            </tr>
+            <tr>
+              <td>Sweet Spot</td>
+              <td>So viele gleichzeitig, dass alle Ziele noch erreicht werden.</td>
+            </tr>
+            <tr>
+              <td>Höchstleistung</td>
+              <td>Das meiste, was das System pro Sekunde schafft.</td>
+            </tr>
+            <tr>
+              <td>Erste Antwort</td>
+              <td>Wie schnell der Server zu reagieren beginnt.</td>
+            </tr>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="pg">
+      <p class="cont">06 · Das Ergebnis verstehen · Fortsetzung</p>
+      <h2>Alle Ergebnisse auf einen Blick</h2>
+      <div class="cols" style="grid-template-columns: 1fr 74mm; gap: 5mm; align-items: start">
+        <figure>
+          <div class="shot"><img src="shots/result-liste.png" alt="Die Ampel-Liste" /></div>
+        </figure>
+        <p style="font-size: 8.6pt">
+          Jede Messung bekommt einen Ampel-Punkt und einen kurzen Satz. So siehst du auf einen Blick, <em>wo</em> es hakt: Hier lief alles
+          gut, nur „Echter Andrang“ und „Ausdauer“ sind rot – bei Dauerlast gab es Fehler.
+        </p>
+      </div>
+      <h2>Die Berichte</h2>
+      <div class="cols c2">
+        <div class="card">
+          <span class="tag">PowerPoint</span>
+          <h3>Der ausführliche Bericht</h3>
+          <p>
+            Empfehlung, Vorgehen, alle Stufen mit Diagrammen, Annahmen und Grenzen. Bei Websites zusätzlich die größten Dateien und mögliche
+            Ansatzpunkte, beim KI-Server der Kostenvergleich und die Antwortqualität. Endet mit einer Zusammenfassung auf einer Folie.
+          </p>
+        </div>
+        <div class="card">
+          <span class="tag">PDF</span>
+          <h3>Der Kurzbericht</h3>
+          <p>
+            Eine A4-Seite für Entscheider: Urteil in einem Satz, die vier wichtigsten Zahlen, Begründung, zwei Diagramme und alle Ergebnisse
+            als Ampel-Liste.
+          </p>
+        </div>
+      </div>
+      <h2>Darauf solltest du achten</h2>
+      <ul>
+        <li>
+          <strong>Verlässlichkeit der Messung:</strong> Steht dort eine Warnung, war dein Messrechner überlastet. Dann sind die Zeiten zu
+          schlecht. Starte den Test von einem stärkeren Rechner oder mit weniger Last erneut.
+        </li>
+        <li>
+          <strong>„Reicht für etwa …“:</strong> Das ist eine <em>Schätzung</em> aus Durchsatz, Antwortzeit und der angenommenen Pause
+          zwischen zwei Aktionen. Ändere die Pause, ändert sich die Zahl.
+        </li>
+        <li>
+          <strong>Was nicht gemessen wird:</strong> Dateien von fremden Servern (Schriften, Karten, Werbung) und die Zeit, die der Browser
+          zum Darstellen braucht.
+        </li>
+      </ul>
+      <div class="box dev">
+        <b>Für Entwickler</b>
+        <p>
+          Alle Rohdaten liegen im Ergebnisordner <code>results/results_JJJJMMTT_HHMMSS/</code>: <code>summary.json</code> (alle Messwerte,
+          Konfiguration, Version, Seed), die Berichte, bei Abläufen <code>schritt_NN.png</code> und im Fehlerfall
+          <code>schritt_fehler.png</code>.
+        </p>
+      </div>
+    </section>
+
+    <!-- ───────────── 07 KI-Server, Website, API ───────────── -->
+    <section class="pg">
+      <div class="kap">
+        <span class="nr">07</span>
+        <h1>KI-Server, Website und API</h1>
+      </div>
+      <p class="lead">Die Bedienung ist überall gleich. Hier stehen die Besonderheiten jeder Art.</p>
+
+      <h2>KI-Server</h2>
+      <p>
+        Für jeden Server mit OpenAI-kompatibler Schnittstelle. Trage die Adresse <strong>mit</strong> <code>/v1</code> ein und klicke auf
+        <strong>Prüfen</strong>: LAST testet die Verbindung und zeigt das gefundene Modell.
+      </p>
+      <table>
+        <tr>
+          <th>Messwert</th>
+          <th>Bedeutung</th>
+        </tr>
+        <tr>
+          <td>Bis zum ersten Wort</td>
+          <td>Wartezeit, bis die Antwort zu erscheinen beginnt – bei Chats die wichtigste Zahl.</td>
+        </tr>
+        <tr>
+          <td>Lesetempo</td>
+          <td>Wie schnell der Text danach erscheint (Tokens pro Sekunde). Ein Token ist ein Wortstück – im Deutschen oft eine Silbe.</td>
+        </tr>
+        <tr>
+          <td>Nutzer gleichzeitig</td>
+          <td>Für wie viele Personen es reicht, bei einer angenommenen Pause von 60 s zwischen zwei Fragen.</td>
+        </tr>
+        <tr>
+          <td>Antwortqualität</td>
+          <td>
+            Nebenher laufen Kontrollfragen mit bekannter Antwort (Rechnen, Sortieren, JSON). Verglichen wird „richtig ohne Last“ gegen
+            „richtig unter Last“.
+          </td>
+        </tr>
+      </table>
+      <div class="box">
+        <b>Läuft der Server auf demselben Rechner?</b>
+        <p>
+          Dann heißt er für Docker nicht <code>localhost</code>, sondern
+          <code>host.docker.internal</code> (<code>http://host.docker.internal:8000/v1</code>). Unter Linux muss der Server auf
+          <code>0.0.0.0</code> lauschen. Bei der Desktop-App gilt einfach <code>localhost</code>.
+        </p>
+      </div>
+
+      <h2>Website</h2>
+      <p>
+        Jeder simulierte Besucher lädt die Seite und – wie ein Browser beim ersten Besuch, ohne Cache – die Bilder, Styles und Skripte
+        <em>derselben</em> Website. Getestet wird genau <strong>eine Adresse</strong>, kein Klickpfad; dafür gibt es den „Ablauf“.
+      </p>
+      <table>
+        <tr>
+          <td>Ladezeit</td>
+          <td>Bis die Seite samt Dateien vollständig da ist (Ziel: 3 s).</td>
+        </tr>
+        <tr>
+          <td>Erste Antwort</td>
+          <td>Bis der Server die ersten Daten schickt.</td>
+        </tr>
+        <tr>
+          <td>Seiten pro Sekunde</td>
+          <td>Wie viele Aufrufe der Server insgesamt schafft.</td>
+        </tr>
+        <tr>
+          <td>Besucher gleichzeitig</td>
+          <td>Seiten pro Sekunde × (Ladezeit + Pause zwischen zwei Klicks).</td>
+        </tr>
+      </table>
+
+      <h2>HTTP-API</h2>
+      <p>
+        Jede simulierte Anfrage ist genau die, die du einträgst, und gilt als richtig, wenn der Status zur Erwartung passt
+        (<code>2xx</code>). Verbindungen bleiben offen (Keep-Alive), Weiterleitungen werden nicht verfolgt. Gemessen werden Antwortzeit
+        (Ziel 0,5 s), erste Antwort und die <strong>Anfragen pro Minute</strong>, bei denen Antwortzeit und Fehlerquote im Ziel bleiben.
+      </p>
+      <div class="box">
+        <b>Zugangsdaten bleiben geheim</b>
+        <p>
+          Werte von Kopfzeilen und Body werden <strong>nirgends gespeichert</strong> – nicht im Ergebnis, nicht im Bericht. Dort stehen nur
+          die Namen der Kopfzeilen und die Größe des Bodys.
+        </p>
+      </div>
+    </section>
+
+    <!-- ───────────── 08 Abläufe ───────────── -->
+    <section class="pg">
+      <div class="kap">
+        <span class="nr">08</span>
+        <h1>Abläufe testen</h1>
+      </div>
+      <p class="lead">
+        Für alles, was aus mehreren Schritten besteht oder eine Anmeldung braucht: <em>anmelden, dann eine Frage im KI-Chat stellen</em>. Du
+        führst den Ablauf einmal vor – LAST macht daraus einen Test mit hunderten Nutzern.
+      </p>
+
+      <h2>So geht’s: vorführen statt programmieren</h2>
+      <ol class="steps">
+        <li>Wähle die Art <strong>Ablauf</strong> und trage die Startseite ein, meist die Anmeldeseite.</li>
+        <li>
+          Klicke auf <strong>Ablauf vorführen</strong>. Die Seite öffnet sich in einem Fenster. Klicke dich durch,
+          <em>so wie ein Mensch es tun würde</em>: Felder anklicken, Text eintippen, Knöpfe drücken. Jeder Klick wird sofort ausgeführt, und
+          die Schritte entstehen von selbst.
+        </li>
+        <li>
+          Passwörter markierst du mit dem Schloss <strong>„Zugangsdaten“</strong>. Im Ablauf steht dann nur ein Platzhalter wie
+          <code>{passwort}</code>.
+        </li>
+        <li>
+          Klicke an der Stelle, ab der gemessen werden soll, auf <strong>„Ab hier messen“</strong>. Alles davor (etwa das Anmelden) wird
+          nicht mitgezählt.
+        </li>
+        <li>Klicke auf <strong>Fertig</strong>, wähle Gründlichkeit und Ziele und starte den Test wie gewohnt.</li>
+      </ol>
+      <div class="box">
+        <b>Tipp</b>
+        <p>
+          Seite nach unten blättern geht mit dem Mausrad über der Seite. Mit der Tastatur springt <span class="kbd">Tab</span> von Element
+          zu Element, <span class="kbd">Enter</span> wählt aus. Geht ein Schritt schief, klicke auf „Ab Schritt n neu vorführen“.
+        </p>
+      </div>
+
+      <div class="flow-line">
+        <span>Einmal vorführen<br /><small>im echten Browser</small></span
+        ><i>→</i><span>LAST schneidet die Anfragen mit</span><i>→</i><span>Abspielen<br /><small>ohne Browser, hundertfach</small></span
+        ><i>→</i><span>Urteil</span>
+      </div>
+      <h2>Mehrere Konten und Seitenschutz</h2>
+      <p>
+        Mit nur einem Konto teilen sich alle simulierten Nutzer <em>dessen Sitzung</em>. Für echte Mehrnutzerlast hake unter den
+        Platzhaltern <strong>„Mehrere Konten“</strong> an und trage eine kleine Tabelle ein: erste Zeile die Platzhalter-Namen, dann je
+        Zeile ein Konto. Fragt die Seite schon vorab nach Benutzer und Passwort (<code>.htaccess</code>), öffne
+        <strong>„Seitenschutz“</strong> und trage beides ein.
+      </p>
+      <h2>Die Schritte als Text</h2>
+      <p>Oben rechts kannst du zwischen <strong>Grafisch</strong> und <strong>Als Text</strong> umschalten. Ein Schritt je Zeile:</p>
+      <pre><span class="k">tippe in</span> "E-Mail" {email}
+<span class="k">tippe in</span> "Passwort" {passwort}
+<span class="k">klicke</span> "Anmelden"
+<span class="k">warte auf Text</span> "Willkommen"
+<span class="p">messen ab hier</span>
+<span class="k">tippe in</span> "Nachricht" "Was ist ein Lasttest?"
+<span class="k">drücke</span> Enter
+<span class="k">warte auf erste Antwort in</span> ".antwort"
+<span class="k">warte bis</span> ".antwort" <span class="k">fertig ist</span> (2 s ruhig)</pre>
+    </section>
+
+    <section class="pg">
+      <p class="cont">08 · Abläufe testen · Fortsetzung</p>
+      <h2>Die Schritte im Überblick</h2>
+      <table>
+        <tr>
+          <th>Schritt</th>
+          <th>Bedeutung</th>
+        </tr>
+        <tr>
+          <td><code>tippe in "Feld" Text</code></td>
+          <td>Feld = Beschriftung, Platzhaltertext oder CSS-Selektor. <code>{name}</code> wird im Formular zum Passwortfeld.</td>
+        </tr>
+        <tr>
+          <td><code>klicke "Knopf"</code></td>
+          <td>Knopf, Link oder Selektor.</td>
+        </tr>
+        <tr>
+          <td><code>drücke Enter</code></td>
+          <td>Oder Tab, Escape …</td>
+        </tr>
+        <tr>
+          <td><code>warte auf Text "…"</code></td>
+          <td>Bis der Text da ist. <code>warte 2 s</code> wartet einfach.</td>
+        </tr>
+        <tr>
+          <td><code>messen ab hier</code></td>
+          <td>Ab hier wird mitgeschnitten – genau einmal, danach mindestens ein Schritt.</td>
+        </tr>
+        <tr>
+          <td><code>warte auf erste Antwort in "…"</code></td>
+          <td>Misst, wann das erste Wort erscheint (bei KI-Chats die wichtigste Zahl).</td>
+        </tr>
+        <tr>
+          <td><code>warte bis "…" fertig ist (2 s ruhig)</code></td>
+          <td>Fertig, wenn sich der Text so lange nicht mehr ändert.</td>
+        </tr>
+      </table>
+      <h2>Typische Stolpersteine</h2>
+      <ul>
+        <li>
+          <strong>Beschriftung nicht gefunden:</strong> Schreibe sie genau so, wie sie auf der Seite steht („E-Mail“, nicht „Email“). Beim
+          Vorführen übernimmt LAST das automatisch.
+        </li>
+        <li>
+          <strong>Zu früh geklickt:</strong> Setze ein <code>warte auf Text "…"</code> vor Schritte, die erst nach dem Laden funktionieren.
+        </li>
+        <li><strong>Passwörter:</strong> immer als Platzhalter wie <code>{passwort}</code> – nie direkt in den Schritt schreiben.</li>
+        <li>
+          <strong>Nichts gemessen:</strong> Ohne <code>messen ab hier</code> (und mindestens einen Schritt danach) startet der Test nicht.
+        </li>
+      </ul>
+      <div class="box dev">
+        <b>Für Entwickler</b>
+        <p>
+          Der Ablauf wird <strong>einmal in einem echten, unsichtbaren Chromium</strong> ausgeführt. Ab „messen ab hier“ werden die Anfragen
+          der Seite mitgeschnitten und unter Last <strong>ohne Browser</strong> abgespielt – deshalb sind hunderte Nutzer möglich.
+          Veränderliche Werte (z. B. eine Chat-ID aus einer früheren Antwort) erkennt LAST selbst und holt sie bei jeder Wiederholung
+          frisch. Grenzen: Dauerverbindungen (WebSocket) im Messbereich lassen sich nicht abspielen; die Darstellung im Browser wird nicht
+          gemessen. Passwörter und Sitzungs-Cookies werden nirgends gespeichert.
+        </p>
+      </div>
+    </section>
+
+    <!-- ───────────── 09 Läufe verwalten ───────────── -->
+    <section class="pg">
+      <div class="kap">
+        <span class="nr">09</span>
+        <h1>Läufe verwalten und vergleichen</h1>
+      </div>
+      <p class="lead">Jeder Test heißt „Lauf“ und bleibt gespeichert. Unter <strong>Läufe</strong> (oben links) findest du alle wieder.</p>
+      <div class="cols" style="grid-template-columns: 92mm 1fr; align-items: start">
+        <figure>
+          <div class="shot">
+            <img src="shots/runs.png" alt="Die Liste der Läufe" />
+            <span class="m" style="left: 2.4%; top: 13%">1</span>
+            <span class="m" style="left: 47%; top: 64.8%">2</span>
+            <span class="m" style="left: 2.8%; top: 73.2%">3</span>
+            <span class="m" style="left: 2%; top: 82%">4</span>
+            <span class="m" style="left: 30%; top: 86.2%">5</span>
+          </div>
+          <figcaption>Die Liste der Läufe mit zwei angekreuzten Läufen.</figcaption>
+        </figure>
+        <div>
+          <ol class="legend">
+            <li>
+              <strong>Verlauf.</strong> Sobald mehrere Läufe gleicher Art und Adresse vorliegen, zeigt LAST, wie sich
+              <strong>Kapazität</strong> und <strong>Zeit ohne Andrang</strong> entwickeln – mit einem Satz dazu. So siehst du, ob die
+              Optimierung von letzter Woche etwas gebracht hat.
+            </li>
+            <li><strong>Suchen.</strong> Durchsucht Titel, Tags (<code>#tag</code>), Adresse, Modell und Datum.</li>
+            <li>
+              <strong>Vergleichen.</strong> Erzeugt einen Vorher-nachher-Bericht (PowerPoint) aus den angekreuzten Läufen. Der älteste ist
+              die Referenz.
+            </li>
+            <li>
+              <strong>Ankreuzen.</strong> Zwei oder mehr Läufe <em>gleicher Art</em>. KI-Server- und Website-Läufe lassen sich nicht
+              mischen.
+            </li>
+            <li>
+              <strong>Berichte und Papierkorb.</strong> PowerPoint und PDF laden den Bericht; der rote Knopf verschiebt den Lauf in den
+              Papierkorb.
+            </li>
+          </ol>
+        </div>
+      </div>
+      <h2>Titel, Notiz, Tags und Anpinnen</h2>
+      <p>
+        Auf der Ergebnisseite kannst du jedem Lauf einen <strong>Titel</strong> („Vor dem Redis-Cache“), eine <strong>Notiz</strong> („Was
+        war anders? Was wurde geändert?“) und <strong>Tags</strong> geben. <strong>Anpinnen</strong> hält wichtige Läufe oben. Die Messung
+        selbst bleibt dabei unverändert. Gelöschte Läufe liegen 7 Tage im Papierkorb (<code>results/.papierkorb/</code>) und lassen sich
+        zurückholen.
+      </p>
+      <div class="cols c2">
+        <div class="box ok">
+          <b>Ein guter Arbeitsablauf</b>
+          <ol style="margin-bottom: 0">
+            <li>Test <strong>vor</strong> einer Änderung (Titel: „vorher“).</li>
+            <li>Eine Sache ändern, etwa einen Cache einschalten.</li>
+            <li>Test <strong>nach</strong> der Änderung (Titel: „nachher“).</li>
+            <li>Beide ankreuzen und vergleichen.</li>
+          </ol>
+        </div>
+        <div class="box dev">
+          <b>Für Entwickler</b>
+          <p>
+            Titel, Tags, Notiz und Pin stehen in <code>notes.json</code> neben der <code>summary.json</code>. Vergleich per Kommandozeile:
+          </p>
+          <pre style="font-size: 7.6pt">python llm_stresstest.py --compare results/A results/B --labels "vorher,nachher"</pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- ───────────── 10 Entwickler ───────────── -->
+    <section class="pg">
+      <div class="kap">
+        <span class="nr">10</span>
+        <h1>Für Entwickler</h1>
+      </div>
+      <p class="lead">
+        LAST besteht aus zwei Teilen: einer Weboberfläche (Next.js) und der Testlogik (Python). Beides lässt sich auch ohne Oberfläche
+        benutzen.
+      </p>
+
+      <h2>Aufbau</h2>
+      <table>
+        <tr>
+          <th>Teil</th>
+          <th>Aufgabe</th>
+        </tr>
+        <tr>
+          <td><code>web/</code></td>
+          <td>Die Weboberfläche „LAST“ (Next.js, Tailwind). Container <code>web</code>, Port 8090 nur auf <code>127.0.0.1</code>.</td>
+        </tr>
+        <tr>
+          <td><code>stresstest_web.py</code></td>
+          <td>Python-Backend: startet Tests, liefert Ergebnisse und Berichte. Container <code>backend</code>, ohne offenen Port.</td>
+        </tr>
+        <tr>
+          <td><code>llm_stresstest.py</code></td>
+          <td>Testlogik für KI-Server und Prüfung der Messqualität – auch allein nutzbar.</td>
+        </tr>
+        <tr>
+          <td><code>web_stresstest.py</code></td>
+          <td>Lasttest für Websites und HTTP-APIs.</td>
+        </tr>
+        <tr>
+          <td><code>flow_*.py</code></td>
+          <td>Abläufe: Schritt-Sprache, Aufzeichnung (Playwright), Abspielen per HTTP.</td>
+        </tr>
+        <tr>
+          <td><code>report_*.py</code> · <code>desktop/</code></td>
+          <td>PowerPoint, PDF und Vergleichsbericht · die Electron-App für macOS, Windows und Ubuntu.</td>
+        </tr>
+      </table>
+
+      <h2>Ohne Oberfläche (Kommandozeile)</h2>
+      <pre><span class="c"># KI-Server schnell testen</span>
+python llm_stresstest.py --base-url http://spark.buero.lan:8000/v1 --quick
+<span class="c"># Alle Optionen</span>
+python llm_stresstest.py --help
+<span class="c"># Im Docker-Container</span>
+docker compose run --rm backend python llm_stresstest.py --base-url http://spark.buero.lan:8000/v1 --quick</pre>
+      <p>
+        <strong>Ohne Docker</strong> (Python 3.9 oder neuer): <code>python -m pip install aiohttp python-pptx reportlab</code>, dann
+        <code>python stresstest_web.py</code> und <code>http://localhost:8090</code> öffnen. Mit <code>--host 0.0.0.0</code> ist die Seite
+        im Netzwerk erreichbar – <strong>ohne Passwortschutz</strong>.
+      </p>
+
+      <h2>Docker und make – Kurzreferenz</h2>
+      <table>
+        <tr>
+          <th>Befehl</th>
+          <th>Wirkung</th>
+        </tr>
+        <tr>
+          <td><code>make up</code> / <code>make down</code></td>
+          <td>Starten (baut beim ersten Mal) bzw. beenden. Oberfläche unter <code>http://localhost:8090</code>.</td>
+        </tr>
+        <tr>
+          <td><code>make rebuild</code></td>
+          <td>Nach Änderungen am Code neu bauen und starten.</td>
+        </tr>
+        <tr>
+          <td><code>make logs</code> · <code>make status</code></td>
+          <td>Protokoll mitlesen · Zustand der Container.</td>
+        </tr>
+        <tr>
+          <td><code>make test</code> · <code>make test-all</code></td>
+          <td>Python-Tests · alle Prüfungen inkl. Oberfläche und Durchlauf-Tests.</td>
+        </tr>
+        <tr>
+          <td><code>make up SLIM=1</code></td>
+          <td>Backend ohne Browser (kleiner, keine Abläufe).</td>
+        </tr>
+      </table>
+    </section>
+
+    <section class="pg">
+      <p class="cont">10 · Für Entwickler · Fortsetzung</p>
+      <h2>Nützliche Optionen (KI-Server)</h2>
+      <table>
+        <tr>
+          <th>Option</th>
+          <th>Wirkung</th>
+        </tr>
+        <tr>
+          <td><code>--quick</code></td>
+          <td>Schnelles Profil (≈ 15 min) statt des gründlichen (≈ 50 min).</td>
+        </tr>
+        <tr>
+          <td><code>--target-users N</code></td>
+          <td>Bedarf für die Ampel („Nutzer im Team“).</td>
+        </tr>
+        <tr>
+          <td><code>--think-time S</code></td>
+          <td>Pause einer Person zwischen zwei Fragen (Standard 60 s).</td>
+        </tr>
+        <tr>
+          <td><code>--length-mix mixed</code></td>
+          <td>Längen schwanken wie im Alltag.</td>
+        </tr>
+        <tr>
+          <td><code>--shared-prefix 1500</code></td>
+          <td>Gleicher System-Prompt vor jeder Frage – misst den Prefix-Cache.</td>
+        </tr>
+        <tr>
+          <td><code>--seed 42</code></td>
+          <td>Gleiche Texte wie in einem früheren Lauf.</td>
+        </tr>
+        <tr>
+          <td><code>--rates 30,60,120</code></td>
+          <td>„Echter Andrang“ mit festen Fragen pro Minute.</td>
+        </tr>
+        <tr>
+          <td><code>--probe-interval S</code></td>
+          <td>Abstand der Kontrollfragen (0 = aus).</td>
+        </tr>
+        <tr>
+          <td><code>--saturation-stop N</code></td>
+          <td>Höhere Stufen überspringen, wenn die Leistung N Stufen lang gleich bleibt (0 = aus).</td>
+        </tr>
+        <tr>
+          <td><code>--hw-price</code> · <code>--server-watts</code> · <code>--power-price</code> · <code>--cloud-price-in/-out</code></td>
+          <td>Werte für den Kostenvergleich.</td>
+        </tr>
+      </table>
+
+      <div class="box dev">
+        <b>Server-Werte</b>
+        <p>
+          KV-Cache, Warteschlange und Verdrängungen liest LAST aus <code>/metrics</code> des Modellservers (vLLM und SGLang: standardmäßig
+          an). Gemessene Zeiten enthalten die Netzwerklatenz zum Server.
+        </p>
+      </div>
+    </section>
+
+    <!-- ───────────── 11 Verantwortung und Grenzen ───────────── -->
+    <section class="pg">
+      <div class="kap">
+        <span class="nr">11</span>
+        <h1>Verantwortung und Grenzen</h1>
+      </div>
+      <p class="lead">Ein Lasttest ist ein mächtiges Werkzeug. Benutze es verantwortungsvoll – und kenne seine Grenzen.</p>
+
+      <h2>Verantwortung</h2>
+      <div class="cols c2">
+        <div class="card">
+          <h3>Nur eigene Systeme</h3>
+          <p>
+            Für fremde Betreiber sieht ein Lasttest aus wie ein Angriff und kann strafbar sein. Teste nur, was dir gehört oder wofür du eine
+            ausdrückliche Erlaubnis hast. LAST gibt sich im User-Agent als <code>LAST-Lasttest</code> zu erkennen.
+          </p>
+        </div>
+        <div class="card">
+          <h3>Hoster und CDN informieren</h3>
+          <p>
+            Läuft die Website bei einem Hoster oder hinter einem CDN, sag dort vorher Bescheid. Sonst sperrt dessen Schutz den Test – oder
+            euch.
+          </p>
+        </div>
+        <div class="card">
+          <h3>Testumgebung für Schreibzugriffe</h3>
+          <p>POST, PUT, PATCH und DELETE verändern Daten, hunderte Male pro Minute. Richte sie nur gegen eine Testumgebung.</p>
+        </div>
+        <div class="card">
+          <h3>Kein Passwortschutz in LAST</h3>
+          <p>Die Oberfläche ist nur vom eigenen Rechner erreichbar (<code>127.0.0.1</code>). Öffne sie nicht ohne Schutz im Netzwerk.</p>
+        </div>
+      </div>
+
+      <h2>Was mit deinen Zugangsdaten passiert</h2>
+      <ul>
+        <li>
+          Werte von <strong>Kopfzeilen, Body, Platzhaltern und Passwörtern</strong> werden nicht im Ergebnis, nicht in
+          <code>summary.json</code> und nicht im Bericht gespeichert.
+        </li>
+        <li>
+          Sie werden nur in <em>diesem Browser</em> gemerkt, damit du sie nicht ständig neu tippen musst – mit einem Knopf zum Löschen.
+        </li>
+        <li>Der aufgezeichnete Plan eines Ablaufs lebt nur im Arbeitsspeicher des Tests.</li>
+      </ul>
+
+      <h2>Grenzen: Was LAST nicht kann</h2>
+      <table>
+        <tr>
+          <th>Grenze</th>
+          <th>Was das für dich heißt</th>
+        </tr>
+        <tr>
+          <td>Nur eine Adresse</td>
+          <td>Bei „Website“ wird genau eine Adresse getestet. Für Klickpfade gibt es den „Ablauf“.</td>
+        </tr>
+        <tr>
+          <td>Fremde Dateien</td>
+          <td>Schriften, Karten, Werbung und Dateien anderer Server werden nie angefragt.</td>
+        </tr>
+        <tr>
+          <td>Darstellung im Browser</td>
+          <td>Wie lange der Browser zum Zeichnen braucht, wird nicht gemessen.</td>
+        </tr>
+        <tr>
+          <td>Ein Konto, viele Sitzungen</td>
+          <td>Mit einem Konto teilen sich alle Nutzer dessen Sitzung. Für echte Mehrnutzerlast „Mehrere Konten“ verwenden.</td>
+        </tr>
+        <tr>
+          <td>Dauerverbindungen</td>
+          <td>Seiten mit WebSocket im Messbereich lassen sich nicht abspielen.</td>
+        </tr>
+        <tr>
+          <td>Netzwerk dazwischen</td>
+          <td>
+            Gemessene Zeiten enthalten die Latenz zwischen Messrechner und Ziel. Im Büro-LAN ist das vernachlässigbar, über VPN eher nicht.
+          </td>
+        </tr>
+        <tr>
+          <td>Schätzungen</td>
+          <td>
+            „Reicht für etwa …“ ist eine Schätzung mit Annahmen (z. B. 30 s Pause bei Websites, 60 s bei KI-Servern). Sie stehen im Bericht.
+          </td>
+        </tr>
+      </table>
+    </section>
+
+    <!-- ───────────── 12 Hilfe ───────────── -->
+    <section class="pg">
+      <div class="kap">
+        <span class="nr">12</span>
+        <h1>Hilfe bei Problemen</h1>
+      </div>
+      <h2>Häufige Fragen</h2>
+      <table>
+        <tr>
+          <th>Problem</th>
+          <th>Lösung</th>
+        </tr>
+        <tr>
+          <td>„Das Test-Backend antwortet nicht“</td>
+          <td>
+            Docker: Läuft der Container <code>backend</code>? <code>make status</code> und <code>make logs-backend</code> zeigen es.
+            Desktop-App: App schließen und neu öffnen, dann das Protokoll prüfen (Pfade in Kapitel 2).
+          </td>
+        </tr>
+        <tr>
+          <td>„Prüfen“ meldet, der Server sei nicht erreichbar</td>
+          <td>
+            Adresse mit <code>/v1</code>? Läuft der Server auf demselben Rechner und du nutzt Docker? Dann
+            <code>host.docker.internal</code> statt <code>localhost</code>. Gibt es eine Firewall oder ein VPN dazwischen?
+          </td>
+        </tr>
+        <tr>
+          <td>„Ablauf“ ist grau und zeigt „braucht Browser-Image“</td>
+          <td>
+            Das Backend läuft ohne Browser (<code>slim</code>). Starte ohne <code>SLIM=1</code>; die Desktop-App bringt den Browser immer
+            mit.
+          </td>
+        </tr>
+        <tr>
+          <td>„Gerade läuft ein Test“</td>
+          <td>Es läuft immer nur ein Test. Warte, bis er fertig ist, oder brich ihn oben rechts ab.</td>
+        </tr>
+        <tr>
+          <td>Test startet nicht</td>
+          <td>
+            Die Bestätigung („Das ist unser eigenes System …“) fehlt, oder die Adresse beginnt nicht mit <code>http://</code> /
+            <code>https://</code>.
+          </td>
+        </tr>
+        <tr>
+          <td>Warnung „Verlässlichkeit der Messung“</td>
+          <td>
+            Dein Messrechner war überlastet. Schließe andere Programme, nutze einen stärkeren Rechner oder weniger Last, und wiederhole den
+            Test.
+          </td>
+        </tr>
+        <tr>
+          <td>Hohe Fehlerquote schon bei wenigen Nutzern</td>
+          <td>
+            Schützt ein CDN, eine Firewall oder ein Rate-Limit das Ziel? Dann sperrt es den Test. Informiere den Betreiber oder teste die
+            Testumgebung direkt.
+          </td>
+        </tr>
+        <tr>
+          <td>Ein Schritt im Ablauf scheitert</td>
+          <td>
+            Die Fehlermeldung nennt die Zeile; <code>schritt_fehler.png</code> im Ergebnisordner zeigt die Seite im Moment des Fehlers.
+            Meist hilft ein <code>warte auf Text "…"</code> vor dem Schritt.
+          </td>
+        </tr>
+        <tr>
+          <td>Windows warnt (SmartScreen) / macOS fragt nach</td>
+          <td>Die App ist noch nicht signiert. Windows: „Weitere Informationen“ → „Trotzdem ausführen“. macOS: Rechtsklick → „Öffnen“.</td>
+        </tr>
+      </table>
+    </section>
+
+    <section class="pg">
+      <p class="cont">12 · Hilfe bei Problemen · Fortsetzung</p>
+      <h2>Kleines Wörterbuch</h2>
+      <div class="cols c2" style="font-size: 8.8pt">
+        <div>
+          <p><strong>Lasttest</strong> – Ein Test, bei dem viele Nutzer gleichzeitig simuliert werden.</p>
+          <p><strong>Stufe</strong> – Ein Abschnitt des Tests mit fester Zahl gleichzeitiger Personen.</p>
+          <p><strong>Latenz</strong> – Wartezeit zwischen Anfrage und Antwort.</p>
+          <p><strong>Durchsatz</strong> – Wie viel das System pro Sekunde schafft.</p>
+          <p><strong>Token</strong> – Ein Wortstück, mit dem KI-Modelle rechnen.</p>
+          <p><strong>Prefix-Cache</strong> – Gemerkter Anfang einer Anfrage, damit gleiche Einleitungen nicht neu berechnet werden.</p>
+        </div>
+        <div>
+          <p><strong>KV-Cache</strong> – Der Arbeitsspeicher, in dem ein KI-Server angefangene Gespräche hält.</p>
+          <p><strong>p95</strong> – Der Wert, den 95 von 100 Anfragen unterbieten. Zeigt, wie es den langsameren Nutzern geht.</p>
+          <p><strong>Keep-Alive</strong> – Verbindungen bleiben offen und werden wiederverwendet.</p>
+          <p><strong>Kapazität</strong> – Für wie viele Personen es reicht, bevor die Ziele verfehlt werden.</p>
+          <p><strong>Ziel</strong> – Dein Grenzwert, etwa „Seite nach höchstens 3 s“.</p>
+          <p><strong>Lauf</strong> – Ein einzelner durchgeführter Test samt Ergebnissen.</p>
+        </div>
+      </div>
+      <h2>Checkliste vor jedem Test</h2>
+      <ol class="steps">
+        <li>Ist es <strong>mein eigenes</strong> System – oder habe ich eine schriftliche Erlaubnis?</li>
+        <li>Wissen Hoster, CDN und Kollegen Bescheid, dass gleich viel Last kommt?</li>
+        <li>Ist das Ziel eine <strong>Testumgebung</strong>, falls der Test Daten schreibt (POST, PUT, PATCH, DELETE)?</li>
+        <li>Stimmen die Ziele (Wartezeit, Lesetempo) und die erwartete Personenzahl?</li>
+        <li>Sind die Kosten-Werte beim KI-Server echt statt Beispielwerte?</li>
+        <li>Läuft der Messrechner ruhig – keine anderen schweren Programme?</li>
+      </ol>
+      <div class="box">
+        <b>Weiterlesen und mitmachen</b>
+        <p>
+          LAST ist Open Source. Quellcode, Releases und Fehlermeldungen findest du auf <strong>github.com/peter-stuhlmann/last</strong>. Die
+          ausführliche technische Beschreibung steht in der Datei <code>LIESMICH.md</code> im Projekt.
+        </p>
+      </div>
+    </section>
+  </body>
+</html>

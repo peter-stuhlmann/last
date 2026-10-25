@@ -1,16 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  approxUsers,
-  clock,
-  eur,
-  hostLabel,
-  nf,
-  perMinute,
-  runLabel,
-  secs,
-  signedPct,
-  splitSecs,
-} from "./format";
+import { approxUsers, clock, eur, hostLabel, nf, perMinute, runLabel, secs, signedPct, splitSecs } from "./format";
 
 describe("nf", () => {
   it("formatiert deutsch mit fester Nachkommazahl", () => {

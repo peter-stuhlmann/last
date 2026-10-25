@@ -23,10 +23,44 @@ afterEach(() => vi.unstubAllGlobals());
 
 function run(name: string, over: Partial<RunInfo> = {}): RunInfo {
   return {
-    name, kind: "web", model: null, base_url: "https://shop.example/", started: null, tests: ["baseline", "ramp"], report: true, pdf: true,
-    title: null, tags: [], note: "", pinned: false, users: 400, target_users: 500, status: "warn", alone: 0.8, ...over,
+    name,
+    kind: "web",
+    model: null,
+    base_url: "https://shop.example/",
+    started: null,
+    tests: ["baseline", "ramp"],
+    report: true,
+    pdf: true,
+    title: null,
+    tags: [],
+    note: "",
+    pinned: false,
+    users: 400,
+    target_users: 500,
+    status: "warn",
+    alone: 0.8,
+    ...over,
   };
 }
+
+describe("RunsList – Urteil auf einen Blick", () => {
+  it("zeigt Ampel und große Zahl statt der Testnamen", () => {
+    render(
+      <RunsList
+        runs={[
+          run("results_20261005_100000", { status: "good", users: 4862 }),
+          run("results_20261004_100000", { status: "bad", users: 120, kind: "api" }),
+          run("results_20261003_100000", { status: null, tests: ["baseline"] }),
+        ]}
+      />,
+    );
+    const items = screen.getAllByRole("listitem");
+    expect(items[0]).toHaveTextContent("Grünes Licht· ≈ 4.900 Besucher");
+    expect(items[1]).toHaveTextContent("Rotes Licht· ≈ 120 Anfragen/min");
+    expect(items[2]).toHaveTextContent("ohne Urteil – abgebrochen?");
+    expect(items[0]).not.toHaveTextContent("Immer mehr");
+  });
+});
 
 describe("notesSchema", () => {
   it("nimmt Titel, Tags, Notiz und Pin an und bereinigt Tags", () => {
@@ -47,7 +81,9 @@ describe("RunNotes", () => {
   it("bearbeitet Titel und Notiz, meldet „Gespeichert“ und schickt nur geprüfte Felder", async () => {
     fetchMock.mockResolvedValue(Response.json({ ok: true }));
     const user = userEvent.setup();
-    const { container } = render(<RunNotes name="results_20261005_100000" initial={{ title: null, tags: ["shop"], note: "", pinned: false }} />);
+    const { container } = render(
+      <RunNotes name="results_20261005_100000" initial={{ title: null, tags: ["shop"], note: "", pinned: false }} />,
+    );
     expect(screen.getByRole("heading", { level: 2, name: "Lauf vom 05.10.2026, 10:00" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Titel und Notiz bearbeiten" }));
     await user.type(screen.getByLabelText("Titel"), "Vor dem Cache");
@@ -55,7 +91,12 @@ describe("RunNotes", () => {
     await user.click(screen.getByRole("button", { name: "Speichern" }));
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Gespeichert"));
     expect(fetchMock).toHaveBeenCalledWith("/api/runs/results_20261005_100000/notes", expect.objectContaining({ method: "PUT" }));
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ title: "Vor dem Cache", tags: ["shop"], note: "Redis noch aus.", pinned: false });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+      title: "Vor dem Cache",
+      tags: ["shop"],
+      note: "Redis noch aus.",
+      pinned: false,
+    });
     expect(screen.getByRole("heading", { level: 2, name: "Vor dem Cache" })).toBeInTheDocument();
     expect(refresh).toHaveBeenCalled();
     await expectAccessible(container);
@@ -119,7 +160,7 @@ describe("RunsList mit Titeln, Tags, Suche und Löschen", () => {
         .getAllByRole("link")
         .filter((l) => l.getAttribute("href")?.startsWith("/laeufe/"))
         .map((l) => l.textContent);
-    expect(links()[0]).toContain("04.10.2026, 23:41");           // angepinnt
+    expect(links()[0]).toContain("04.10.2026, 23:41"); // angepinnt
     expect(screen.getByRole("link", { name: /Vor dem Cache/ })).toHaveAttribute("href", "/laeufe/results_20261005_100000");
     await user.type(screen.getByRole("searchbox", { name: "Läufe durchsuchen" }), "cache");
     expect(links()).toEqual(["Vor dem Cache"]);
@@ -165,7 +206,7 @@ describe("Trend", () => {
     expect(screen.getByRole("img", { name: /Verlauf der Kapazität in Besucher über 3 Läufe/ })).toBeInTheDocument();
     expect(screen.getByText(/von 410 auf 770 Besucher gestiegen/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Cache an" })).toHaveAttribute("href", "/laeufe/results_20260915_100000");
-    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();     // nur eine Gruppe mit ≥ 2 Läufen
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument(); // nur eine Gruppe mit ≥ 2 Läufen
     await expectAccessible(container);
   });
 

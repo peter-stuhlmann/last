@@ -18,6 +18,7 @@ from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
 from pptx.util import Inches, Pt
 
 from llm_stresstest import (
+    ERR_OK,
     PROBE_KINDS,
     capacity,
     economics,
@@ -827,7 +828,7 @@ def build_report(summary, path):
         for i, s in enumerate(steps):
             if meets_slo(s, slo_t, slo_u):
                 col = GOOD
-            elif s["error_rate"] > 0 or (brk and brk["concurrency"] == s["concurrency"]):
+            elif s["error_rate"] > ERR_OK or (brk and brk["concurrency"] == s["concurrency"]):
                 col = BAD
             else:
                 col = WARN
@@ -1168,7 +1169,7 @@ def build_report(summary, path):
                  "Schwankung", "Verzug Messr."]]
         for s in steps:
             col = GOOD if meets_slo(s, slo_t, slo_u) else (
-                BAD if s["error_rate"] > 0 or (brk and brk["concurrency"] == s["concurrency"]) else WARN)
+                BAD if s["error_rate"] > ERR_OK or (brk and brk["concurrency"] == s["concurrency"]) else WARN)
             rows.append([(f"{s['concurrency']}{' *' if s.get('fine') else ''}", col),
                          n0(s["out_tps"]), fmt(s["user_tps_p50"], 1), secs(s["ttft_p50"], 2),
                          secs(s["ttft_p95"], 2), fmt(s["req_s"], 2),
@@ -1192,7 +1193,7 @@ def build_report(summary, path):
                  "Durchsatz tok/s", "Ziele erfüllt", "Stocken p95", "max. gleichz.", "Schlange ×",
                  "Verdrängt", "Fehler"]]
         for s in rstages:
-            col = GOOD if rate_ok(s, slo_t, slo_u) else BAD if s.get("overloaded") or s["error_rate"] > 0 else WARN
+            col = GOOD if rate_ok(s, slo_t, slo_u) else BAD if s.get("overloaded") or s["error_rate"] > ERR_OK else WARN
             rows.append([(per_min(s["rate"]), col), per_min(s.get("rate_actual")),
                          secs(s["ttft_p50"], 2), secs(s["ttft_p95"], 2), fmt(s["user_tps_p50"], 1),
                          n0(s["out_tps"]), fmt(s.get("goodput_pct"), 0, " %"),

@@ -149,10 +149,11 @@ async def _locator(page, target, prefer="any", near=None, nth=None, wait_ms=STEP
     return loc.first
 
 
-async def _settle(page):
-    """Nach Klick oder Taste: Lädt eine neue Seite, abwarten; dann, bis das Netz kurz ruhig ist (höchstens 3 s)."""
-    await page.wait_for_timeout(200)
-    for state, ms in (("load", 10_000), ("networkidle", 3000)):
+async def _settle(page, quick=False):
+    """Nach Klick oder Taste: Lädt eine neue Seite, abwarten; dann, bis das Netz kurz ruhig ist (höchstens 3 s,
+    beim Vorführen 0,7 s – Seiten mit Dauerverbindung werden nie ruhig, und jeder Klick würde die ganze Zeit warten)."""
+    await page.wait_for_timeout(150 if quick else 200)
+    for state, ms in (("load", 10_000), ("networkidle", 700 if quick else 3000)):
         try:
             await page.wait_for_load_state(state, timeout=ms)
         except Exception:                                   # noqa – Seiten mit Dauerverbindung werden nie ruhig
@@ -261,15 +262,15 @@ async def _run_step(page, step, secrets, state):
         resp = await page.goto(step["url"], wait_until="domcontentloaded")
         if resp is not None and resp.status == 401:
             raise PermissionError(AUTH_NEEDED)
-        await _settle(page)                                 # Single-Page-Apps sind hier noch leer (weiß)
+        await _settle(page, state.get("quick"))             # Single-Page-Apps sind hier noch leer (weiß)
     elif k == "fill":
         await (await _locator(page, step["target"], "fill", **where)).fill(fill_text(step["text"], secrets))
     elif k == "click":
         await (await _locator(page, step["target"], "click", **where)).click()
-        await _settle(page)
+        await _settle(page, state.get("quick"))
     elif k == "press":
         await page.keyboard.press(step["key"])
-        await _settle(page)
+        await _settle(page, state.get("quick"))
     elif k == "wait_text":
         await (await _matches(page, step["target"], "text"))[0].first.wait_for()
     elif k == "wait_sel":
@@ -480,14 +481,34 @@ _COLLECT_JS = """([limit, base]) => {""" + _HELPERS_JS + """
     }
     if (role === "checkbox" || role === "radio" || role === "switch") return "check";
     if (tag === "a" || role === "link") return "link";
+    // Ein Etikett, das ein Kästchen oder einen Schalter steuert, ist selbst der Schalter
+    if (tag === "label") return el.control && ["checkbox", "radio"].includes(el.control.type) ? "check" : el.control ? "" : "button";
     return "button";
+  };
+  // Klickbar, ohne es zu sagen (ein <div> als Schalter): die Maus wird zur Hand. Nur das äußerste Element zählt,
+  // denn der Zeiger erbt sich auf alle Kinder.
+  const pointerOnly = (el) => {
+    const s = getComputedStyle(el);
+    if (s.cursor !== "pointer" || s.pointerEvents === "none") return false;
+    const p = el.parentElement;
+    return !p || getComputedStyle(p).cursor !== "pointer";
   };
   const vw = innerWidth, vh = innerHeight;
   if (window.__lastScanNext === undefined) window.__lastScanNext = base + Math.floor(Math.random() * 900000);
   const out = [];
   const query = "input, textarea, [contenteditable=''], [contenteditable='true'], [role=textbox], [role=searchbox], " +
-    "button, a[href], [role=button], [role=link], [role=tab], [role=menuitem], [role=checkbox], [role=radio], [role=switch]";
-  for (const el of deep(document, query)) {
+    "button, a[href], [role=button], [role=link], [role=tab], [role=menuitem], [role=checkbox], [role=radio], [role=switch], " +
+    "[role=option], [role=treeitem], summary, label, [onclick], [tabindex]:not([tabindex='-1'])";
+  const found = deep(document, query);
+  const seen = new Set(found);
+  // Alles Weitere mit Zeiger-Hand, das oben nicht dabei war (nur im sichtbaren Bereich, damit es schnell bleibt)
+  for (const el of document.querySelectorAll("body *")) {
+    if (seen.has(el) || el.closest("[aria-hidden=true]")) continue;
+    const r = el.getBoundingClientRect();
+    if (r.width < 8 || r.height < 8 || r.bottom <= 0 || r.right <= 0 || r.top >= vh || r.left >= vw) continue;
+    if (pointerOnly(el)) found.push(el);
+  }
+  for (const el of found) {
     if (out.length >= limit) break;
     if (el.disabled || el.closest("[aria-hidden=true]") || !visible(el)) continue;
     // Ein Feld in einem anderen (contenteditable im Knopf o. Ä.) nur einmal
@@ -547,6 +568,14 @@ _ABOUT_JS = """([mark, nameMax]) => {""" + _HELPERS_JS + """
   const href = tag === "a" ? (el.getAttribute("href") || "").split(/[?#]/)[0] : "";
   if (href && href.length <= 200 && !/['"\\\\\\s]/.test(href)) selectors.push(`a[href='${href}']`, `a[href^='${href}']`);
   if (tag === "a") selectors.push("a[href]");
+  // Ohne Beschriftung (ein Schalter aus <div>): Testkennung oder eine Klasse, die nach Absicht aussieht
+  for (const attr of ["data-testid", "data-test", "data-cy"]) {
+    const v = el.getAttribute(attr);
+    if (v && /^[\w-]{1,60}$/.test(v)) selectors.push(`[${attr}='${v}']`);
+  }
+  if (!["input", "textarea", "button", "a"].includes(tag)) {
+    for (const c of el.classList) if (/^[A-Za-z][A-Za-z-]{2,30}$/.test(c)) selectors.push(`${tag}.${c}`);
+  }
   // Texte rundherum, vom engsten Umfeld nach außen (eigene Zeile, Karte, Abschnitt …) – zuerst der direkt davor
   const before = field ? usable(textBefore(el)) : "";
   const near = before ? [before] : [];
@@ -569,10 +598,43 @@ _ABOUT_JS = """([mark, nameMax]) => {""" + _HELPERS_JS + """
 NAME_MAX = 60
 
 
+# Klick auf eine Stelle des Bildes, an der kein Knopf erkannt wurde: das Element darunter und das nächste
+# darüber, das sich wie etwas Klickbares verhält, bekommt eine Marke – dann geht es weiter wie bei jedem Klick.
+_AT_JS = """([x, y, base]) => {
+  const top = (root) => {
+    let el = root.elementFromPoint(x, y);
+    while (el && el.shadowRoot && el.shadowRoot.elementFromPoint(x, y) && el.shadowRoot.elementFromPoint(x, y) !== el)
+      el = el.shadowRoot.elementFromPoint(x, y);
+    return el;
+  };
+  const clickable = "input, textarea, select, button, a[href], summary, label, [onclick], [role=button], [role=link], " +
+    "[role=tab], [role=menuitem], [role=checkbox], [role=radio], [role=switch], [role=option], [data-last-scan]";
+  let el = top(document), pick = null;
+  for (let n = el, d = 0; n && d < 10; n = n.parentElement || (n.getRootNode() && n.getRootNode().host), d++) {
+    if (n.matches && (n.matches(clickable) || getComputedStyle(n).cursor === "pointer")) { pick = n; }
+    // das äußerste Element mit Hand-Zeiger, aber nicht über einen Knopf hinaus
+    if (pick && n.matches && n.matches(clickable)) break;
+    if (pick && n.parentElement && getComputedStyle(n.parentElement).cursor !== "pointer") break;
+  }
+  if (!pick) return null;
+  if (window.__lastScanNext === undefined) window.__lastScanNext = base + Math.floor(Math.random() * 900000);
+  let mark = pick.getAttribute("data-last-scan");
+  if (!mark) { mark = String(window.__lastScanNext++); pick.setAttribute("data-last-scan", mark); }
+  return mark;
+}"""
+
+
+async def mark_at(page, x, y):
+    """Marke des klickbaren Elements an dieser Stelle (oder None)."""
+    return await page.evaluate(_AT_JS, [x, y, 0])
+
+
 async def _index_of(loc, n, mark):
     """An welcher Stelle der Treffer steht das markierte Element (oder None)?"""
     for i in range(min(n, _MAX_MATCHES)):
-        if await loc.nth(i).get_attribute("data-last-scan") == mark:
+        # Treffer ist das Element selbst oder etwas darin (der Text einer Karte steht oft in einem <span>) –
+        # ein Klick darauf wirkt auf dasselbe Element
+        if await loc.nth(i).evaluate("(e, m) => !!e.closest(`[data-last-scan='${m}']`)", mark):
             return i
     return None
 
@@ -619,6 +681,24 @@ async def find_target(page, mark):
     return {**base, "target": name, "nth": i + 1}
 
 
+_CDP = weakref.WeakKeyDictionary()
+
+
+async def _jpeg(page, quality, clip=None):
+    """Bildschirmfoto als JPEG-Bytes. Direkt über Chromium statt page.screenshot(): Das wartet auf alle Webfonts
+    der Seite – hängt eine von außen (blockiert, offline), dauert jede Aufnahme bis zum Zeitlimit (30 s)."""
+    try:
+        cdp = _CDP.get(page)
+        if cdp is None:
+            cdp = _CDP[page] = await page.context.new_cdp_session(page)
+        params = {"format": "jpeg", "quality": quality}
+        if clip:
+            params["clip"] = {"x": clip["x"], "y": clip["y"], "width": clip["width"], "height": clip["height"], "scale": 1}
+        return base64.b64decode((await cdp.send("Page.captureScreenshot", params))["data"])
+    except Exception:                                       # noqa – kein Chromium-Zugriff: der normale Weg
+        return await page.screenshot(type="jpeg", quality=quality, **({"clip": clip} if clip else {}))
+
+
 async def snapshot(page):
     """Bildschirmfoto plus Lage aller Felder und Knöpfe darauf."""
     found = await page.evaluate(_COLLECT_JS, [SCAN_ELEMENTS, 0])
@@ -641,7 +721,7 @@ async def snapshot(page):
             x, y = max(x, box["x"], 0), max(y, box["y"], 0)
             if right - x > 1 and bottom - y > 1:
                 elements.append({**e, "box": {"x": x, "y": y, "w": right - x, "h": bottom - y}})
-    shot = await page.screenshot(type="jpeg", quality=70)
+    shot = await _jpeg(page, 70)
     return {"url": page.url, "title": (await page.title())[:200], "viewport": found["viewport"],
             "screenshot": "data:image/jpeg;base64," + base64.b64encode(shot).decode("ascii"),
             "elements": elements}
@@ -657,7 +737,7 @@ async def element_thumb(page, mark):
     x, y = max(0, box["x"] - pad), max(0, box["y"] - pad)
     clip = {"x": x, "y": y, "width": max(1, min(box["width"] + 2 * pad, 480)),
             "height": max(1, min(box["height"] + 2 * pad, 120))}
-    shot = await page.screenshot(type="jpeg", quality=75, clip=clip)
+    shot = await _jpeg(page, 75, clip)
     return "data:image/jpeg;base64," + base64.b64encode(shot).decode("ascii")
 
 

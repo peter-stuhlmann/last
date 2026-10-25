@@ -3,17 +3,28 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { FlowSteps } from "@/components/flow/FlowSteps";
+import { Select } from "@/components/Select";
 import { FALLBACK_API, FALLBACK_FLOW, FALLBACK_WEB } from "@/lib/profile";
 import { withStart } from "@/lib/steps";
 import type { ModelInfo, RunKind } from "@/lib/types";
-import { MAX_ACCOUNTS, METHODS, parseBaseUrl, parseHeaderLines, type SiteAuth } from "@/lib/validation";
+import { MAX_ACCOUNTS, METHODS, parseBaseUrl, parseHeaderLines, withScheme, type SiteAuth } from "@/lib/validation";
 
 type Values = Record<string, unknown>;
 type Profile = "quick" | "full";
 
 // Diese Felder werden schon beim Tippen im Browser gemerkt (nicht erst beim Start – auch Vorführen braucht sie). Bewusst nicht dabei: die Bestätigung,
-// dass die Website getestet werden darf (die gilt nur für diesen einen Start).
+// dass die Website getestet werden darf – die steht getrennt unter ALLOWED_KEY.
 const STORAGE_KEY = "last.form.v1";
+// Ziele (host:port), für die die Erlaubnis bei einem Start bestätigt wurde – beim nächsten Mal ist das Häkchen schon gesetzt.
+// Nur genau diese Adresse: Ein anderes Ziel muss wieder neu bestätigt werden.
+const ALLOWED_KEY = "last.allowed.v1";
+const MAX_ALLOWED = 50;
+
+/** Ziel einer Eingabe (host:port, klein geschrieben) – oder null, solange es keine gültige Adresse ist. */
+function hostOf(input: string): string | null {
+  const url = parseBaseUrl(withScheme(input));
+  return url ? new URL(url).host.toLowerCase() : null;
+}
 // Zugangsdaten getrennt davon – schon beim Tippen gemerkt (auch fürs Vorführen) und mit einem Knopf zu löschen.
 // Sie liegen unverschlüsselt im localStorage dieses Browsers; in Bericht und Ergebnis landen sie nie.
 const SECRETS_KEY = "last.secrets.v1";
@@ -106,26 +117,36 @@ const COST_FIELDS = [
   { name: "cloud_price_out", label: "Cloud: Ausgabe", unit: "€ je 1 Mio. Tokens" },
 ] as const;
 
-type Target = { name: string; label: string; unit: string; step: string; min: string; placeholder: string; text?: boolean };
+type Target = {
+  name: string;
+  label: string;
+  unit: string;
+  step: string;
+  min: string;
+  placeholder: string;
+  text?: boolean;
+  /** darf leer bleiben – dann gibt es keinen Vergleich mit dem Bedarf */
+  optional?: boolean;
+};
 
 const TARGETS: Record<RunKind, Target[]> = {
   llm: [
-    { name: "target_users", label: "Nutzer im Team", unit: "Personen", step: "1", min: "0", placeholder: "?" },
+    { name: "target_users", label: "Nutzer im Team", unit: "Personen", step: "1", min: "0", placeholder: "–", optional: true },
     { name: "slo_ttft", label: "Warten höchstens", unit: "Sekunden", step: "0.1", min: "0.1", placeholder: "2" },
     { name: "slo_user_tps", label: "Lesetempo mindestens", unit: "tok/s", step: "1", min: "1", placeholder: "10" },
   ],
   web: [
-    { name: "web_users", label: "Besucher gleichzeitig", unit: "erwartet", step: "1", min: "0", placeholder: "?" },
+    { name: "web_users", label: "Besucher gleichzeitig", unit: "erwartet", step: "1", min: "0", placeholder: "–", optional: true },
     { name: "slo_load", label: "Seite geladen nach höchstens", unit: "Sekunden", step: "0.1", min: "0.1", placeholder: "3" },
     { name: "think_time", label: "Pause zwischen zwei Klicks", unit: "Sekunden", step: "1", min: "1", placeholder: "30" },
   ],
   api: [
-    { name: "api_rpm", label: "Anfragen pro Minute", unit: "erwartet", step: "1", min: "0", placeholder: "?" },
+    { name: "api_rpm", label: "Anfragen pro Minute", unit: "erwartet", step: "1", min: "0", placeholder: "–", optional: true },
     { name: "api_slo", label: "Antwort nach höchstens", unit: "Sekunden", step: "0.05", min: "0.05", placeholder: "0,5" },
     { name: "expect_status", label: "Erwarteter Status", unit: "z. B. 2xx", step: "1", min: "0", placeholder: "2xx", text: true },
   ],
   flow: [
-    { name: "flow_users", label: "Nutzer gleichzeitig", unit: "erwartet", step: "1", min: "0", placeholder: "?" },
+    { name: "flow_users", label: "Nutzer gleichzeitig", unit: "erwartet", step: "1", min: "0", placeholder: "–", optional: true },
     { name: "flow_slo", label: "Antwort fertig nach höchstens", unit: "Sekunden", step: "0.5", min: "0.5", placeholder: "10" },
     { name: "flow_think", label: "Pause zwischen zwei Durchläufen", unit: "Sekunden", step: "1", min: "1", placeholder: "60" },
   ],
@@ -178,7 +199,7 @@ function levelsInfo(levels: unknown): string {
     .split(",")
     .map(Number)
     .filter(Boolean);
-  return list.length ? `${list.length} Stufen · bis ${Math.max(...list)} gleichzeitig` : "";
+  return list.length ? `steigert in ${list.length} Schritten bis ${Math.max(...list)} gleichzeitig` : "";
 }
 
 function minutes(v: Values, kind: RunKind): string {
@@ -202,6 +223,7 @@ export function NewTestForm({
   api = FALLBACK_API,
   flow = FALLBACK_FLOW,
   features = { flow: true },
+  fresh = false,
 }: {
   defaults: Values;
   quick: Values;
@@ -209,6 +231,8 @@ export function NewTestForm({
   api?: { defaults: Values; quick: Values };
   flow?: { defaults: Values; quick: Values };
   features?: { flow: boolean };
+  /** „Neuer Test“: gemerkter Ablauf wird nicht übernommen */
+  fresh?: boolean;
 }) {
   const router = useRouter();
   const urlRef = useRef<HTMLInputElement>(null);
@@ -249,7 +273,10 @@ export function NewTestForm({
   const [accountsText, setAccountsText] = useState("");
   const [profile, setProfile] = useState<Profile>("quick");
   const [includeAssets, setIncludeAssets] = useState(true);
-  const [confirmed, setConfirmed] = useState(false);
+  // Erlaubnis gilt je Ziel: angekreuzt für diese Adresse (host null = angekreuzt, bevor eine Adresse dastand)
+  // oder bei einem früheren Start schon bestätigt (gemerkt unter ALLOWED_KEY)
+  const [ticked, setTicked] = useState<{ host: string | null } | null>(null);
+  const [allowed, setAllowed] = useState<string[]>([]);
   const [urlError, setUrlError] = useState<string | null>(null);
   const [confirmError, setConfirmError] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
@@ -267,13 +294,19 @@ export function NewTestForm({
   const urlField = URL_FIELD[kind];
   const writes = isApi && form.method !== "GET";
   const placeholders = isFlow ? findPlaceholders(form.flow_steps) : [];
+  const host = hostOf(form[urlField]);
+  const remembered = host != null && allowed.includes(host);
+  const confirmed = remembered || (ticked != null && (ticked.host === null || ticked.host === host));
 
   // Gemerkte Eingaben erst nach dem ersten Rendern einsetzen, damit Server- und Browser-HTML übereinstimmen.
   useEffect(() => {
+    // Die Adresse zeigt wieder „/“, damit ein Neuladen den Ablauf nicht noch einmal leert
+    if (fresh) window.history.replaceState(null, "", "/");
     try {
       const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null") as Record<string, string> | null;
       if (!saved || typeof saved !== "object") return;
-      const { profile: savedProfile, kind: savedKind, ...rest } = saved;
+      const { profile: savedProfile, kind: savedKind, flow_steps: savedSteps, ...rest } = saved;
+      if (!fresh && savedSteps) rest.flow_steps = savedSteps;
       // eslint-disable-next-line react-hooks/set-state-in-effect -- einmalige Übernahme aus localStorage
       setForm((f) => ({ ...f, ...Object.fromEntries(Object.entries(rest).filter(([, v]) => typeof v === "string" && v)) }));
       if (savedProfile === "full" || savedProfile === "quick") setProfile(savedProfile);
@@ -302,6 +335,12 @@ export function NewTestForm({
       }
     } catch {
       // wie oben
+    }
+    try {
+      const hosts = JSON.parse(localStorage.getItem(ALLOWED_KEY) ?? "[]") as unknown;
+      if (Array.isArray(hosts)) setAllowed(hosts.filter((h): h is string => typeof h === "string"));
+    } catch {
+      // wie oben – dann wird eben neu gefragt
     }
     setLoaded(true);
   }, []);
@@ -343,6 +382,22 @@ export function NewTestForm({
     }
   }, [loaded, storedJson]);
 
+  function saveAllowed(next: string[]) {
+    setAllowed(next);
+    try {
+      localStorage.setItem(ALLOWED_KEY, JSON.stringify(next.slice(-MAX_ALLOWED)));
+    } catch {
+      // Merken ist nur Komfort.
+    }
+  }
+
+  function toggleConfirmed(on: boolean) {
+    setConfirmError(false);
+    setTicked(on ? { host } : null);
+    // Häkchen weg heißt auch: für diese Adresse nicht mehr gemerkt
+    if (!on && remembered) saveAllowed(allowed.filter((h) => h !== host));
+  }
+
   function forgetSecrets() {
     setSecrets({});
     setSiteAuth({ user: "", password: "" });
@@ -377,10 +432,17 @@ export function NewTestForm({
     }
   }
 
+  /** Fehlt http:// oder https://, wird es ergänzt – im Feld sichtbar, damit klar ist, was getestet wird. */
+  function completeUrl(): string {
+    const full = withScheme(form[urlField]);
+    if (full !== form[urlField]) setForm((f) => ({ ...f, [urlField]: full }));
+    return full;
+  }
+
   function validUrl(): string | null {
-    const url = parseBaseUrl(form[urlField]);
+    const url = parseBaseUrl(completeUrl());
     if (!url) {
-      setUrlError(`Die Adresse muss mit http:// oder https:// beginnen, zum Beispiel ${URL_EXAMPLE[kind]}`);
+      setUrlError(`Das ist keine gültige Adresse – zum Beispiel ${URL_EXAMPLE[kind]}`);
       urlRef.current?.focus();
     }
     return url;
@@ -463,9 +525,7 @@ export function NewTestForm({
           kind: "flow",
           base_url,
           steps,
-          ...(accounts
-            ? { accounts }
-            : { secrets: Object.fromEntries(placeholders.map((p) => [p, secrets[p]])) }),
+          ...(accounts ? { accounts } : { secrets: Object.fromEntries(placeholders.map((p) => [p, secrets[p]])) }),
           ...(siteAuthValue ? { site_auth: siteAuthValue } : {}),
           confirm_owner: true,
           tests: String(flow.defaults.tests ?? "baseline,ramp,rate,spike,soak"),
@@ -474,42 +534,42 @@ export function NewTestForm({
           think_time: number("flow_think"),
         }
       : isApi
-      ? {
-          ...profileValues(profile, api.quick, api.defaults),
-          kind: "api",
-          base_url,
-          method: form.method,
-          headers,
-          body: writes ? form.body_text : "",
-          expect_status: form.expect_status.trim() || "2xx",
-          confirm_owner: true,
-          tests: String(api.defaults.tests ?? "baseline,ramp,rate,spike,soak"),
-          target_users: number("api_rpm") ?? 0,
-          slo_load: number("api_slo"),
-        }
-      : isWeb
         ? {
-            ...profileValues(profile, web.quick, web.defaults),
-            kind: "web",
+            ...profileValues(profile, api.quick, api.defaults),
+            kind: "api",
             base_url,
+            method: form.method,
+            headers,
+            body: writes ? form.body_text : "",
+            expect_status: form.expect_status.trim() || "2xx",
             confirm_owner: true,
-            include_assets: includeAssets,
-            tests: String(web.defaults.tests ?? "baseline,ramp,rate,spike,soak"),
-            target_users: number("web_users") ?? 0,
-            slo_load: number("slo_load"),
-            think_time: number("think_time"),
+            tests: String(api.defaults.tests ?? "baseline,ramp,rate,spike,soak"),
+            target_users: number("api_rpm") ?? 0,
+            slo_load: number("api_slo"),
           }
-        : {
-            ...profileValues(profile, quick, defaults),
-            base_url,
-            confirm_owner: true,
-            model: form.model || undefined,
-            api_key: form.api_key || undefined,
-            target_users: number("target_users") ?? 0,
-            slo_ttft: number("slo_ttft"),
-            slo_user_tps: number("slo_user_tps"),
-            ...Object.fromEntries(COST_FIELDS.map((f) => [f.name, number(f.name)])),
-          };
+        : isWeb
+          ? {
+              ...profileValues(profile, web.quick, web.defaults),
+              kind: "web",
+              base_url,
+              confirm_owner: true,
+              include_assets: includeAssets,
+              tests: String(web.defaults.tests ?? "baseline,ramp,rate,spike,soak"),
+              target_users: number("web_users") ?? 0,
+              slo_load: number("slo_load"),
+              think_time: number("think_time"),
+            }
+          : {
+              ...profileValues(profile, quick, defaults),
+              base_url,
+              confirm_owner: true,
+              model: form.model || undefined,
+              api_key: form.api_key || undefined,
+              target_users: number("target_users") ?? 0,
+              slo_ttft: number("slo_ttft"),
+              slo_user_tps: number("slo_user_tps"),
+              ...Object.fromEntries(COST_FIELDS.map((f) => [f.name, number(f.name)])),
+            };
 
     setBusy(true);
     const { ok, data } = await post("/api/start", payload);
@@ -518,6 +578,8 @@ export function NewTestForm({
       setServerError(String(data.error ?? "Der Test konnte nicht gestartet werden."));
       return;
     }
+    const target = hostOf(base_url);
+    if (target && !allowed.includes(target)) saveAllowed([...allowed, target]);
     router.push("/lauf");
   }
 
@@ -547,19 +609,14 @@ export function NewTestForm({
                 <label htmlFor="method" className="sr-only">
                   Methode
                 </label>
-                <select
+                <Select
                   id="method"
-                  name="method"
+                  label="Methode"
+                  mono
                   value={form.method}
-                  onChange={set("method")}
-                  className="rounded-lg border border-white/15 bg-white/[0.06] px-2 py-1.5 font-mono text-sm font-bold"
-                >
-                  {METHODS.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </select>
+                  options={METHODS}
+                  onChange={(m) => set("method")({ target: { value: m } })}
+                />
               </>
             )}
             <input
@@ -575,6 +632,7 @@ export function NewTestForm({
               placeholder={URL_EXAMPLE[kind]}
               value={form[urlField]}
               onChange={set(urlField)}
+              onBlur={completeUrl}
               aria-invalid={urlError ? true : undefined}
               aria-describedby="base_url-hilfe base_url-status"
               className="min-w-0 flex-1 basis-56 bg-transparent py-2 font-mono text-base font-medium caret-cyan placeholder:text-white/45 focus:outline-none"
@@ -656,7 +714,9 @@ export function NewTestForm({
         <fieldset>
           <legend className={legend}>Was passiert auf der Seite?</legend>
           <details open={!!siteAuthValue} className="mb-4 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3">
-            <summary className="cursor-pointer text-sm font-medium text-white/85">Seitenschutz – fragt die Seite nach Benutzer und Passwort (.htaccess)?</summary>
+            <summary className="cursor-pointer text-sm font-medium text-white/85">
+              Seitenschutz – fragt die Seite nach Benutzer und Passwort (.htaccess)?
+            </summary>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
               <div>
                 <label htmlFor="site_auth_user" className="mb-1 block text-xs font-medium text-white/70">
@@ -699,7 +759,7 @@ export function NewTestForm({
           <FlowSteps
             value={form.flow_steps}
             onChange={(text) => setForm((f) => ({ ...f, flow_steps: text }))}
-            baseUrl={parseBaseUrl(form.flow_url)}
+            baseUrl={parseBaseUrl(withScheme(form.flow_url))}
             secrets={liveSecrets()}
             siteAuth={siteAuthValue}
             onSecret={(name, value) => setSecrets((s) => ({ ...s, [name]: value }))}
@@ -789,7 +849,7 @@ export function NewTestForm({
                 <input type="radio" name="profile" value={p.key} checked={on} onChange={() => setProfile(p.key)} className="sr-only" />
                 <span className={`block font-display text-lg font-bold ${on ? "" : "text-white/75"}`}>{p.title}</span>
                 <span className="mt-1 block text-xs font-medium text-white/70">
-                  {minutes(p.values, kind)} · {p.hint}
+                  dauert {minutes(p.values, kind)} · {p.hint}
                 </span>
                 <span className={`mt-2 block font-mono text-[10px] ${on ? "text-[#ccbfff]" : "text-white/60"}`}>
                   {levelsInfo(p.values.levels)}
@@ -824,6 +884,7 @@ export function NewTestForm({
             <div key={t.name} className="tile flex flex-col justify-between px-4 pb-2 pt-2.5 focus-within:border-cyan/60">
               <label htmlFor={t.name} className="block text-[11px] font-medium text-white/65">
                 {t.label}
+                {t.optional && <span className="text-white/45"> · freiwillig</span>}
               </label>
               <div className="flex items-baseline gap-1.5">
                 <input
@@ -848,6 +909,11 @@ export function NewTestForm({
             </div>
           ))}
         </div>
+        {kind === "llm" && (
+          <p className="mt-2 text-xs text-white/60">
+            Lesetempo: Ein Token ist ein Wortteil – 10 tok/s sind etwa 7 Wörter pro Sekunde, bequem zum Mitlesen.
+          </p>
+        )}
       </fieldset>
 
       <details className="group rounded-2xl border border-white/10 bg-white/[0.03] open:pb-4">
@@ -870,9 +936,8 @@ export function NewTestForm({
             </dl>
             <p className="mt-3 text-xs text-white/60">
               Grenzen: Mit einem Konto teilen sich alle simulierten Nutzer dessen Sitzung – für echte Mehrnutzerlast mehrere Konten
-              eintragen. Seiten mit Dauerverbindung
-              (WebSocket) im Messbereich lassen sich so nicht abspielen. Veränderliche Werte wie eine Chat-ID erkennt der Test selbst und
-              holt sie bei jeder Wiederholung frisch.
+              eintragen. Seiten mit Dauerverbindung (WebSocket) im Messbereich lassen sich so nicht abspielen. Veränderliche Werte wie eine
+              Chat-ID erkennt der Test selbst und holt sie bei jeder Wiederholung frisch.
             </p>
           </div>
         ) : isApi ? (
@@ -1005,62 +1070,69 @@ export function NewTestForm({
         )}
       </details>
 
-      <div>
+      <div className="app-dock">
         {writes && (
           <p className="mb-4 rounded-xl border border-rose/45 bg-rose/10 px-4 py-3 text-sm text-rose-soft">
             Jede Anfrage wird wirklich ausgeführt. Mit {form.method} verändert der Test Daten – hunderte Male pro Minute. Nur gegen eine
             Testumgebung richten.
           </p>
         )}
-        <div
-          className={`mb-4 rounded-xl border px-4 py-3 ${confirmError ? "border-rose/60 bg-rose/10" : "border-amber/35 bg-amber/[0.07]"}`}
-        >
-          <label className="flex cursor-pointer items-start gap-3 text-sm text-white/90">
-            <input
-              ref={confirmRef}
-              type="checkbox"
-              checked={confirmed}
-              onChange={(e) => {
-                setConfirmed(e.target.checked);
-                setConfirmError(false);
-              }}
-              aria-invalid={confirmError ? true : undefined}
-              aria-describedby="bestaetigung-hilfe"
-              className="mt-0.5 size-5 shrink-0 accent-violet"
-            />
-            <span>{OWN[kind]}</span>
-          </label>
-          <p id="bestaetigung-hilfe" className="mt-1.5 pl-8 text-xs text-white/65">
-            Für fremde {THINGS[kind]} sieht ein Lasttest aus wie ein Angriff und kann strafbar sein. Der Test gibt sich als
-            „LAST-Lasttest“ zu erkennen.
-          </p>
-          {confirmError && (
-            <p role="alert" className="mt-1.5 pl-8 text-sm text-rose-soft">
-              Bitte erst bestätigen, dass ihr {THIS[kind]} testen dürft.
-            </p>
-          )}
-        </div>
         {(serverError || formError) && (
           <p role="alert" className="mb-3 rounded-xl border border-rose/45 bg-rose/10 px-4 py-3 text-sm text-rose-soft">
             {serverError ?? formError}
           </p>
         )}
-        <button
-          type="submit"
-          disabled={busy}
-          className="flex min-h-16 w-full items-center justify-center gap-3.5 rounded-2xl border border-white/25 bg-gradient-to-r from-violet via-[#6180ff] to-cyan font-display text-xl font-bold tracking-[-0.01em] shadow-[0_14px_40px_rgb(124_92_255/0.55),0_0_24px_rgb(34_211_238/0.35)] transition hover:brightness-110 disabled:cursor-wait disabled:opacity-70 [text-shadow:0_1px_2px_rgb(0_0_0/0.45)]"
-        >
-          {busy ? "Startet …" : "Test starten"}
-          <kbd
-            aria-hidden="true"
-            className="grid h-[26px] w-[30px] place-items-center rounded-[7px] border border-white/35 bg-white/20 font-sans text-[15px] font-normal"
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-stretch">
+          <div
+            className={`flex min-w-0 flex-1 flex-col justify-center rounded-2xl border px-4 py-2.5 ${
+              confirmError ? "border-rose/60 bg-rose/10" : confirmed ? "border-white/10 bg-white/[0.03]" : "border-amber/35 bg-amber/[0.07]"
+            }`}
           >
-            ↵
-          </kbd>
-        </button>
-        <p className="mt-5 text-xs text-white/60">
-          Nur eigene {THINGS[kind]} testen. · Läuft im Hintergrund weiter – du kannst die
-          Seite schließen.
+            <label className="flex cursor-pointer items-start gap-3 text-sm leading-5 text-white/90">
+              <input
+                ref={confirmRef}
+                type="checkbox"
+                checked={confirmed}
+                onChange={(e) => toggleConfirmed(e.target.checked)}
+                aria-invalid={confirmError ? true : undefined}
+                aria-describedby="bestaetigung-hilfe"
+                className="mt-0.5 size-5 shrink-0 accent-violet"
+              />
+              <span>{OWN[kind]}</span>
+            </label>
+            {/* Der Hinweis zählt, solange noch nicht bestätigt ist – danach nur noch für Screenreader, damit die Leiste klein bleibt */}
+            <p
+              id="bestaetigung-hilfe"
+              className={confirmed && !confirmError ? "sr-only" : "mt-1 pl-8 text-xs leading-[17px] text-white/65"}
+            >
+              Für fremde {THINGS[kind]} sieht ein Lasttest aus wie ein Angriff und kann strafbar sein. Der Test gibt sich als
+              „LAST-Lasttest“ zu erkennen.
+            </p>
+            {remembered && <p className="mt-0.5 pl-8 text-xs text-white/55">Für {host} schon einmal bestätigt.</p>}
+            {confirmError && (
+              <p role="alert" className="mt-1 pl-8 text-sm text-rose-soft">
+                Bitte erst bestätigen, dass ihr {THIS[kind]} testen dürft.
+              </p>
+            )}
+          </div>
+          <button
+            type="submit"
+            disabled={busy}
+            className="flex min-h-14 shrink-0 items-center justify-center gap-3.5 rounded-2xl border border-white/25 bg-gradient-to-r from-violet via-[#6180ff] to-cyan px-8 font-display text-xl font-bold tracking-[-0.01em] shadow-[0_14px_40px_rgb(124_92_255/0.55),0_0_24px_rgb(34_211_238/0.35)] transition hover:brightness-110 disabled:cursor-wait disabled:opacity-70 sm:w-60 [text-shadow:0_1px_2px_rgb(0_0_0/0.45)]"
+          >
+            {busy ? "Startet …" : "Test starten"}
+            <kbd
+              aria-hidden="true"
+              className="grid h-[26px] w-[30px] place-items-center rounded-[7px] border border-white/35 bg-white/20 font-sans text-[15px] font-normal"
+            >
+              ↵
+            </kbd>
+          </button>
+        </div>
+        <p className="mt-2.5 text-xs text-white/60">
+          {/* In der Desktop-App beendet das Schließen des Fensters LAST – und damit den Test */}
+          <span className="app-hide">Läuft im Hintergrund weiter – du kannst die Seite schließen.</span>
+          <span className="app-only">Dauert je nach Gründlichkeit ein paar Minuten – LAST so lange geöffnet lassen.</span>
           {secretsStored && (
             <>
               {" · "}

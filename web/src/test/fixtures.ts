@@ -113,7 +113,16 @@ export function finishedSummary(over: Partial<Summary> = {}): Summary {
 }
 
 function page(over: Partial<Stats> = {}): Stats {
-  return { ...stats({ user_tps_p50: null, out_tps: null }), ttft_p50: 0.08, ttft_p95: 0.12, e2e_p50: 0.6, e2e_p95: 0.9, e2e_mean: 0.65, req_s: 10, ...over };
+  return {
+    ...stats({ user_tps_p50: null, out_tps: null }),
+    ttft_p50: 0.08,
+    ttft_p95: 0.12,
+    e2e_p50: 0.6,
+    e2e_p95: 0.9,
+    e2e_mean: 0.65,
+    req_s: 10,
+    ...over,
+  };
 }
 
 /** Ein abgeschlossener Website-Lauf. */
@@ -181,11 +190,23 @@ export function apiSummary(over: Partial<Summary> = {}): Summary {
       slo_load: 0.5,
       target_users: 1000,
     },
-    prechecks: { rtt_ms: 40, busy: null, status: 200, assets: 0, bytes: 1200, total_bytes: 1200, final_url: "https://api.example/v1/items" },
+    prechecks: {
+      rtt_ms: 40,
+      busy: null,
+      status: 200,
+      assets: 0,
+      bytes: 1200,
+      total_bytes: 1200,
+      final_url: "https://api.example/v1/items",
+    },
     baseline: { ...s.baseline!, ...fast },
     ramp: { steps, break: null, saturated: null },
     capacity: { think_time: 30, rec_concurrency: 32, rate_ok: 25, users: 1500, source: "rate" },
-    verdict: { status: "good", headline: "Die API hält der Last stand.", reasons: [["good", "Schafft ≈ 1.500 Anfragen pro Minute – erwartet werden 1.000."]] },
+    verdict: {
+      status: "good",
+      headline: "Die API hält der Last stand.",
+      reasons: [["good", "Schafft ≈ 1.500 Anfragen pro Minute – erwartet werden 1.000."]],
+    },
     ...over,
   };
 }
@@ -220,10 +241,36 @@ export function flowSummary(over: Partial<Summary> = {}): Summary {
       levels: "1,16,32,64",
     },
     prechecks: {
-      rtt_ms: 900, busy: null, status: 200, assets: 2, bytes: 1800, total_bytes: 2000, final_url: "https://chat.example/chat",
+      rtt_ms: 900,
+      busy: null,
+      status: 200,
+      assets: 2,
+      bytes: 1800,
+      total_bytes: 2000,
+      final_url: "https://chat.example/chat",
       requests: [
-        { method: "POST", host: "chat.example", path: "/api/conversations", query: "", status: 201, stream: false, body_bytes: 2, header_names: ["content-type"], dynamic: [] },
-        { method: "POST", host: "chat.example", path: "/api/conversations/{{v1}}/messages", query: "", status: 200, stream: true, body_bytes: 32, header_names: ["content-type"], dynamic: ["v1"] },
+        {
+          method: "POST",
+          host: "chat.example",
+          path: "/api/conversations",
+          query: "",
+          status: 201,
+          stream: false,
+          body_bytes: 2,
+          header_names: ["content-type"],
+          dynamic: [],
+        },
+        {
+          method: "POST",
+          host: "chat.example",
+          path: "/api/conversations/{{v1}}/messages",
+          query: "",
+          status: 200,
+          stream: true,
+          body_bytes: 32,
+          header_names: ["content-type"],
+          dynamic: ["v1"],
+        },
       ],
       main: 1,
       steps: lines.map((text, i) => ({ line: i + 1, text, screenshot: `schritt_${String(i + 1).padStart(2, "0")}.png`, ms: 300 })),
@@ -233,7 +280,11 @@ export function flowSummary(over: Partial<Summary> = {}): Summary {
     ramp: { steps, break: null, saturated: null },
     rate: { stages: [{ ...s.baseline!, ...slow, rate: 0.5, rate_actual: 0.5, overloaded: false }], break: null, think_time: 60 },
     capacity: { think_time: 60, rec_concurrency: 32, rate_ok: 0.5, users: 32, source: "rate" },
-    verdict: { status: "bad", headline: "Die Anwendung schafft die erwartete Nutzerzahl nicht.", reasons: [["bad", "Reicht für ≈ 32 Nutzer gleichzeitig – erwartet werden 200."]] },
+    verdict: {
+      status: "bad",
+      headline: "Die Anwendung schafft die erwartete Nutzerzahl nicht.",
+      reasons: [["bad", "Reicht für ≈ 32 Nutzer gleichzeitig – erwartet werden 200."]],
+    },
     ...over,
   };
 }

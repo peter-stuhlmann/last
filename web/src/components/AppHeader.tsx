@@ -29,7 +29,12 @@ const PILL: Record<PillTone, { box: string; dot: string; tag: string; text: stri
     tag: "text-mint",
     text: "text-[#D9FAEB]",
   },
-  done: { box: "border-mint/35 bg-mint/10 shadow-[0_0_24px_rgb(52_211_153/0.25)]", dot: "bg-mint", tag: "text-mint", text: "text-[#D9FAEB]" },
+  done: {
+    box: "border-mint/35 bg-mint/10 shadow-[0_0_24px_rgb(52_211_153/0.25)]",
+    dot: "bg-mint",
+    tag: "text-mint",
+    text: "text-[#D9FAEB]",
+  },
   warn: { box: "border-amber/35 bg-amber/10", dot: "bg-amber", tag: "text-amber-soft", text: "text-white/85" },
   bad: { box: "border-rose/45 bg-rose/10", dot: "bg-rose", tag: "text-rose-soft", text: "text-white/85" },
 };
@@ -64,7 +69,7 @@ export function AppHeader({ crumbs, status, actions }: { crumbs: Crumb[]; status
             {crumbs.map((c, i) => {
               const last = i === crumbs.length - 1;
               return (
-                <li key={c.label} className="flex items-center gap-x-3">
+                <li key={c.label} className="flex min-w-0 items-center gap-x-3">
                   {i > 0 && (
                     <span aria-hidden="true" className="text-white/40">
                       /
@@ -75,7 +80,11 @@ export function AppHeader({ crumbs, status, actions }: { crumbs: Crumb[]; status
                       {c.label}
                     </Link>
                   ) : (
-                    <span aria-current={last ? "page" : undefined} className={last ? "text-white/90" : "text-white/65"}>
+                    <span
+                      aria-current={last ? "page" : undefined}
+                      title={c.label}
+                      className={`max-w-[28ch] truncate ${last ? "text-white/90" : "text-white/65"}`}
+                    >
                       {c.label}
                     </span>
                   )}

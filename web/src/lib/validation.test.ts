@@ -1,5 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { liveStartSchema, modelsRequestSchema, parseBaseUrl, parseHeaderLines, startSchema } from "./validation";
+import { liveStartSchema, modelsRequestSchema, parseBaseUrl, parseHeaderLines, startSchema, withScheme } from "./validation";
+
+describe("withScheme", () => {
+  it("ergänzt http:// für Rechner im eigenen Netz und https:// für alles andere", () => {
+    expect(withScheme("localhost:9999")).toBe("http://localhost:9999");
+    expect(withScheme("127.0.0.1:8000/v1")).toBe("http://127.0.0.1:8000/v1");
+    expect(withScheme("spark.buero.lan")).toBe("http://spark.buero.lan");
+    expect(withScheme("spark")).toBe("http://spark");
+    expect(withScheme("meine-seite.de/login")).toBe("https://meine-seite.de/login");
+    expect(withScheme("shop.example:8443")).toBe("http://shop.example:8443");
+  });
+  it("lässt vollständige Adressen und Leeres in Ruhe", () => {
+    expect(withScheme(" https://a.de ")).toBe("https://a.de");
+    expect(withScheme("http://a.de")).toBe("http://a.de");
+    expect(withScheme("ftp://a.de")).toBe("ftp://a.de");
+    expect(withScheme("  ")).toBe("");
+  });
+});
 
 describe("parseBaseUrl", () => {
   it("akzeptiert http(s)-Adressen und entfernt den Schrägstrich am Ende", () => {
@@ -80,11 +97,20 @@ describe("startSchema für HTTP-APIs", () => {
 
   it("nimmt Methode, Kopfzeilen, Body und erwarteten Status an", () => {
     const r = startSchema.safeParse({
-      ...api, method: "POST", expect_status: "201", body: '{"a":1}', slo_load: 0.5,
+      ...api,
+      method: "POST",
+      expect_status: "201",
+      body: '{"a":1}',
+      slo_load: 0.5,
       headers: [{ name: "Authorization", value: "Bearer abc" }],
     });
     expect(r.success).toBe(true);
-    expect(r.data).toMatchObject({ kind: "api", method: "POST", expect_status: "201", headers: [{ name: "Authorization", value: "Bearer abc" }] });
+    expect(r.data).toMatchObject({
+      kind: "api",
+      method: "POST",
+      expect_status: "201",
+      headers: [{ name: "Authorization", value: "Bearer abc" }],
+    });
   });
 
   it("lehnt gefährliche Kopfzeilen und falsche Werte ab", () => {
@@ -92,7 +118,9 @@ describe("startSchema für HTTP-APIs", () => {
     expect(startSchema.safeParse({ ...api, headers: [{ name: "Host", value: "intern" }] }).success).toBe(false);
     expect(startSchema.safeParse({ ...api, headers: [{ name: "X-A", value: "a\r\nX-B: b" }] }).success).toBe(false);
     expect(startSchema.safeParse({ ...api, headers: [{ name: "X A", value: "a" }] }).success).toBe(false);
-    expect(startSchema.safeParse({ ...api, headers: Array.from({ length: 25 }, (_, i) => ({ name: `X-${i}`, value: "a" })) }).success).toBe(false);
+    expect(startSchema.safeParse({ ...api, headers: Array.from({ length: 25 }, (_, i) => ({ name: `X-${i}`, value: "a" })) }).success).toBe(
+      false,
+    );
     expect(startSchema.safeParse({ ...api, body: "x".repeat(70_000) }).success).toBe(false);
     expect(startSchema.safeParse({ ...api, expect_status: "alles" }).success).toBe(false);
     expect(startSchema.safeParse({ ...api, confirm_owner: false }).success).toBe(false);
@@ -128,12 +156,19 @@ describe("startSchema für Abläufe", () => {
     expect(startSchema.safeParse({ ...flow, steps: "x".repeat(21_000) }).success).toBe(false);
     expect(startSchema.safeParse({ ...flow, secrets: { "böse name": "a" } }).success).toBe(false);
     expect(startSchema.safeParse({ ...flow, secrets: { pw: "a".repeat(2000) } }).success).toBe(false);
-    expect(startSchema.safeParse({ ...flow, secrets: Object.fromEntries(Array.from({ length: 25 }, (_, i) => [`p${i}`, "a"])) }).success).toBe(false);
+    expect(
+      startSchema.safeParse({ ...flow, secrets: Object.fromEntries(Array.from({ length: 25 }, (_, i) => [`p${i}`, "a"])) }).success,
+    ).toBe(false);
   });
 });
 
 describe("startSchema mit mehreren Konten", () => {
-  const flow = { kind: "flow", base_url: "https://chat.example/login", confirm_owner: true, steps: "öffne https://chat.example/login\nmessen ab hier\nklicke \"Senden\"" };
+  const flow = {
+    kind: "flow",
+    base_url: "https://chat.example/login",
+    confirm_owner: true,
+    steps: 'öffne https://chat.example/login\nmessen ab hier\nklicke "Senden"',
+  };
   it("nimmt bis zu 50 Konten an", () => {
     expect(startSchema.safeParse({ ...flow, accounts: [{ pw: "a" }, { pw: "b" }] }).success).toBe(true);
     expect(startSchema.safeParse({ ...flow, accounts: [] }).success).toBe(false);
@@ -142,9 +177,15 @@ describe("startSchema mit mehreren Konten", () => {
   });
 
   it("nimmt den Seitenschutz (.htaccess) an und prüft ihn", () => {
-    expect(startSchema.parse({ ...flow, site_auth: { user: "admin", password: "tür:zu" } }).site_auth).toEqual({ user: "admin", password: "tür:zu" });
+    expect(startSchema.parse({ ...flow, site_auth: { user: "admin", password: "tür:zu" } }).site_auth).toEqual({
+      user: "admin",
+      password: "tür:zu",
+    });
     expect(startSchema.safeParse({ ...flow, site_auth: { user: "a:b", password: "x" } }).success).toBe(false);
     expect(startSchema.safeParse({ ...flow, site_auth: { user: "a", password: "x\ny" } }).success).toBe(false);
-    expect(liveStartSchema.parse({ steps: "öffne https://a.test/", site_auth: { user: "a", password: "b" } }).site_auth).toEqual({ user: "a", password: "b" });
+    expect(liveStartSchema.parse({ steps: "öffne https://a.test/", site_auth: { user: "a", password: "b" } }).site_auth).toEqual({
+      user: "a",
+      password: "b",
+    });
   });
 });

@@ -11,8 +11,6 @@ export async function expectAccessible(container: Element) {
     // jsdom rechnet kein Layout: Farbkontrast wird im echten Browser geprüft.
     rules: { "color-contrast": { enabled: false }, region: { enabled: false } },
   });
-  const summary = results.violations.map(
-    (v) => `${v.id}: ${v.help} (${v.nodes.map((n) => n.target.join(" ")).join(", ")})`,
-  );
+  const summary = results.violations.map((v) => `${v.id}: ${v.help} (${v.nodes.map((n) => n.target.join(" ")).join(", ")})`);
   expect(summary).toEqual([]);
 }

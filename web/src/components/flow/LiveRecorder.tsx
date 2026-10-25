@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { freePlaceholder, parseLine, withStart } from "@/lib/steps";
+import { formatStep, freePlaceholder, parseLine, withStart } from "@/lib/steps";
+import { LiveStage, type LiveMsg } from "./LiveStage";
 import type { LiveElement, LiveReply, LiveSnapshot, LiveTarget } from "@/lib/types";
 import type { SiteAuth } from "@/lib/validation";
 
@@ -11,7 +12,12 @@ const LOOK_MS = process.env.NODE_ENV === "test" ? 0 : 1500;
 
 type Ask = { target: LiveTarget; box: LiveElement["box"] | null; text: string; secret: boolean; name: string };
 
-const ACTION: Record<LiveElement["kind"], string> = { field: "Eingeben in", button: "Klicken auf", link: "Klicken auf", check: "Klicken auf" };
+const ACTION: Record<LiveElement["kind"], string> = {
+  field: "Eingeben in",
+  button: "Klicken auf",
+  link: "Klicken auf",
+  check: "Klicken auf",
+};
 
 async function call(op: "start" | "act" | "look" | "stop", body: unknown): Promise<LiveReply & { error?: LiveReply["error"] }> {
   try {
@@ -82,7 +88,13 @@ export function LiveRecorder({
   const [ask, setAsk] = useState<Ask | null>(null);
   // Stand des Ablaufs, den der Browser gerade zeigt – weicht der Text ab, muss neu abgespielt werden
   const [synced, setSynced] = useState<string | null>(null);
-  const [hover, setHover] = useState<string | null>(null);
+  // Live: die Seite als Videostrom, Klicken und Tippen direkt darin. Bild: Bildschirmfoto mit beschrifteten Knöpfen
+  // (Rückfall, und für alle, die lieber per Tab und Bildschirmleser durch die Elemente gehen)
+  const [mode, setMode] = useState<"live" | "bild">(() =>
+    typeof EventSource !== "undefined" && typeof createImageBitmap !== "undefined" ? "live" : "bild",
+  );
+  const [working, setWorking] = useState(false);
+  const [pageUrl, setPageUrl] = useState<string | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const lastPick = useRef<LiveElement | null>(null);
   const askDone = useRef(false);
@@ -96,13 +108,18 @@ export function LiveRecorder({
   const measuring = lines.some((l) => parseLine(l).kind === "measure");
   const stale = synced !== null && synced !== text;
 
-  async function start(current = text) {
+  async function start(current = text, forMode = mode) {
     setBusy("Der Browser öffnet die Seite und spielt den Ablauf ab …");
     setMessage(null);
     setFailedAt(null);
     onFailed(null);
     setAsk(null);
-    const r = await call("start", { steps: withStart(current, baseUrl), secrets, ...(siteAuth ? { site_auth: siteAuth } : {}) });
+    const r = await call("start", {
+      steps: withStart(current, baseUrl),
+      secrets,
+      ...(siteAuth ? { site_auth: siteAuth } : {}),
+      ...(forMode === "live" ? { stream: true } : {}),
+    });
     setBusy(null);
     if (!r.session || !r.snapshot) {
       setMessage({ tone: "bad", text: typeof r.error === "string" ? r.error : "Der Browser ließ sich nicht starten." });
@@ -147,6 +164,36 @@ export function LiveRecorder({
     }
   }
 
+  /** Meldungen aus dem Live-Strom: neue Schritte, ein getipptes Feld, Hinweise */
+  const used2 = useRef(used);
+  useEffect(() => {
+    used2.current = used;
+  });
+  function onLive(msg: LiveMsg) {
+    if (msg.t === "state") setPageUrl(msg.url);
+    else if (msg.t === "busy") setWorking(msg.on);
+    else if (msg.t === "notice") setMessage({ tone: "info", text: msg.text });
+    else if (msg.t === "steps") apply({ steps: msg.steps, thumb: msg.thumb ?? null });
+    else if (msg.t === "fill") {
+      const { target, value, enter } = msg;
+      // E-Mail und Passwort bleiben nie im Ablauf stehen, nur ein Platzhalter – der Wert wandert ins Formular
+      const secret = !!target.secret;
+      const name = secret ? freePlaceholder(target.secret ?? target.label.toLowerCase(), used2.current) : "";
+      if (secret) {
+        used2.current = [...used2.current, name];
+        onSecret(name, value);
+      }
+      const line = formatStep({
+        kind: "fill",
+        target: target.target,
+        near: target.near,
+        nth: target.nth,
+        text: secret ? `{${name}}` : value,
+      });
+      apply({ steps: enter ? [line, "drücke Enter"] : [line], thumb: msg.thumb ?? null });
+    }
+  }
+
   async function act(action: Record<string, unknown>, extraSecrets: Record<string, string> = {}, label = "Der Browser arbeitet …") {
     if (!session) return;
     setBusy(label);
@@ -166,6 +213,19 @@ export function LiveRecorder({
       return;
     }
     apply(r);
+  }
+
+  /** Klick auf eine Stelle des Bildes, an der kein Knopf erkannt wurde (z. B. ein Schalter aus einem <div>) */
+  function pickAt(e: React.MouseEvent<HTMLDivElement>) {
+    if (e.target !== e.currentTarget && !(e.target instanceof HTMLImageElement)) return;
+    if (busy || stale || ask || !session) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    if (!r.width || !r.height) return;
+    const x = Math.round(((e.clientX - r.left) / r.width) * vp.w);
+    const y = Math.round(((e.clientY - r.top) / r.height) * vp.h);
+    lastPick.current = null;
+    askDone.current = false;
+    void act({ type: "pick_at", x, y }, {}, "Klickt …");
   }
 
   function pick(el: LiveElement) {
@@ -199,26 +259,36 @@ export function LiveRecorder({
 
   function scroll(dy: number, x = vp.w / 2, y = vp.h / 2) {
     const clamp = (v: number, max: number) => Math.round(Math.min(max, Math.max(0, v)));
-    void act({ type: "scroll", x: clamp(x, vp.w), y: clamp(y, vp.h), dy: Math.round(Math.max(-5000, Math.min(5000, dy))) }, {}, "Blättert …");
+    void act(
+      { type: "scroll", x: clamp(x, vp.w), y: clamp(y, vp.h), dy: Math.round(Math.max(-5000, Math.min(5000, dy))) },
+      {},
+      "Blättert …",
+    );
   }
 
   // Die Seite lebt weiter (eine KI antwortet, etwas lädt nach): laufend ein frisches Bild holen – auch während der
   // Browser noch auf eine Aktion wartet. Nicht bei verstecktem Tab und nicht, solange der Ablauf neu abgespielt werden muss.
   useEffect(() => {
-    if (!session || stale || !LOOK_MS) return;
+    if (!session || stale || !LOOK_MS || mode !== "bild") return;
     let alive = true;
+    let took = 0;
     void (async () => {
       while (alive) {
-        await new Promise((r) => setTimeout(r, LOOK_MS));
+        // Wartezeit wächst mit der Antwortzeit: eine träge Seite bekommt nicht noch mehr Last durch die Vorschau
+        await new Promise((r) => setTimeout(r, Math.max(LOOK_MS, took * 2)));
         if (!alive || document.hidden) continue;
+        const t0 = performance.now();
         const r = await call("look", { session });
-        if (alive && r.snapshot) setSnap(r.snapshot);
+        took = performance.now() - t0;
+        // Unverändertes Bild nicht neu setzen – sonst rendert React jedes Mal Bild und alle Klickflächen neu
+        if (alive && r.snapshot)
+          setSnap((prev) => (prev && prev.screenshot === r.snapshot!.screenshot && prev.url === r.snapshot!.url ? prev : r.snapshot!));
       }
     })();
     return () => {
       alive = false;
     };
-  }, [session, stale]);
+  }, [session, stale, mode]);
 
   // Mausrad über dem Bild blättert die Seite im Browser – gesammelt, damit ein Dreh nur eine Anfrage wird.
   // Eigener Listener (nicht passiv), sonst ließe sich das Blättern des Fensters drumherum nicht verhindern.
@@ -229,7 +299,8 @@ export function LiveRecorder({
     if (!el || !session) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      const r = el.getBoundingClientRect(), w = wheel.current;
+      const r = el.getBoundingClientRect(),
+        w = wheel.current;
       if (!canAct || !r.width || !r.height) return;
       w.x = ((e.clientX - r.left) / r.width) * vp.w;
       w.y = ((e.clientY - r.top) / r.height) * vp.h;
@@ -250,7 +321,7 @@ export function LiveRecorder({
   // selbst ab – die Seite lädt neu und alles Vorgeführte ist weg. (React reicht Ereignisse trotzdem an die
   // Eltern weiter, daher zusätzlich stopPropagation in den Formularen.)
   return createPortal(
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-ink/95 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-ink">
       <div
         role="dialog"
         aria-modal="true"
@@ -280,19 +351,48 @@ export function LiveRecorder({
 
           <section aria-label="Die Seite" className="order-1 flex min-w-0 flex-col gap-3 lg:order-2">
             <div className="flex flex-wrap items-center gap-2">
-              <p className="min-w-0 flex-1 truncate font-mono text-xs text-white/60">{snap?.url ?? baseUrl}</p>
-              <button type="button" className="btn btn-ghost text-xs" disabled={!session || !!busy || stale} onClick={() => act({ type: "press", key: "Enter" }, {}, "Drückt Enter …")}>
-                ↵ Enter drücken
-              </button>
-              <button type="button" className="btn btn-ghost text-xs" disabled={!session || !!busy || stale} onClick={() => act({ type: "press", key: "Tab" }, {}, "Drückt Tab …")}>
-                ⇥ Tab
-              </button>
-              <button type="button" className="btn btn-ghost text-xs" disabled={!canAct} onClick={() => scroll(-600)} aria-label="Seite nach oben blättern">
-                ▲
-              </button>
-              <button type="button" className="btn btn-ghost text-xs" disabled={!canAct} onClick={() => scroll(600)} aria-label="Seite nach unten blättern">
-                ▼
-              </button>
+              <p className="min-w-0 flex-1 truncate font-mono text-xs text-white/60">
+                {(mode === "live" ? pageUrl : snap?.url) ?? baseUrl}
+              </p>
+              {mode === "live" && working && <span className="text-xs text-white/60">● arbeitet …</span>}
+              {mode === "bild" && (
+                <>
+                  <button
+                    type="button"
+                    className="btn btn-ghost text-xs"
+                    disabled={!session || !!busy || stale}
+                    onClick={() => act({ type: "press", key: "Enter" }, {}, "Drückt Enter …")}
+                  >
+                    ↵ Enter drücken
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost text-xs"
+                    disabled={!session || !!busy || stale}
+                    onClick={() => act({ type: "press", key: "Tab" }, {}, "Drückt Tab …")}
+                  >
+                    ⇥ Tab
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost text-xs"
+                    disabled={!canAct}
+                    onClick={() => scroll(-600)}
+                    aria-label="Seite nach oben blättern"
+                  >
+                    ▲
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost text-xs"
+                    disabled={!canAct}
+                    onClick={() => scroll(600)}
+                    aria-label="Seite nach unten blättern"
+                  >
+                    ▼
+                  </button>
+                </>
+              )}
               {!measuring && (
                 <button type="button" className="btn btn-ghost border-cyan/50 text-xs text-cyan-soft" disabled={!!busy} onClick={markHere}>
                   ⏱ Ab hier messen
@@ -301,16 +401,39 @@ export function LiveRecorder({
               <button type="button" className="btn btn-ghost text-xs" disabled={!!busy} onClick={() => start()}>
                 ⟳ Neu abspielen
               </button>
+              {typeof EventSource !== "undefined" && typeof createImageBitmap !== "undefined" && (
+                <button
+                  type="button"
+                  className="btn btn-ghost text-xs"
+                  disabled={!!busy}
+                  title={
+                    mode === "live"
+                      ? "Statt des Live-Bildes ein Bildschirmfoto mit beschrifteten Knöpfen zeigen (Tab und Bildschirmleser)"
+                      : "Die Seite wieder live bedienen"
+                  }
+                  onClick={() => {
+                    const next = mode === "live" ? "bild" : "live";
+                    setMode(next);
+                    void start(text, next);
+                  }}
+                >
+                  {mode === "live" ? "Elementansicht" : "Live-Ansicht"}
+                </button>
+              )}
             </div>
 
             <div role="status" className="min-h-0 text-sm">
               {busy && <p className="text-white/75">{busy}</p>}
               {message && (
-                <p className={`rounded-xl border px-3 py-2 ${message.tone === "bad" ? "border-rose/45 bg-rose/10 text-rose-soft" : "border-cyan/35 bg-cyan/[0.07] text-cyan-soft"}`}>
+                <p
+                  className={`rounded-xl border px-3 py-2 ${message.tone === "bad" ? "border-rose/45 bg-rose/10 text-rose-soft" : "border-cyan/35 bg-cyan/[0.07] text-cyan-soft"}`}
+                >
                   {message.text}
                 </p>
               )}
-              {stale && !busy && <p className="text-amber-soft">Der Ablauf wurde geändert – „⟳ Neu abspielen“, damit die Seite wieder dazu passt.</p>}
+              {stale && !busy && (
+                <p className="text-amber-soft">Der Ablauf wurde geändert – „⟳ Neu abspielen“, damit die Seite wieder dazu passt.</p>
+              )}
             </div>
             {failedAt !== null && !busy && (
               <div className="flex flex-wrap gap-2">
@@ -340,11 +463,19 @@ export function LiveRecorder({
                   void start();
                 }}
               >
-                <p className="text-sm sm:col-span-2">Zum Abspielen braucht der Browser noch die Zugangsdaten. Sie werden nicht gespeichert.</p>
+                <p className="text-sm sm:col-span-2">
+                  Zum Abspielen braucht der Browser noch die Zugangsdaten. Sie werden nicht gespeichert.
+                </p>
                 {asking.map((p) => (
                   <label key={p} className="text-xs text-white/70">
                     Wert für {`{${p}}`}
-                    <input type="password" autoComplete="off" value={secrets[p] ?? ""} onChange={(e) => onSecret(p, e.target.value)} className="field mt-1" />
+                    <input
+                      type="password"
+                      autoComplete="off"
+                      value={secrets[p] ?? ""}
+                      onChange={(e) => onSecret(p, e.target.value)}
+                      className="field mt-1"
+                    />
                   </label>
                 ))}
                 <button type="submit" className="btn btn-primary sm:col-span-2" disabled={asking.some((p) => !secrets[p])}>
@@ -353,86 +484,114 @@ export function LiveRecorder({
               </form>
             )}
 
-
-            <div ref={shotRef} className={`relative overflow-hidden rounded-2xl border border-white/15 bg-white ${busy ? "cursor-wait" : ""}`}>
-              {snap?.screenshot ? (
-                // eslint-disable-next-line @next/next/no-img-element -- Bild kommt als data:-URL vom Backend
-                <img src={snap.screenshot} alt={`Die Seite ${snap.title || snap.url}`} className={`block w-full select-none ${stale ? "opacity-50" : busy ? "opacity-85" : ""}`} draggable={false} />
-              ) : (
-                <div className="grid aspect-[16/10] place-items-center bg-ink-2 text-sm text-white/60">{busy ?? "Noch keine Seite"}</div>
-              )}
-              {snap &&
-                !busy &&
-                !stale &&
-                !ask &&
-                snap.elements.map((el) => (
-                  <button
-                    key={el.mark}
-                    type="button"
-                    onClick={() => pick(el)}
-                    onMouseEnter={() => setHover(el.mark)}
-                    onMouseLeave={() => setHover(null)}
-                    onFocus={() => setHover(el.mark)}
-                    onBlur={() => setHover(null)}
-                    aria-label={`${ACTION[el.kind]} „${el.label || "ohne Beschriftung"}“`}
-                    style={{ left: pct(el.box.x, vp.w), top: pct(el.box.y, vp.h), width: pct(el.box.w, vp.w), height: pct(el.box.h, vp.h) }}
-                    className="absolute rounded-[5px] outline-none ring-cyan/0 transition hover:bg-cyan/15 hover:ring-2 hover:ring-cyan focus-visible:bg-cyan/15 focus-visible:ring-2 focus-visible:ring-cyan"
+            {mode === "live" && session ? (
+              <LiveStage
+                session={session}
+                size={vp}
+                measuring={measuring}
+                disabled={stale}
+                onMessage={onLive}
+                onClosed={(t) => {
+                  setSession(null);
+                  setMessage({ tone: "bad", text: t });
+                }}
+              />
+            ) : (
+              <div
+                ref={shotRef}
+                onClick={pickAt}
+                className={`relative overflow-hidden rounded-2xl border border-white/15 bg-white ${busy ? "cursor-wait" : canAct ? "cursor-pointer" : ""}`}
+              >
+                {snap?.screenshot ? (
+                  // eslint-disable-next-line @next/next/no-img-element -- Bild kommt als data:-URL vom Backend
+                  <img
+                    src={snap.screenshot}
+                    alt={`Die Seite ${snap.title || snap.url}`}
+                    className={`block w-full select-none ${stale ? "opacity-50" : busy ? "opacity-85" : ""}`}
+                    draggable={false}
                   />
-                ))}
-              {snap && hover && !busy && (
-                <HoverTip el={snap.elements.find((e) => e.mark === hover)} vp={vp} />
-              )}
-              {ask && (
-                <div
-                  className="absolute z-20"
-                  style={
-                    ask.box
-                      ? { left: pct(ask.box.x, vp.w), top: pct(ask.box.y, vp.h), width: `max(${pct(ask.box.w, vp.w)}, 12rem)`, height: pct(ask.box.h, vp.h) }
-                      : { left: "50%", top: "40%", width: "20rem", transform: "translateX(-50%)" }
-                  }
-                >
-                  <input
-                    autoFocus
-                    aria-label={`Was soll in „${ask.target.label}“ hinein?`}
-                    aria-describedby="vorfuehren-eingabe-hilfe"
-                    type={ask.secret ? "password" : "text"}
-                    autoComplete="off"
-                    value={ask.text}
-                    onChange={(e) => setAsk({ ...ask, text: e.target.value })}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === "Tab") {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        commitAsk(e.key === "Enter");
-                      } else if (e.key === "Escape") {
-                        e.stopPropagation();
-                        askDone.current = true;
-                        setAsk(null);
-                      }
-                    }}
-                    onBlur={() => commitAsk(false)}
-                    className="block h-full min-h-7 w-full rounded-[5px] border-2 border-cyan bg-white px-2 text-[13px] text-black shadow-[0_0_0_4px_rgb(34_211_238/0.25)] outline-none"
-                  />
-                  <div className="absolute left-0 top-full mt-1.5 flex w-max items-center gap-1.5 whitespace-nowrap text-[11px] font-semibold">
+                ) : (
+                  <div className="grid aspect-[16/10] place-items-center bg-ink-2 text-sm text-white/60">{busy ?? "Noch keine Seite"}</div>
+                )}
+                {snap &&
+                  !busy &&
+                  !stale &&
+                  !ask &&
+                  snap.elements.map((el) => (
                     <button
+                      key={el.mark}
                       type="button"
-                      aria-pressed={ask.secret}
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => setAsk({ ...ask, secret: !ask.secret })}
-                      className={`rounded-full px-2.5 py-1 shadow-lg ${ask.secret ? "bg-violet text-white" : "bg-ink text-white/80"}`}
+                      onClick={() => pick(el)}
+                      aria-label={`${ACTION[el.kind]} „${el.label || "ohne Beschriftung"}“`}
+                      style={{
+                        left: pct(el.box.x, vp.w),
+                        top: pct(el.box.y, vp.h),
+                        width: pct(el.box.w, vp.w),
+                        height: pct(el.box.h, vp.h),
+                      }}
+                      className="group absolute rounded-[5px] outline-none hover:bg-cyan/15 hover:ring-2 hover:ring-cyan focus-visible:bg-cyan/15 focus-visible:ring-2 focus-visible:ring-cyan"
                     >
-                      {ask.secret ? `🔒 Zugangsdaten – im Ablauf nur {${ask.name}}` : "🔓 Wird so im Ablauf gespeichert"}
+                      <HoverTip el={el} />
                     </button>
-                    <span id="vorfuehren-eingabe-hilfe" className="rounded-full bg-ink/90 px-2.5 py-1 text-white/75 shadow-lg">
-                      Enter schickt ab · Tab übernimmt · Esc bricht ab
-                    </span>
+                  ))}
+                {ask && (
+                  <div
+                    className="absolute z-20"
+                    style={
+                      ask.box
+                        ? {
+                            left: pct(ask.box.x, vp.w),
+                            top: pct(ask.box.y, vp.h),
+                            width: `max(${pct(ask.box.w, vp.w)}, 12rem)`,
+                            height: pct(ask.box.h, vp.h),
+                          }
+                        : { left: "50%", top: "40%", width: "20rem", transform: "translateX(-50%)" }
+                    }
+                  >
+                    <input
+                      autoFocus
+                      aria-label={`Was soll in „${ask.target.label}“ hinein?`}
+                      aria-describedby="vorfuehren-eingabe-hilfe"
+                      type={ask.secret ? "password" : "text"}
+                      autoComplete="off"
+                      value={ask.text}
+                      onChange={(e) => setAsk({ ...ask, text: e.target.value })}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === "Tab") {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          commitAsk(e.key === "Enter");
+                        } else if (e.key === "Escape") {
+                          e.stopPropagation();
+                          askDone.current = true;
+                          setAsk(null);
+                        }
+                      }}
+                      onBlur={() => commitAsk(false)}
+                      className="block h-full min-h-7 w-full rounded-[5px] border-2 border-cyan bg-white px-2 text-[13px] text-black shadow-[0_0_0_4px_rgb(34_211_238/0.25)] outline-none"
+                    />
+                    <div className="absolute left-0 top-full mt-1.5 flex w-max items-center gap-1.5 whitespace-nowrap text-[11px] font-semibold">
+                      <button
+                        type="button"
+                        aria-pressed={ask.secret}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => setAsk({ ...ask, secret: !ask.secret })}
+                        className={`rounded-full px-2.5 py-1 shadow-lg ${ask.secret ? "bg-violet text-white" : "bg-ink text-white/80"}`}
+                      >
+                        {ask.secret ? `🔒 Zugangsdaten – im Ablauf nur {${ask.name}}` : "🔓 Wird so im Ablauf gespeichert"}
+                      </button>
+                      <span id="vorfuehren-eingabe-hilfe" className="rounded-full bg-ink/90 px-2.5 py-1 text-white/75 shadow-lg">
+                        Enter schickt ab · Tab übernimmt · Esc bricht ab
+                      </span>
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+            )}
             <p className="text-xs text-white/55">
-              Felder und Knöpfe leuchten auf, wenn die Maus darüber ist. Das Mausrad über der Seite blättert (oder ▲ ▼). Mit der Tastatur:
-              Tab springt von Element zu Element, Enter wählt aus.
+              {mode === "live"
+                ? "Klick und tippe direkt in die Seite, wie in einem normalen Browser. E-Mail und Passwörter merkt sich LAST nur als Platzhalter – nie im Klartext im Ablauf."
+                : "Felder und Knöpfe leuchten auf, wenn die Maus darüber ist. Das Mausrad über der Seite blättert (oder ▲ ▼). Mit der Tastatur: Tab springt von Element zu Element, Enter wählt aus."}
             </p>
           </section>
         </div>
@@ -442,14 +601,13 @@ export function LiveRecorder({
   );
 }
 
-function HoverTip({ el, vp }: { el?: LiveElement; vp: { w: number; h: number } }) {
-  if (!el) return null;
-  const top = el.box.y > 40;
+/** Hinweis über (oder unter) dem Element – nur per CSS, ohne dass React bei jeder Mausbewegung neu zeichnet. */
+function HoverTip({ el }: { el: LiveElement }) {
+  const above = el.box.y > 40;
   return (
     <span
       aria-hidden="true"
-      style={{ left: `${(el.box.x / vp.w) * 100}%`, top: `${((top ? el.box.y : el.box.y + el.box.h) / vp.h) * 100}%` }}
-      className={`pointer-events-none absolute z-10 max-w-64 truncate rounded-md bg-ink px-2 py-1 text-[11px] font-semibold text-white shadow-lg ${top ? "-translate-y-[calc(100%+4px)]" : "translate-y-1"}`}
+      className={`pointer-events-none absolute left-0 z-10 hidden w-max max-w-64 truncate rounded-md bg-ink px-2 py-1 text-left text-[11px] font-semibold text-white shadow-lg group-hover:block group-focus-visible:block ${above ? "bottom-full mb-1" : "top-full mt-1"}`}
     >
       {ACTION[el.kind]} „{el.label || "…"}“
     </span>

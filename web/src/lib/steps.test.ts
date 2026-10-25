@@ -14,9 +14,21 @@ warte bis ".antwort" fertig ist (2 s ruhig)`;
 describe("Schritt-Sprache", () => {
   it("liest alle Arten wie das Backend", () => {
     expect(parseSteps(EXAMPLE).map((s) => s.kind)).toEqual([
-      "fill", "fill", "click", "wait_text", "measure", "fill", "press", "wait_first", "wait_done",
+      "fill",
+      "fill",
+      "click",
+      "wait_text",
+      "measure",
+      "fill",
+      "press",
+      "wait_first",
+      "wait_done",
     ]);
-    expect(parseLine('tippe in "Nachricht" "Was ist ein Lasttest?"')).toEqual({ kind: "fill", target: "Nachricht", text: "Was ist ein Lasttest?" });
+    expect(parseLine('tippe in "Nachricht" "Was ist ein Lasttest?"')).toEqual({
+      kind: "fill",
+      target: "Nachricht",
+      text: "Was ist ein Lasttest?",
+    });
     expect(parseLine("drücke esc")).toEqual({ kind: "press", key: "Escape" });
     expect(parseLine("warte 2,5 s")).toEqual({ kind: "wait_s", seconds: 2.5 });
     expect(parseLine('warte bis ".a" fertig ist')).toEqual({ kind: "wait_done", target: ".a", quiet: 3 });
@@ -29,9 +41,13 @@ describe("Schritt-Sprache", () => {
   });
 
   it("behält unbekannte Zeilen und Kommentare wörtlich", () => {
-    const steps = parseSteps("# Anmeldung\nhüpfe dreimal\n\nklicke \"Los\"");
-    expect(steps).toEqual([{ kind: "raw", line: "# Anmeldung" }, { kind: "raw", line: "hüpfe dreimal" }, { kind: "click", target: "Los" }]);
-    expect(formatSteps(steps)).toBe("# Anmeldung\nhüpfe dreimal\nklicke \"Los\"");
+    const steps = parseSteps('# Anmeldung\nhüpfe dreimal\n\nklicke "Los"');
+    expect(steps).toEqual([
+      { kind: "raw", line: "# Anmeldung" },
+      { kind: "raw", line: "hüpfe dreimal" },
+      { kind: "click", target: "Los" },
+    ]);
+    expect(formatSteps(steps)).toBe('# Anmeldung\nhüpfe dreimal\nklicke "Los"');
   });
 
   it("lässt beim Tippen Leerzeichen stehen und nimmt Anführungszeichen aus dem Ziel", () => {
@@ -57,7 +73,11 @@ describe("Schritt-Sprache", () => {
   });
 
   it("beschreibt Schritte in Alltagssprache", () => {
-    expect(sentence(parseLine('klicke "Löschen" bei "Bestellung 4711"'))).toEqual({ title: "Klicken", what: "Löschen", detail: "bei „Bestellung 4711“" });
+    expect(sentence(parseLine('klicke "Löschen" bei "Bestellung 4711"'))).toEqual({
+      title: "Klicken",
+      what: "Löschen",
+      detail: "bei „Bestellung 4711“",
+    });
     expect(sentence(parseLine('klicke "Löschen" (Nr. 2)')).detail).toBe("der 2. auf der Seite");
     expect(sentence(parseLine('tippe in "E-Mail" {email}')).detail).toBe("Zugangsdaten {email}");
     expect(sentence(parseLine('tippe in "Nachricht" "Hallo"')).detail).toBe("„Hallo“");
@@ -79,13 +99,15 @@ describe("Schritt-Sprache", () => {
     expect(stepProblems(parseSteps(EXAMPLE))).toEqual([]);
     expect(stepProblems(parseSteps('klicke "Los"')).join()).toMatch(/Ab hier messen/);
     expect(stepProblems(parseSteps('klicke "Los"\nmessen ab hier')).join()).toMatch(/fehlt noch ein Schritt/);
-    expect(stepProblems(parseSteps("hüpfe\nmessen\nklicke \"x\"")).join()).toMatch(/Schritt 1 versteht/);
-    expect(stepProblems([{ kind: "click", target: "" }, { kind: "measure" }, { kind: "press", key: "Enter" }]).join()).toMatch(/Schritt 1 fehlt das Ziel/);
+    expect(stepProblems(parseSteps('hüpfe\nmessen\nklicke "x"')).join()).toMatch(/Schritt 1 versteht/);
+    expect(stepProblems([{ kind: "click", target: "" }, { kind: "measure" }, { kind: "press", key: "Enter" }]).join()).toMatch(
+      /Schritt 1 fehlt das Ziel/,
+    );
   });
 
   it("setzt die Startseite davor, außer der Ablauf beginnt selbst mit öffne", () => {
     expect(withStart('klicke "x"', "https://a.test")).toBe('öffne https://a.test\nklicke "x"');
     expect(withStart("", "https://a.test")).toBe("öffne https://a.test");
-    expect(withStart("öffne https://b.test\nklicke \"x\"", "https://a.test")).toBe('öffne https://b.test\nklicke "x"');
+    expect(withStart('öffne https://b.test\nklicke "x"', "https://a.test")).toBe('öffne https://b.test\nklicke "x"');
   });
 });

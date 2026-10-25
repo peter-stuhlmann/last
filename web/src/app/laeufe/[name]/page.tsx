@@ -30,11 +30,7 @@ export default async function ErgebnisPage({ params }: PageProps<"/laeufe/[name]
   return (
     <>
       <AppHeader
-        crumbs={[
-          { label: "Läufe", href: "/laeufe" },
-          { label: `${host}${summary.config.model ? ` · ${summary.config.model}` : ""}` },
-          { label: info?.title ?? `Lauf ${runLabel(name)}` },
-        ]}
+        crumbs={[{ label: "Frühere Läufe", href: "/laeufe" }, { label: info?.title ?? `Lauf ${runLabel(name)}` }]}
         status={
           finished ? (
             <StatusPill tone="done" tag="Fertig" text={duration != null ? `Abgeschlossen in ${clock(duration)} min` : "Abgeschlossen"} />
@@ -45,7 +41,10 @@ export default async function ErgebnisPage({ params }: PageProps<"/laeufe/[name]
         actions={
           <>
             <TargetChip host={host} model={summary.config.model} />
-            <Link href="/" className="btn btn-primary">
+            <Link href="/" className="btn btn-ghost" title="Öffnet das Formular mit den zuletzt benutzten Einstellungen">
+              <span aria-hidden="true">↻</span> Test wiederholen
+            </Link>
+            <Link href="/?neu=1" className="btn btn-primary">
               <span aria-hidden="true">+</span> Neuer Test
             </Link>
           </>

@@ -212,3 +212,88 @@ body {
     background: #10121a;
   }
 }
+
+/*
+ * Desktop-App (data-app="desktop", gesetzt in layout.tsx): Die Oberfläche soll sich wie ein Programm anfühlen,
+ * nicht wie eine Webseite – feste Kopfzeile, der Inhalt scrollt darunter, nichts Werbendes, die Start-Leiste
+ * bleibt unten stehen. Im Docker-Betrieb (Browser) bleibt alles wie es war.
+ */
+html[data-app="desktop"] {
+  height: 100%;
+  overflow: hidden;
+}
+html[data-app="desktop"] body {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  /* Beschriftungen und Knöpfe lassen sich nicht „markieren“ – Texte zum Kopieren schon (siehe unten) */
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+  overscroll-behavior: none;
+}
+html[data-app="desktop"] body > header {
+  flex: none;
+}
+html[data-app="desktop"] main#inhalt {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  scroll-behavior: smooth;
+}
+html[data-app="desktop"] :is(input, textarea, select, pre, code, samp, [contenteditable], .selectable, td, [role="alert"]) {
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: auto;
+}
+html[data-app="desktop"] :is(a, button, summary, label, select, [role="button"]) {
+  cursor: pointer;
+}
+html[data-app="desktop"] :is(button, a, img):not(.selectable) {
+  -webkit-user-drag: none;
+}
+html[data-app="desktop"] button:disabled {
+  cursor: default;
+}
+/* Startseite: keine Werbefläche, gleich das Formular */
+html[data-app="desktop"] .app-hide {
+  display: none !important;
+}
+/* Gegenstück: nur in der Desktop-App zu sehen */
+.app-only {
+  display: none;
+}
+html[data-app="desktop"] .app-only {
+  display: inline;
+}
+html[data-app="desktop"] main#inhalt {
+  padding-top: 28px;
+  padding-bottom: 0;
+  row-gap: 24px;
+}
+html[data-app="desktop"] .app-title {
+  font-size: 30px;
+  line-height: 1.15;
+  margin-top: 0;
+}
+html[data-app="desktop"] .app-title br {
+  display: none;
+}
+html[data-app="desktop"] .app-title + p {
+  margin-top: 8px;
+  margin-bottom: 20px;
+  font-size: 15px;
+  line-height: 22px;
+}
+/* Start-Leiste: Bestätigung und „Test starten“ bleiben am unteren Rand, egal wie weit man gescrollt hat */
+/* z-index über den Symbolen der Ablauf-Karten (z-10), damit nichts durch die Leiste scheint */
+html[data-app="desktop"] .app-dock {
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
+  margin: 0 -12px;
+  padding: 18px 12px 12px;
+  background: linear-gradient(to bottom, transparent, var(--color-ink) 16px);
+}

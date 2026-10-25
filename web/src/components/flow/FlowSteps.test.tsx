@@ -38,7 +38,14 @@ function Harness({
   const [secrets, setSecrets] = useState<Record<string, string>>({});
   return (
     <>
-      <FlowSteps value={text} onChange={setText} baseUrl={baseUrl} secrets={secrets} siteAuth={siteAuth} onSecret={(k, v) => setSecrets((s) => ({ ...s, [k]: v }))} />
+      <FlowSteps
+        value={text}
+        onChange={setText}
+        baseUrl={baseUrl}
+        secrets={secrets}
+        siteAuth={siteAuth}
+        onSecret={(k, v) => setSecrets((s) => ({ ...s, [k]: v }))}
+      />
       <output data-testid="text">{text}</output>
       <output data-testid="secrets">{JSON.stringify(secrets)}</output>
     </>
@@ -104,7 +111,11 @@ describe("Vorführen", () => {
     fetchMock
       .mockResolvedValueOnce(reply({ session: "a".repeat(32), snapshot: SNAP, steps_done: 1, error: null }))
       .mockResolvedValueOnce(
-        reply({ need: "text", target: { kind: "fill", target: "E-Mail", label: "E-Mail", secret: "email" }, thumb: "data:image/jpeg;base64,BBBB" }),
+        reply({
+          need: "text",
+          target: { kind: "fill", target: "E-Mail", label: "E-Mail", secret: "email" },
+          thumb: "data:image/jpeg;base64,BBBB",
+        }),
       )
       .mockResolvedValueOnce(reply({ steps: ['tippe in "E-Mail" {email}'], snapshot: SNAP }))
       .mockResolvedValueOnce(reply({ steps: ['klicke "Anmelden"'], thumb: "data:image/jpeg;base64,CCCC", snapshot: SNAP }))
@@ -125,7 +136,10 @@ describe("Vorführen", () => {
     // Tab übernimmt den Text ohne Enter – getippt wird direkt im Feld auf dem Bild
     expect(within(dialog).getByRole("button", { name: /Zugangsdaten – im Ablauf nur \{email\}/ })).toHaveAttribute("aria-pressed", "true");
     await user.keyboard("{Tab}");
-    expect(sent(2)).toMatchObject({ action: { type: "fill", target: { target: "E-Mail" }, text: "{email}", enter: false }, secrets: { email: "tester@example.de" } });
+    expect(sent(2)).toMatchObject({
+      action: { type: "fill", target: { target: "E-Mail" }, text: "{email}", enter: false },
+      secrets: { email: "tester@example.de" },
+    });
     await waitFor(() => expect(text()).toBe('tippe in "E-Mail" {email}'));
     expect(screen.getByTestId("secrets").textContent).toContain("tester@example.de");
 
@@ -138,7 +152,9 @@ describe("Vorführen", () => {
     await user.click(within(dialog).getByRole("button", { name: "↵ Enter drücken" }));
     expect(sent(4).action).toEqual({ type: "press", key: "Enter", measuring: true });
     await waitFor(() =>
-      expect(text()).toBe('tippe in "E-Mail" {email}\nklicke "Anmelden"\nmessen ab hier\ndrücke Enter\nwarte bis die Seite ruhig ist (2 s)'),
+      expect(text()).toBe(
+        'tippe in "E-Mail" {email}\nklicke "Anmelden"\nmessen ab hier\ndrücke Enter\nwarte bis die Seite ruhig ist (2 s)',
+      ),
     );
     expect(within(dialog).getByRole("status")).toHaveTextContent("Warten, bis die Seite fertig ist");
     await expectAccessible(dialog);
@@ -151,7 +167,14 @@ describe("Vorführen", () => {
 
   it("zeigt, wo das Abspielen hängt, und macht dort weiter", async () => {
     fetchMock
-      .mockResolvedValueOnce(reply({ session: "b".repeat(32), snapshot: SNAP, steps_done: 2, error: { index: 2, message: "„klicke „Weiter““ hat nicht geklappt." } }))
+      .mockResolvedValueOnce(
+        reply({
+          session: "b".repeat(32),
+          snapshot: SNAP,
+          steps_done: 2,
+          error: { index: 2, message: "„klicke „Weiter““ hat nicht geklappt." },
+        }),
+      )
       .mockResolvedValue(reply({ ok: true } as LiveReply));
     const user = userEvent.setup();
     render(<Harness initial={'klicke "Anmelden"\nklicke "Weiter"\ndrücke Enter'} />);
@@ -191,7 +214,7 @@ describe("Vorführen", () => {
     const input = await within(dialog).findByLabelText("Was soll in „E-Mail“ hinein?");
     expect(input).toHaveAttribute("type", "text");
     expect(input).toHaveFocus();
-    expect(input.parentElement!.style.left).toBe(field.style.left);          // genau dort, wo das Feld ist
+    expect(input.parentElement!.style.left).toBe(field.style.left); // genau dort, wo das Feld ist
     await user.type(input, "weg{Escape}");
     expect(within(dialog).queryByLabelText("Was soll in „E-Mail“ hinein?")).not.toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(2);

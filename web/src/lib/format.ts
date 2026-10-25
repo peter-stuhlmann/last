@@ -16,12 +16,17 @@ function secDigits(v: number): number {
   return v < 1 ? 2 : v < 10 ? 1 : 0;
 }
 
+/** Sekunden lesbar – was auf 0,00 gerundet würde, heißt „< 0,01“ (eine Null sähe nach einem Fehler aus). */
+function secValue(v: number): string {
+  return v > 0 && v < 0.005 ? "< 0,01" : nf(v, secDigits(v));
+}
+
 export function splitSecs(v: Num): { value: string; unit: string } {
-  return { value: isNum(v) ? nf(v, secDigits(v)) : DASH, unit: "s" };
+  return { value: isNum(v) ? secValue(v) : DASH, unit: "s" };
 }
 
 export function secs(v: Num): string {
-  return isNum(v) ? `${nf(v, secDigits(v))} s` : DASH;
+  return isNum(v) ? `${secValue(v)} s` : DASH;
 }
 
 export function eur(v: Num, digits = 0): string {

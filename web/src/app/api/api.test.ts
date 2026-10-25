@@ -134,12 +134,8 @@ describe("GET /api/events", () => {
 
 describe("POST /api/models", () => {
   it("fragt den Modellserver direkt – der Schlüssel steht nie in der Adresse", async () => {
-    fetchMock.mockResolvedValue(
-      Response.json({ data: [{ id: "brain", max_model_len: 32768, owned_by: "intern" }, { id: 7 }] }),
-    );
-    const res = await models(
-      post("http://localhost/api/models", { base_url: "http://spark:8000/v1", api_key: "sk-geheim" }),
-    );
+    fetchMock.mockResolvedValue(Response.json({ data: [{ id: "brain", max_model_len: 32768, owned_by: "intern" }, { id: 7 }] }));
+    const res = await models(post("http://localhost/api/models", { base_url: "http://spark:8000/v1", api_key: "sk-geheim" }));
     expect(await res.json()).toEqual({ models: [{ id: "brain", max_len: 32768 }] });
 
     const [url, init] = fetchMock.mock.calls[0];
@@ -186,9 +182,7 @@ describe("GET /api/runs/[name]/[file]", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-disposition")).toContain("attachment");
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
-    expect(String(fetchMock.mock.calls[0][0])).toBe(
-      "http://127.0.0.1:8090/api/runs/results_20261004_234100/report.pdf",
-    );
+    expect(String(fetchMock.mock.calls[0][0])).toBe("http://127.0.0.1:8090/api/runs/results_20261004_234100/report.pdf");
   });
 
   it("blockt Pfadtricks und unbekannte Dateien", async () => {
@@ -251,22 +245,63 @@ describe("POST /api/flow/live/…", () => {
         },
       }),
     );
-    const res = await live(post("http://localhost/api/flow/live/start", { steps: "öffne https://a.test/login", secrets: { email: "a@b.de" }, site_auth: { user: "admin", password: "zu" }, out: "/etc" }), op("start"));
+    const res = await live(
+      post("http://localhost/api/flow/live/start", {
+        steps: "öffne https://a.test/login",
+        secrets: { email: "a@b.de" },
+        site_auth: { user: "admin", password: "zu" },
+        out: "/etc",
+      }),
+      op("start"),
+    );
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data).not.toHaveProperty("extra");
     expect(data.snapshot.elements).toEqual([{ mark: "0", kind: "field", label: "Nachricht", box: { x: 1, y: 2, w: 3, h: 4 } }]);
     const [url, init] = fetchMock.mock.calls[0];
     expect(String(url)).toBe("http://127.0.0.1:8090/api/flow/live/start");
-    expect(JSON.parse(init.body)).toEqual({ steps: "öffne https://a.test/login", secrets: { email: "a@b.de" }, site_auth: { user: "admin", password: "zu" } });
+    expect(JSON.parse(init.body)).toEqual({
+      steps: "öffne https://a.test/login",
+      secrets: { email: "a@b.de" },
+      site_auth: { user: "admin", password: "zu" },
+    });
   });
 
   it("holt mit look nur ein frisches Bild – mit nichts als der Sitzung", async () => {
     fetchMock.mockResolvedValue(Response.json({ snapshot: null }));
-    const res = await live(post("http://localhost/api/flow/live/look", { session: SID, action: { type: "press", key: "Enter" } }), op("look"));
+    const res = await live(
+      post("http://localhost/api/flow/live/look", { session: SID, action: { type: "press", key: "Enter" } }),
+      op("look"),
+    );
     expect(res.status).toBe(200);
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ session: SID });
     expect((await live(post("http://localhost/api/flow/live/look", { session: "x" }), op("look"))).status).toBe(400);
+  });
+
+  it("reicht Eingaben der Live-Ansicht geprüft weiter und lässt Fremdes nicht durch", async () => {
+    fetchMock.mockResolvedValue(Response.json({ ok: true }));
+    const events = [
+      { t: "click", x: 10, y: 20 },
+      { t: "type", text: "a" },
+      { t: "key", key: "Enter", mods: ["Control"] },
+    ];
+    const res = await live(post("http://localhost/api/flow/live/input", { session: SID, measuring: true, events, evil: 1 }), op("input"));
+    expect(res.status).toBe(200);
+    expect(String(fetchMock.mock.calls[0][0])).toBe("http://127.0.0.1:8090/api/flow/live/input");
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ session: SID, measuring: true, events });
+    fetchMock.mockClear();
+    for (const bad of [
+      [{ t: "eval", js: "1" }],
+      [{ t: "click", x: 5000, y: 1 }],
+      [{ t: "type", text: "a\nb" }],
+      [{ t: "key", key: "F12!" }],
+      [{ t: "key", key: "a", mods: ["Super"] }],
+      [],
+    ]) {
+      const r = await live(post("http://localhost/api/flow/live/input", { session: SID, events: bad }), op("input"));
+      expect(r.status, JSON.stringify(bad)).toBe(400);
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("prüft Aktionen, bevor sie im Browser landen", async () => {
@@ -282,26 +317,42 @@ describe("POST /api/flow/live/…", () => {
       const res = await live(post("http://localhost/api/flow/live/act", { session: SID, action }), op("act"));
       expect(res.status, JSON.stringify(action)).toBe(400);
     }
-    expect((await live(post("http://localhost/api/flow/live/act", { session: "x", action: { type: "press", key: "Enter" } }), op("act"))).status).toBe(400);
+    expect(
+      (await live(post("http://localhost/api/flow/live/act", { session: "x", action: { type: "press", key: "Enter" } }), op("act"))).status,
+    ).toBe(400);
     expect((await live(post("http://localhost/api/flow/live/drop", {}), op("drop"))).status).toBe(404);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("gibt Rückfragen und neue Schritte weiter, Bilder nur als JPEG", async () => {
     fetchMock.mockResolvedValue(
-      Response.json({ need: "text", target: { kind: "fill", target: "E-Mail", nth: 2, label: "E-Mail", secret: "email" }, thumb: "javascript:alert(1)" }),
+      Response.json({
+        need: "text",
+        target: { kind: "fill", target: "E-Mail", nth: 2, label: "E-Mail", secret: "email" },
+        thumb: "javascript:alert(1)",
+      }),
     );
-    const res = await live(post("http://localhost/api/flow/live/act", { session: SID, action: { type: "pick", mark: "3", measuring: true } }), op("act"));
+    const res = await live(
+      post("http://localhost/api/flow/live/act", { session: SID, action: { type: "pick", mark: "3", measuring: true } }),
+      op("act"),
+    );
     const data = await res.json();
-    expect(data).toEqual({ need: "text", target: { kind: "fill", target: "E-Mail", nth: 2, label: "E-Mail", secret: "email" }, thumb: null });
+    expect(data).toEqual({
+      need: "text",
+      target: { kind: "fill", target: "E-Mail", nth: 2, label: "E-Mail", secret: "email" },
+      thumb: null,
+    });
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).action).toEqual({ type: "pick", mark: "3", measuring: true });
   });
 
   it("lehnt Abläufe ohne Startseite ab und gibt Backend-Fehler verständlich weiter", async () => {
-    expect((await live(post("http://localhost/api/flow/live/start", { steps: "klicke \"Los\"" }), op("start"))).status).toBe(400);
+    expect((await live(post("http://localhost/api/flow/live/start", { steps: 'klicke "Los"' }), op("start"))).status).toBe(400);
     expect(fetchMock).not.toHaveBeenCalled();
     fetchMock.mockResolvedValue(Response.json({ error: "Der Browser wurde inzwischen geschlossen – bitte neu starten." }, { status: 410 }));
-    const res = await live(post("http://localhost/api/flow/live/act", { session: SID, action: { type: "press", key: "Enter" } }), op("act"));
+    const res = await live(
+      post("http://localhost/api/flow/live/act", { session: SID, action: { type: "press", key: "Enter" } }),
+      op("act"),
+    );
     expect(res.status).toBe(410);
     expect((await res.json()).error).toMatch(/neu starten/);
   });

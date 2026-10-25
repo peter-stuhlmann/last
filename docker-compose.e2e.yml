@@ -12,8 +12,7 @@ services:
 
   backend:
     image: llm-stresstest-e2e
-    volumes: !override
-      # Eigener Ergebnisordner im Container – die echten Läufe in ./results bleiben unberührt.
+    volumes: !override # Eigener Ergebnisordner im Container – die echten Läufe in ./results bleiben unberührt.
       - e2e-results:/app/results
 
   testsite:

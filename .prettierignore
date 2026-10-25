@@ -1,0 +1,17 @@
+# Erzeugtes, Abhängigkeiten und Ergebnisse – nur eigener Quelltext wird formatiert
+results/
+results_*/
+.venv/
+venv/
+**/node_modules/
+**/.next/
+web/.vitest/
+web/test-results/
+web/playwright-report/
+desktop/build/
+desktop/dist/
+.playwright-mcp/
+package-lock.json
+.pytest_cache/
+**/__pycache__/
+web/next-env.d.ts

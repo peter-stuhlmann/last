@@ -1,7 +1,7 @@
 // Rauchtest der gepackten App (dist/*-unpacked bzw. LAST.app): starten, Oberfläche laden, Bildschirmfoto, beenden.
 // Schlägt fehl, wenn Backend oder Oberfläche nicht hochkommen. Aufruf: node scripts/smoke.mjs [bild.png]
 import { spawnSync } from "node:child_process";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -26,6 +26,8 @@ if (!exe || !existsSync(exe)) {
 const args = process.platform === "linux" ? ["--no-sandbox"] : [];
 const env = { ...process.env, LAST_SMOKE_TEST: shot };
 delete env.ELECTRON_RUN_AS_NODE; // in VS-Code-Terminals gesetzt – Electron liefe sonst als reines Node
+// Ein altes Bild darf nicht als Erfolg zählen – etwa wenn LAST schon läuft und die zweite Instanz sich sofort beendet
+rmSync(shot, { force: true });
 const r = spawnSync(exe, args, { env, stdio: "inherit", timeout: 180_000 });
 if (r.status !== 0 || !existsSync(shot)) {
   console.error(`Rauchtest fehlgeschlagen (Exit ${r.status ?? r.signal})`);

@@ -19,8 +19,10 @@ async function lastRun() {
   return summary ? { run, summary } : null;
 }
 
-export default async function Home() {
-  const [defaults, state, last] = await Promise.all([getDefaults(), getState(), lastRun()]);
+export default async function Home({ searchParams }: PageProps<"/">) {
+  const [defaults, state, last, params] = await Promise.all([getDefaults(), getState(), lastRun(), searchParams]);
+  // „Neuer Test“ (?neu=1) beginnt mit leerem Ablauf; „Test wiederholen“ lässt alles, wie es zuletzt war
+  const fresh = params.neu === "1";
   const running = state?.state === "running";
   const cap = last ? capacityView(last.summary) : null;
   const verdict = last ? verdictView(last.summary) : null;
@@ -34,7 +36,7 @@ export default async function Home() {
   return (
     <>
       <AppHeader
-        crumbs={[{ label: "Läufe", href: "/laeufe" }, { label: "Neuer Test" }]}
+        crumbs={[{ label: "Neuer Test" }]}
         status={
           running ? (
             <StatusPill tone="live" tag="Live" text="Ein Test läuft" />
@@ -66,10 +68,9 @@ export default async function Home() {
               </Link>
             </p>
           )}
-          <p className="eyebrow text-[#bfadff]">Lasttest · KI-Server, APIs, Websites &amp; Abläufe</p>
-          <h1 className="-ml-1 mt-3 font-display text-[44px] font-bold leading-[1.02] tracking-[-0.035em] sm:text-[72px]">
-            Wie viel hält
-            <br />
+          <p className="eyebrow app-hide text-[#bfadff]">Lasttest · KI-Server, APIs, Websites &amp; Abläufe</p>
+          <h1 className="app-title -ml-1 mt-3 font-display text-[44px] font-bold leading-[1.02] tracking-[-0.035em] sm:text-[72px]">
+            Wie viel hält <br />
             euer Server <span className="bg-gradient-to-r from-[#a68cff] to-cyan bg-clip-text text-transparent">aus?</span>
           </h1>
           <p className="mb-10 mt-6 max-w-[560px] text-[17px] leading-[27px] text-white/70">
@@ -83,11 +84,12 @@ export default async function Home() {
             api={defaults?.api ?? FALLBACK_API}
             flow={defaults?.flow ?? FALLBACK_FLOW}
             features={defaults?.features}
+            fresh={fresh}
           />
         </div>
 
         <aside aria-label="Letzter Lauf" className="flex flex-col items-center gap-8 lg:pt-2">
-          <div className="relative hidden w-full max-w-[600px] lg:block">
+          <div className="app-hide relative hidden w-full max-w-[600px] lg:block">
             <Nutzerstrom />
             {cap?.users != null && (
               <p className="absolute right-0 top-[14%] rounded-[14px] border border-[#a68cff]/40 bg-[#0a0b14]/80 px-4 py-3 shadow-[0_12px_32px_rgb(124_92_255/0.35)] backdrop-blur-[20px]">
@@ -104,7 +106,12 @@ export default async function Home() {
               <p className="absolute bottom-[13%] left-[2%] rounded-[14px] border border-cyan/40 bg-[#0a0b14]/80 px-4 py-3 shadow-[0_12px_32px_rgb(34_211_238/0.3)] backdrop-blur-[20px]">
                 <span className="block font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-white/65">Bestwert</span>
                 <span className="mt-1 block font-display text-base font-bold">
-                  {secs(best)} {lastKind === "api" || lastKind === "flow" ? "bis die Antwort da ist" : lastIsWeb ? "bis die Seite da ist" : "bis zum 1. Wort"}
+                  {secs(best)}{" "}
+                  {lastKind === "api" || lastKind === "flow"
+                    ? "bis die Antwort da ist"
+                    : lastIsWeb
+                      ? "bis die Seite da ist"
+                      : "bis zum 1. Wort"}
                 </span>
               </p>
             )}

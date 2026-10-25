@@ -25,7 +25,8 @@ const jetbrains = localFont({
 
 export const metadata: Metadata = {
   title: { default: "LAST – Lasttest für KI-Server und Websites", template: "%s · LAST" },
-  description: "Wie viele Personen halten euer KI-Server oder eure Website gleichzeitig aus? LAST misst es und erklärt das Ergebnis in einfachen Worten.",
+  description:
+    "Wie viele Personen halten euer KI-Server oder eure Website gleichzeitig aus? LAST misst es und erklärt das Ergebnis in einfachen Worten.",
   robots: { index: false, follow: false },
   referrer: "no-referrer",
 };
@@ -40,7 +41,12 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="de" className={`${inter.variable} ${grotesk.variable} ${jetbrains.variable} antialiased`}>
+    <html
+      lang="de"
+      className={`${inter.variable} ${grotesk.variable} ${jetbrains.variable} antialiased`}
+      // In der Desktop-App (LAST_DESKTOP, siehe desktop/main.js) zeigt sich die Oberfläche als Programm: feste Kopfzeile, Inhalt scrollt darunter
+      data-app={process.env.LAST_DESKTOP ? "desktop" : undefined}
+    >
       <body className="min-h-dvh">
         <a
           href="#inhalt"

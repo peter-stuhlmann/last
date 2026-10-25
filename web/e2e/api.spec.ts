@@ -8,7 +8,15 @@ test("HTTP-API-Test von der Eingabe bis zum Bericht", async ({ page, request }) 
   await page.route("**/api/start", async (route) => {
     const body = route.request().postDataJSON() as Record<string, unknown>;
     await route.continue({
-      postData: JSON.stringify({ ...body, levels: "1,4", level_seconds: 5, warmup_seconds: 1, min_samples: 3, baseline_requests: 2, tests: "baseline,ramp" }),
+      postData: JSON.stringify({
+        ...body,
+        levels: "1,4",
+        level_seconds: 5,
+        warmup_seconds: 1,
+        min_samples: 3,
+        baseline_requests: 2,
+        tests: "baseline,ramp",
+      }),
     });
   });
 
@@ -38,6 +46,8 @@ test("HTTP-API-Test von der Eingabe bis zum Bericht", async ({ page, request }) 
   expect(pptx.headers()["content-disposition"]).toContain("Lasttest-API_");
 
   // Der Wert der Kopfzeile darf nirgends auftauchen
-  const summary = await request.get((await page.getByRole("link", { name: /Rohdaten/ }).getAttribute("href"))!.replace("raw_requests.jsonl", "summary.json"));
+  const summary = await request.get(
+    (await page.getByRole("link", { name: /Rohdaten/ }).getAttribute("href"))!.replace("raw_requests.jsonl", "summary.json"),
+  );
   expect((await summary.text()).includes('"e2e"')).toBe(false);
 });

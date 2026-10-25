@@ -7,7 +7,7 @@
 //
 // Das Backend antwortet nur mit einem Schlüssel, den diese App bei jedem Start neu erzeugt – andere Programme oder
 // Webseiten auf dem Rechner können es so nicht fernsteuern.
-const { app, BrowserWindow, dialog, shell, utilityProcess } = require("electron");
+const { app, BrowserWindow, dialog, Menu, shell, utilityProcess } = require("electron");
 const { spawn } = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
@@ -99,6 +99,7 @@ async function start() {
       PORT: String(webPort),
       BACKEND_URL: `http://127.0.0.1:${backendPort}`,
       BACKEND_TOKEN: token,
+      LAST_DESKTOP: "1", // die Oberfläche zeigt sich dann als Programm, nicht als Webseite
     },
   });
   web.stdout?.pipe(webLog);
@@ -132,6 +133,25 @@ function createWindow() {
     title: "LAST",
     show: false,
     webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false },
+  });
+  // Standardmenü (File/Edit/View/Window) ist hier unnütz. Unter macOS bleibt es, dort hängen Cmd+C/V/Q daran.
+  if (process.platform !== "darwin") win.removeMenu();
+  // Wie ein Programm, nicht wie eine Webseite: kein Zoomen, kein Ziehen von Links, Rechtsklick nur dort, wo er hilft
+  win.webContents.setVisualZoomLevelLimits(1, 1);
+  win.webContents.on("context-menu", (_event, params) => {
+    const items = [];
+    if (params.isEditable) {
+      items.push(
+        { label: "Ausschneiden", role: "cut", enabled: params.editFlags.canCut },
+        { label: "Kopieren", role: "copy", enabled: params.editFlags.canCopy },
+        { label: "Einfügen", role: "paste", enabled: params.editFlags.canPaste },
+        { type: "separator" },
+        { label: "Alles auswählen", role: "selectAll" },
+      );
+    } else if (params.selectionText) {
+      items.push({ label: "Kopieren", role: "copy" });
+    }
+    if (items.length) Menu.buildFromTemplate(items).popup({ window: win });
   });
   win.once("ready-to-show", () => win.show());
   win.loadFile(path.join(__dirname, "loading.html"));

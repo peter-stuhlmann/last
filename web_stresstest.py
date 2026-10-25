@@ -480,8 +480,8 @@ def summarize_window(results, w0, w1, c, slo_load):
 
 
 def meets_slo(s, cfg):
-    """Ziel erreicht: keine Fehler, und 95 % der Besucher haben die Seite rechtzeitig."""
-    return (s.get("error_rate") == 0 and s.get("e2e_p95") is not None
+    """Ziel erreicht: (fast) keine Fehler, und 95 % der Besucher haben die Seite rechtzeitig."""
+    return (s.get("error_rate", 1) <= lt.ERR_OK and s.get("e2e_p95") is not None
             and s["e2e_p95"] <= cfg.get("slo_load", DEFAULTS["slo_load"]))
 
 
@@ -519,12 +519,17 @@ def lt_mins(m):
     return fmt(m, 0 if m == int(m) else 1) + (" Minute" if m == 1 else " Minuten")
 
 
+def error_pct(rate):
+    """Fehlerquote lesbar: „0,3 %“, unter 0,1 % aber „unter 0,1 %“ statt einer irreführenden 0,0."""
+    return "unter 0,1 %" if rate < 0.001 else f"{fmt(rate * 100, 1)} %"
+
+
 def verdict(summary):
     """Empfehlung in einem Satz: good | warn | bad plus Begründungen."""
     cfg = summary.get("config") or {}
     w, api = words(cfg), cfg.get("kind") == "api"
     users, target = capacity(summary).get("users"), cfg.get("target_users") or 0
-    rank = {"good": 0, "warn": 1, "bad": 2}
+    rank = {"info": 0, "good": 0, "warn": 1, "bad": 2}
     st, reasons = "good", []
 
     def note(status, text):
@@ -560,8 +565,9 @@ def verdict(summary):
         if spike.get("crashed"):
             note("bad", f"Beim großen Ansturm war {w['subj']} nicht mehr erreichbar.")
         elif spike["burst"]["error_rate"] > 0:
-            note("warn", f"Beim großen Ansturm bekamen {fmt(spike['burst']['error_rate'] * 100, 0)} % "
-                         f"der {w['units']} {w['fail']}.")
+            b = spike["burst"]
+            note("warn", f"Beim großen Ansturm bekamen {fmt(b['errors'], 0)} der {fmt(b['n'], 0)} "
+                         f"{w['units']} {w['fail']}.")
         elif spike.get("recovered") is False:
             note("warn", f"Nach dem großen Ansturm blieb {w['subj']} langsamer als vorher.")
         else:
@@ -569,14 +575,19 @@ def verdict(summary):
                          "ohne Fehler überstanden.")
     deg = (summary.get("soak") or {}).get("degradation") or {}
     soak = summary.get("soak")
-    if soak and soak["total"]["error_rate"] > 0:
-        note("warn", f"Unter Dauerlast gab es Fehler ({fmt(soak['total']['error_rate'] * 100, 1)} % der {w['events']}).")
+    tot = (soak or {}).get("total") or {}
+    failed = f"{fmt(tot.get('errors', 0), 0)} der {fmt(tot.get('n', 0), 0)} {w['events']}"
+    if soak and tot["error_rate"] > lt.ERR_OK:
+        note("bad" if tot["error_rate"] > 0.01 else "warn",
+             f"Unter Dauerlast gingen {failed} schief ({error_pct(tot['error_rate'])}).")
     elif deg.get("ttft_change_pct") is not None and deg["ttft_change_pct"] > 25:
         note("warn", f"Unter Dauerlast wird {w['subj']} langsamer (+{fmt(deg['ttft_change_pct'], 0)} % {w['time']}).")
     elif soak:
-        note("good", f"Unter Dauerlast ({lt_mins(soak['minutes'])}) bleibt {w['subj']} gleich schnell.")
-    if (summary.get("quality") or {}).get("overall") == "niedrig":
-        note("warn", "Die Messung selbst war nicht ganz sauber – Test wiederholen, bevor entschieden wird.")
+        note("good", f"Unter Dauerlast ({lt_mins(soak['minutes'])}) bleibt {w['subj']} gleich schnell"
+                     + (f" – nur {failed} gingen schief." if tot.get("errors") else "."))
+    qn = lt.quality_note(summary, st, w["subj"])
+    if qn:
+        note(*qn)
     headline = {"good": f"{w['subject']} hält {w['stand']} stand.",
                 "warn": f"{w['subject']} hält stand – mit Einschränkungen.",
                 "bad": f"{w['subject']} ist {w['stand']} so nicht gewachsen."}[st]
@@ -597,10 +608,15 @@ def assess_quality(summary):
     steps = (summary.get("ramp") or {}).get("steps", [])
     stages = (summary.get("rate") or {}).get("stages", [])
 
-    def add(status, title, value, text):
-        items.append({"status": status, "title": title, "value": value, "text": text})
+    def add(status, title, value, text, key=None, short=None):
+        items.append({"status": status, "title": title, "value": value, "text": text,
+                      **({"key": key} if key else {}), **({"short": short} if short else {})})
 
-    lags = [(f"{s['concurrency']} gleichzeitig", s["client_lag_ms"]) for s in steps
+    # Nur die Stufen, die das Ergebnis bestimmen (siehe lt.deciding)
+    cfg = summary.get("config") or {}
+    stages = lt.deciding(stages, lambda s: meets_slo(s, cfg) and not s.get("overloaded"), "rate")
+    lags = [(f"{s['concurrency']} gleichzeitig", s["client_lag_ms"])
+            for s in lt.deciding(steps, lambda s: meets_slo(s, cfg), "concurrency")
             if s.get("client_lag_ms") is not None]
     lags += [(f"{fmt(s['rate'] * 60, 0)} {w['events']}/min", s["client_lag_ms"]) for s in stages
              if s.get("client_lag_ms") is not None]
@@ -608,15 +624,17 @@ def assess_quality(summary):
         where, worst = max(lags, key=lambda x: x[1])
         if worst < 30:
             add("good", "Kam der Messrechner hinterher?", f"ja (max. {fmt(worst, 0)} ms Verzug)",
-                f"Der Rechner, der die {w['units']} spielt, war nie überlastet. Er misst also sauber.")
+                f"Der Rechner, der die {w['units']} spielt, war nie überlastet. Er misst also sauber.", "lag",
+                "dein Rechner kam gut hinterher")
         elif worst < 150:
             add("warn", "Kam der Messrechner hinterher?", f"knapp ({fmt(worst, 0)} ms bei {where})",
                 f"Bei vielen gleichzeitigen {w['units']}n hatte der Messrechner viel zu tun. Die {w['time']}en "
-                "auf den höchsten Stufen könnten etwas zu hoch sein.")
+                "auf den höchsten Stufen könnten etwas zu hoch sein.", "lag", "dein Rechner war knapp am Limit")
         else:
             add("bad", "Kam der Messrechner hinterher?", f"nein ({fmt(worst, 0)} ms bei {where})",
                 "Der Messrechner war überlastet. Die Werte auf den höchsten Stufen sind zu schlecht – "
-                f"{w['subj']} kann mehr. Besser von einem stärkeren Rechner testen.")
+                f"{w['subj']} kann mehr. Besser von einem stärkeren Rechner testen.", "lag",
+                "dein Rechner war am Limit – die Werte sind eher zu schlecht")
 
     lates = [s["send_late_ms"] for s in stages if s.get("send_late_ms") is not None]
     if lates:
@@ -627,18 +645,23 @@ def assess_quality(summary):
              "warn": "Einige Aufrufe gingen etwas verspätet los. Die tatsächliche Menge pro Minute war "
                      "dadurch leicht kleiner als geplant.",
              "bad": "Der Messrechner kam mit dem Losschicken nicht hinterher. Die Ergebnisse von "
-                    "„Echter Andrang“ sind zu gut – besser von einem stärkeren Rechner testen."}[st])
+                    "„Echter Andrang“ sind zu gut – besser von einem stärkeren Rechner testen."}[st], "late",
+            {"good": f"alle {w['units']} kamen pünktlich",
+             "warn": f"einige {w['units']} kamen verspätet",
+             "bad": "dein Rechner kam mit dem Losschicken nicht hinterher – die Werte sind eher zu gut"}[st])
 
     counts = [s["n_window"] for s in steps if s.get("n_window") is not None]
     if counts:
         fewest = min(counts)
         if fewest >= 20:
             add("good", "Genug Messungen je Stufe?", f"ja (mindestens {fewest})",
-                "Jede Stufe beruht auf genug Seitenaufrufen, damit einzelne Ausreißer nicht das Bild bestimmen.")
+                "Jede Stufe beruht auf genug Seitenaufrufen, damit einzelne Ausreißer nicht das Bild bestimmen.",
+                "count", "genug Messungen")
         else:
             add("warn", "Genug Messungen je Stufe?", f"wenig (nur {fewest} auf einer Stufe)",
                 "Mindestens eine Stufe beruht auf wenigen Seitenaufrufen. Einzelne langsame Aufrufe "
-                "wiegen dort schwer – längere Stufen wählen (Profil „Gründlich“).")
+                "wiegen dort schwer – längere Stufen wählen (Profil „Gründlich“).", "count",
+                "wenige Messungen je Stufe – „Gründlich“ wählen")
 
     sts = [i["status"] for i in items]
     overall = "niedrig" if "bad" in sts else "mittel" if sts.count("warn") >= 2 else "hoch"

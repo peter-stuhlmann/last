@@ -50,7 +50,7 @@ class LaeufeVerwalten(AioHTTPTestCase):
         self.assertEqual(first["title"], "Vor dem Cache")
         self.assertTrue(first["pinned"])
         # Kennzahlen für den Trend kommen mit
-        self.assertEqual(first["users"], 766)
+        self.assertEqual(round(first["users"]), 766)          # frisch aus den Messwerten gerechnet
         self.assertEqual(first["status"], "good")
         self.assertAlmostEqual(first["alone"], 0.6)
         self.assertEqual(first["target_users"], 500)

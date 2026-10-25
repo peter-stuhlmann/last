@@ -290,6 +290,48 @@ class Vorfuehren(unittest.IsolatedAsyncioTestCase):
     def mark(snap, label):
         return next(e["mark"] for e in snap["elements"] if e["label"] == label)
 
+    async def stream(self, *events, wait=1.5):
+        """Eingaben wie von der Oberfläche schicken und sammeln, was der Strom meldet (Bilder und Meldungen)."""
+        got = []
+
+        async def pump():
+            while True:
+                for kind, data in await self.live.events():
+                    got.append((kind, json.loads(data) if kind == "msg" else data))
+
+        task = asyncio.ensure_future(pump())
+        try:
+            self.live.put(list(events))
+            await asyncio.sleep(wait)
+        finally:
+            task.cancel()
+        return got
+
+    async def test_live_strom_bilder_und_schritte_aus_echten_eingaben(self):
+        r = await self.open()
+        await self.live.start_stream()
+        box = {e["label"]: e["box"] for e in r["snapshot"]["elements"]}
+        mid = lambda b: (b["x"] + b["w"] / 2, b["y"] + b["h"] / 2)  # noqa: E731
+        (ex, ey), (px, py), (bx, by) = mid(box["E-Mail"]), mid(box["Passwort"]), mid(box["Anmelden"])
+        got = await self.stream({"t": "click", "x": ex, "y": ey}, {"t": "type", "text": "tester@example.de"},
+                                {"t": "key", "key": "Tab"}, {"t": "type", "text": "sehr-geheim-42"},
+                                {"t": "click", "x": bx, "y": by}, wait=4)
+        self.assertTrue(any(k == "frame" and len(d) > 100 for k, d in got), "es kommen Bilder")
+        msgs = [d for k, d in got if k == "msg"]
+        fills = [m for m in msgs if m["t"] == "fill"]
+        self.assertEqual([(m["target"]["target"], m["value"], m["target"]["secret"]) for m in fills],
+                         [("E-Mail", "tester@example.de", "email"), ("Passwort", "sehr-geheim-42", "passwort")])
+        self.assertIn(["klicke \"Anmelden\""], [m["steps"] for m in msgs if m["t"] == "steps"])
+        self.assertTrue(self.live.page.url.endswith("/chat"))
+
+    async def test_live_strom_klick_auf_nicht_wiederfindbares_tut_nichts(self):
+        await self.open("/spa")
+        await self.live.start_stream()
+        got = await self.stream({"t": "click", "x": 3, "y": 790})          # leere Fläche
+        msgs = [d for k, d in got if k == "msg"]
+        self.assertTrue(any(m["t"] == "notice" for m in msgs))
+        self.assertFalse(any(m["t"] in ("steps", "fill") for m in msgs))
+
     async def test_single_page_app_ist_beim_ersten_bild_schon_aufgebaut(self):
         r = await self.open("/spa")
         self.assertIsNone(r["error"])

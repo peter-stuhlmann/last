@@ -180,7 +180,10 @@ export function RunNotes({ name, initial, allTags = [] }: { name: string; initia
         </p>
         <ul aria-labelledby={`${id}-tags-l`} className="flex flex-wrap items-center gap-2">
           {notes.tags.map((t) => (
-            <li key={t} className="flex items-center gap-1 rounded-full border border-white/15 bg-white/[0.05] py-1 pl-3 pr-1 font-mono text-xs">
+            <li
+              key={t}
+              className="flex items-center gap-1 rounded-full border border-white/15 bg-white/[0.05] py-1 pl-3 pr-1 font-mono text-xs"
+            >
               #{t}
               <button
                 type="button"

@@ -31,35 +31,21 @@ describe("checkRequest", () => {
   });
   it("lehnt schreibende Anfragen von fremden Seiten ab (CSRF)", () => {
     const base = { host: "localhost:8090", "content-type": "application/json" };
+    expect(checkRequest(req("POST", "/api/start", { ...base, origin: "https://evil.example" }), allowed)).toBe(403);
+    expect(checkRequest(req("POST", "/api/start", { ...base, "sec-fetch-site": "cross-site" }), allowed)).toBe(403);
     expect(
-      checkRequest(req("POST", "/api/start", { ...base, origin: "https://evil.example" }), allowed),
-    ).toBe(403);
-    expect(
-      checkRequest(req("POST", "/api/start", { ...base, "sec-fetch-site": "cross-site" }), allowed),
-    ).toBe(403);
-    expect(
-      checkRequest(
-        req("POST", "/api/start", { ...base, origin: "http://localhost:8090", "sec-fetch-site": "same-origin" }),
-        allowed,
-      ),
+      checkRequest(req("POST", "/api/start", { ...base, origin: "http://localhost:8090", "sec-fetch-site": "same-origin" }), allowed),
     ).toBeNull();
   });
   it("verlangt JSON bei schreibenden Anfragen (kein „einfaches“ Formular-POST)", () => {
     expect(
-      checkRequest(
-        req("POST", "/api/start", { host: "localhost", origin: "http://localhost", "content-type": "text/plain" }),
-        allowed,
-      ),
+      checkRequest(req("POST", "/api/start", { host: "localhost", origin: "http://localhost", "content-type": "text/plain" }), allowed),
     ).toBe(415);
   });
   it("lässt fremde Seiten auch keine API-Daten lesen oder Downloads auslösen", () => {
-    expect(
-      checkRequest(req("GET", "/api/events", { host: "localhost", "sec-fetch-site": "cross-site" }), allowed),
-    ).toBe(403);
+    expect(checkRequest(req("GET", "/api/events", { host: "localhost", "sec-fetch-site": "cross-site" }), allowed)).toBe(403);
     // Direktaufruf in der Adresszeile bleibt möglich
-    expect(
-      checkRequest(req("GET", "/api/runs/x/report.pdf", { host: "localhost", "sec-fetch-site": "none" }), allowed),
-    ).toBeNull();
+    expect(checkRequest(req("GET", "/api/runs/x/report.pdf", { host: "localhost", "sec-fetch-site": "none" }), allowed)).toBeNull();
   });
 });
 

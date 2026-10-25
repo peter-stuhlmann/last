@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useId, useRef, useState } from "react";
-import { hostLabel, runLabel } from "@/lib/format";
+import { approxUsers, hostLabel, nf, runLabel } from "@/lib/format";
 import { filterRuns } from "@/lib/trend";
-import type { RunInfo, RunKind } from "@/lib/types";
+import type { RunInfo, RunKind, Tone } from "@/lib/types";
 import { ConfirmDialog } from "./ConfirmDialog";
 
 const TEST_NAMES: Record<string, string> = {
@@ -18,6 +18,39 @@ const TEST_NAMES: Record<string, string> = {
 };
 
 const KIND_LABEL: Record<RunKind, string> = { llm: "KI-Server", web: "Website", api: "HTTP-API", flow: "Ablauf" };
+
+// Das Wichtigste eines Laufs auf einen Blick: Ampel und die große Zahl der Ergebnisseite
+const VERDICT: Record<Tone, { word: string; dot: string; text: string }> = {
+  good: { word: "Grünes Licht", dot: "bg-mint", text: "text-mint-soft" },
+  warn: { word: "Gelbes Licht", dot: "bg-amber", text: "text-amber-soft" },
+  bad: { word: "Rotes Licht", dot: "bg-rose", text: "text-rose-soft" },
+};
+const CAPACITY_UNIT: Record<RunKind, string> = {
+  llm: "Nutzer",
+  web: "Besucher",
+  api: "Anfragen/min",
+  flow: "Nutzer",
+};
+
+function Verdict({ run }: { run: RunInfo }) {
+  const users = approxUsers(run.users);
+  // Ohne Lasttest (z. B. früh abgebrochen) gibt es kein Urteil – dann zeigen, was gelaufen ist
+  if (!run.status || !run.tests.some((t) => t === "ramp" || t === "rate")) {
+    return <p className="text-xs text-white/60">{run.tests.length ? "ohne Urteil – abgebrochen?" : "keine Messwerte"}</p>;
+  }
+  const v = VERDICT[run.status];
+  return (
+    <p className="flex items-center gap-2 text-sm">
+      <span aria-hidden="true" className={`size-2.5 shrink-0 rounded-full ${v.dot}`} />
+      <span className={`font-semibold ${v.text}`}>{v.word}</span>
+      {users != null && (
+        <span className="text-white/70">
+          · ≈ {nf(users, 0)} {CAPACITY_UNIT[run.kind ?? "llm"]}
+        </span>
+      )}
+    </p>
+  );
+}
 
 export function RunsList({ runs, deleted }: { runs: RunInfo[]; deleted?: string | null }) {
   const router = useRouter();
@@ -102,8 +135,8 @@ export function RunsList({ runs, deleted }: { runs: RunInfo[]; deleted?: string 
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <p className="text-[13px] text-white/70">
-          Der älteste angekreuzte Lauf ist die Referenz. Verglichen werden nur Läufe gleicher Art – Websites mit
-          Websites, KI-Server mit KI-Servern.
+          Der älteste angekreuzte Lauf ist die Referenz. Verglichen werden nur Läufe gleicher Art – Websites mit Websites, KI-Server mit
+          KI-Servern.
         </p>
         {ready ? (
           <a
@@ -151,7 +184,9 @@ export function RunsList({ runs, deleted }: { runs: RunInfo[]; deleted?: string 
                   checked={picked.includes(r.name)}
                   onChange={() => toggle(r.name)}
                   disabled={mismatch}
-                  aria-label={mismatch ? `Lauf vom ${when}: passt nicht zur Auswahl (${kindLabel})` : `Lauf vom ${when} zum Vergleich auswählen`}
+                  aria-label={
+                    mismatch ? `Lauf vom ${when}: passt nicht zur Auswahl (${kindLabel})` : `Lauf vom ${when} zum Vergleich auswählen`
+                  }
                   className="size-5 shrink-0 accent-violet disabled:opacity-30"
                 />
                 <div className="min-w-0 flex-1 basis-60">
@@ -187,15 +222,27 @@ export function RunsList({ runs, deleted }: { runs: RunInfo[]; deleted?: string 
                     </p>
                   )}
                 </div>
-                <p className="text-xs text-white/65">{r.tests.map((t) => TEST_NAMES[t] ?? t).join(" · ")}</p>
+                <div title={r.tests.map((t) => TEST_NAMES[t] ?? t).join(" · ")}>
+                  <Verdict run={r} />
+                </div>
                 <p className="flex gap-2">
                   {r.report && (
-                    <a href={`/api/runs/${r.name}/report.pptx`} download className="btn btn-ghost" aria-label={`PowerPoint, Lauf ${when.replace(", ", " um ")}`}>
+                    <a
+                      href={`/api/runs/${r.name}/report.pptx`}
+                      download
+                      className="btn btn-ghost"
+                      aria-label={`PowerPoint, Lauf ${when.replace(", ", " um ")}`}
+                    >
                       PowerPoint
                     </a>
                   )}
                   {r.pdf && (
-                    <a href={`/api/runs/${r.name}/report.pdf`} download className="btn btn-ghost" aria-label={`PDF, Lauf ${when.replace(", ", " um ")}`}>
+                    <a
+                      href={`/api/runs/${r.name}/report.pdf`}
+                      download
+                      className="btn btn-ghost"
+                      aria-label={`PDF, Lauf ${when.replace(", ", " um ")}`}
+                    >
                       PDF
                     </a>
                   )}

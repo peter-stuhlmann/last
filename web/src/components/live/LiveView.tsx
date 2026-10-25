@@ -14,14 +14,22 @@ import {
   sloSeconds,
   stageTimer,
   terms,
+  trustLevel,
   type PhaseStep,
   type Status,
 } from "@/lib/derive";
 import { parseLogLine, type LiveState } from "@/lib/events";
 import { approxUsers, clock, hostLabel, nf, runLabel } from "@/lib/format";
-import type { Sample, Summary } from "@/lib/types";
+import type { RunKind, Sample, Summary } from "@/lib/types";
 import { LoadCurve } from "./LoadCurve";
 import { LoadRing } from "./LoadRing";
+
+const CURVE_TITLE: Record<RunKind, string> = {
+  llm: "Bleibt der Server schnell, wenn mehr Leute fragen?",
+  web: "Bleibt die Website schnell, wenn mehr Besucher kommen?",
+  api: "Bleibt die API schnell, wenn mehr Anfragen kommen?",
+  flow: "Bleibt die Anwendung schnell, wenn mehr Nutzer kommen?",
+};
 
 const TONE_TEXT: Record<Status, string> = {
   good: "text-mint",
@@ -121,7 +129,7 @@ const STATUS_WORD = { done: "erledigt", active: "läuft gerade", pending: "kommt
 
 function Timeline({ steps }: { steps: PhaseStep[] }) {
   return (
-    <ol aria-label="Ablauf des Tests" className="mt-6 flex flex-col">
+    <ol aria-label="Schritte des Tests" className="mt-6 flex flex-col">
       {steps.map((s, i) => (
         <li
           key={s.key}
@@ -163,11 +171,12 @@ function Timeline({ steps }: { steps: PhaseStep[] }) {
   );
 }
 
-function Forecast({ summary }: { summary: Summary }) {
+function Forecast({ summary, running }: { summary: Summary; running: boolean }) {
   const users = approxUsers(summary.capacity.users);
-  const q = summary.quality?.overall;
+  const q = trustLevel(summary);
   const level = q === "hoch" ? 3 : q === "mittel" ? 2 : q === "niedrig" ? 1 : summary.capacity.source === "rate" ? 2 : users ? 1 : 0;
-  const word = ["noch offen", "vorläufig", "mittel", "hoch"][level];
+  // „vorläufig“ nur, solange der Test noch läuft – danach sagt die Stufe, wie sauber gemessen wurde
+  const word = (running ? ["noch offen", "vorläufig", "mittel", "hoch"] : ["–", "niedrig", "mittel", "hoch"])[level];
   return (
     <section
       aria-labelledby="prognose-titel"
@@ -186,8 +195,8 @@ function Forecast({ summary }: { summary: Summary }) {
           ? "Bei zufällig verteilten Anfragen, so wie im Alltag."
           : summary.config.kind === "web"
             ? `Wenn jeder Besucher etwa alle ${nf(summary.capacity.think_time, 0)} Sekunden eine Seite aufruft.`
-            : `Wenn jede Person etwa alle ${nf(summary.capacity.think_time, 0)} Sekunden fragt.`}{" "}
-        Wird genauer, je länger der Test läuft.
+            : `Wenn jede Person etwa alle ${nf(summary.capacity.think_time, 0)} Sekunden fragt.`}
+        {running && " Wird genauer, je länger der Test läuft."}
       </p>
       <p className="mt-2 font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-[#ccbfff]">
         Sicherheit{" "}
@@ -318,11 +327,7 @@ export function LiveView({ live, onStop }: { live: LiveState; onStop: () => void
   const running = live.state === "running";
   const elapsed = samples[samples.length - 1]?.t ?? 0;
   const p = pill(live, elapsed);
-  const crumbs = [
-    { label: "Läufe", href: "/laeufe" },
-    ...(summary ? [{ label: `${hostLabel(summary.config.base_url)}${summary.config.model ? ` · ${summary.config.model}` : ""}` }] : []),
-    { label: live.run ? `Lauf ${runLabel(live.run)}` : "Aktueller Lauf" },
-  ];
+  const crumbs = [{ label: "Frühere Läufe", href: "/laeufe" }, { label: live.run ? `Lauf ${runLabel(live.run)}` : "Aktueller Lauf" }];
   const finished = live.state === "done" || live.state === "stopped" || live.state === "error";
   const resultHref = `/laeufe/${live.run}`;
 
@@ -335,9 +340,14 @@ export function LiveView({ live, onStop }: { live: LiveState; onStop: () => void
           {summary && <TargetChip host={hostLabel(summary.config.base_url)} model={summary.config.model} />}
           {running && <StopButton onStop={onStop} />}
           {!running && (
-            <Link href="/" className="btn btn-primary">
-              <span aria-hidden="true">+</span> Neuer Test
-            </Link>
+            <>
+              <Link href="/" className="btn btn-ghost" title="Öffnet das Formular mit den zuletzt benutzten Einstellungen">
+                <span aria-hidden="true">↻</span> Test wiederholen
+              </Link>
+              <Link href="/?neu=1" className="btn btn-primary">
+                <span aria-hidden="true">+</span> Neuer Test
+              </Link>
+            </>
           )}
         </>
       }
@@ -373,7 +383,7 @@ export function LiveView({ live, onStop }: { live: LiveState; onStop: () => void
 
   const steps = phaseSteps(summary, samples, running);
   const prog = progress(summary, samples);
-  const focus = liveFocus(summary, samples);
+  const focus = liveFocus(summary, samples, finished ? (live.state as "done" | "stopped" | "error") : undefined);
   const measured = liveHeadline(summary);
   // Ohne Messwerte und ohne laufenden Test gibt es nichts mehr abzuwarten.
   const head =
@@ -383,7 +393,8 @@ export function LiveView({ live, onStop }: { live: LiveState; onStop: () => void
   const timer = running ? stageTimer(summary, samples) : null;
   const activeIndex = steps.findIndex((s) => s.status === "active");
   const levels = summary.config.levels.split(",").map(Number).filter(Boolean);
-  const web = summary.config.kind === "web" || summary.config.kind === "api";
+  // Website, API und Ablauf liefern keine Innenwerte wie ein KI-Server (/metrics)
+  const web = summary.config.kind === "web" || summary.config.kind === "api" || summary.config.kind === "flow";
   const t = terms(summary.config);
   const slo = sloSeconds(summary.config);
   const profileName = Number(summary.config.soak_minutes) <= 5 ? "Schnell" : "Gründlich";
@@ -398,8 +409,7 @@ export function LiveView({ live, onStop }: { live: LiveState; onStop: () => void
             aria-label="Verbindung"
             className="rounded-xl border border-amber/35 bg-amber/10 px-4 py-3 text-sm text-amber-soft xl:col-span-3"
           >
-            Verbindung unterbrochen – wird neu aufgebaut. Der Test selbst läuft weiter; die Anzeige zeigt den letzten
-            bekannten Stand.
+            Verbindung unterbrochen – wird neu aufgebaut. Der Test selbst läuft weiter; die Anzeige zeigt den letzten bekannten Stand.
           </p>
         )}
         {(live.error || finished) && (
@@ -425,7 +435,7 @@ export function LiveView({ live, onStop }: { live: LiveState; onStop: () => void
         <section aria-labelledby="ablauf-titel" className="card self-start p-3 pt-6 xl:row-span-2">
           <div className="px-3">
             <h2 id="ablauf-titel" className="eyebrow font-medium text-white/65">
-              Ablauf
+              Testschritte
             </h2>
             <p className="mt-1.5 font-display text-xl font-bold">{profileName}</p>
             <p className="mt-3 text-xs font-medium text-white/70">
@@ -445,78 +455,83 @@ export function LiveView({ live, onStop }: { live: LiveState; onStop: () => void
                 ? `Schritt ${activeIndex + 1} von ${steps.length} · ${steps[activeIndex].title}`
                 : "Alle Schritte abgeschlossen"}
             </p>
-            <div className="mt-4 grid items-center gap-8 md:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
+            {/* Ring und Überschrift nebeneinander, die Kennzahlen darunter über die ganze Breite –
+                sonst werden die Kacheln bei 1280 px so schmal, dass „0,01 s“ umbricht */}
+            <div className="mt-4 grid items-center gap-6 sm:grid-cols-[minmax(0,240px)_minmax(0,1fr)] 2xl:grid-cols-[minmax(0,300px)_minmax(0,1fr)]">
               <LoadRing focus={focus} />
-              <div className="min-w-0">
-                <div aria-live="polite">
-                  <h1 id="live-titel" className="font-display text-[34px] font-bold leading-tight tracking-[-0.02em]">
-                    {head.title}
-                  </h1>
-                  <p className="mt-2 max-w-sm text-sm leading-[21px] text-white/70">{head.text}</p>
-                </div>
-                {head.kpis.length > 0 && (
-                  <dl className="mt-4 grid grid-cols-2 gap-3">
-                    {head.kpis.map((k) => (
-                      <div key={k.label} className="tile px-3.5 py-3">
-                        <dt className="text-[11px] font-medium text-white/65">{k.label}</dt>
-                        <dd className="mt-1.5">
-                          <span className="font-display text-[28px] font-bold leading-none tracking-[-0.02em]">{k.value}</span>{" "}
-                          <span className="font-display text-[15px] font-bold text-white/60">{k.unit}</span>
-                          <span className={`mt-1.5 block text-[11px] font-medium ${TONE_TEXT[k.tone]}`}>{k.note}</span>
-                        </dd>
-                      </div>
-                    ))}
-                  </dl>
-                )}
-                {timer && (
-                  <div className="mt-4 flex items-center gap-4">
-                    <p className="shrink-0 font-mono text-[11px] text-white/65">Stufe endet in {clock(timer.remaining)}</p>
-                    <Meter value={timer.fraction} label="Fortschritt der Stufe" className="h-1" decorative />
-                  </div>
-                )}
+              <div aria-live="polite" className="min-w-0">
+                <h1 id="live-titel" className="font-display text-[34px] font-bold leading-tight tracking-[-0.02em]">
+                  {head.title}
+                </h1>
+                <p className="mt-2 max-w-sm text-sm leading-[21px] text-white/70">{head.text}</p>
               </div>
             </div>
+            {head.kpis.length > 0 && (
+              <dl className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
+                {head.kpis.map((k) => (
+                  <div key={k.label} className="tile px-3.5 py-3">
+                    <dt className="text-[11px] font-medium text-white/65">{k.label}</dt>
+                    <dd className="mt-1.5">
+                      <span className="whitespace-nowrap">
+                        <span className="font-display text-[28px] font-bold leading-none tracking-[-0.02em]">{k.value}</span>{" "}
+                        <span className="font-display text-[15px] font-bold text-white/60">{k.unit}</span>
+                      </span>
+                      <span className={`mt-1.5 block text-[11px] font-medium ${TONE_TEXT[k.tone]}`}>{k.note}</span>
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            )}
+            {timer && (
+              <div className="mt-4 flex items-center gap-4">
+                <p className="shrink-0 font-mono text-[11px] text-white/65">Stufe endet in {clock(timer.remaining)}</p>
+                <Meter value={timer.fraction} label="Fortschritt der Stufe" className="h-1" decorative />
+              </div>
+            )}
           </section>
 
           <section aria-labelledby="kurve-h" className="card p-7">
             <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
               <h2 id="kurve-h" className="font-display text-xl font-bold tracking-[-0.01em]">
-                {summary.config.kind === "api"
-                  ? "Wie viel schafft sie, wenn mehr Anfragen kommen?"
-                  : web
-                    ? "Wie viel schafft sie, wenn mehr Besucher kommen?"
-                    : "Wie viel schafft er, wenn mehr Leute kommen?"}
+                {CURVE_TITLE[summary.config.kind ?? "llm"]}
               </h2>
               <p className="flex gap-5 text-xs font-medium text-white/70">
                 <span>
-                  <span aria-hidden="true" className="text-[#9980ff]">
+                  <span aria-hidden="true" className="text-mint">
                     ●
                   </span>{" "}
-                  {t.throughput}
+                  im Ziel
                 </span>
                 <span>
-                  <span aria-hidden="true" className="text-pink">
+                  <span aria-hidden="true" className="text-rose">
                     ●
                   </span>{" "}
-                  {t.wait}
+                  zu langsam
                 </span>
               </p>
             </div>
             <p className="mb-4 mt-1 text-[13px] text-white/65">
-              Jeder Punkt ist eine Stufe. Gemessen wird erst, wenn sich die Last eingeschwungen hat.
+              Jeder Punkt ist eine Stufe: so lange warten fast alle (95 von 100). Liegt er unter der gestrichelten Linie, ist das Ziel
+              erreicht.
             </p>
             <LoadCurve
               points={curvePoints(summary)}
               levels={levels}
               sloTtft={slo}
               live={running}
-              labels={{ throughput: t.throughput, unit: t.throughputUnit, wait: t.wait, goal: t.goal(slo) }}
+              labels={{
+                throughput: t.throughput,
+                unit: t.throughputUnit,
+                wait: t.wait,
+                goal: t.goal(slo),
+                axis: `${t.people} gleichzeitig`,
+              }}
             />
           </section>
         </div>
 
         <div className="flex min-w-0 flex-col gap-6">
-          <Forecast summary={summary} />
+          <Forecast summary={summary} running={running} />
           {/* Eine Website liefert keine Innenwerte wie ein KI-Server (/metrics) */}
           {!web && <ServerCard samples={samples} />}
           <LogPanel lines={live.logs} live={running} />

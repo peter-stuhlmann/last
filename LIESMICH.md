@@ -104,12 +104,12 @@ In der Oberfläche unter „Was wird getestet?“ **Website** wählen und die Ad
 LAST schickt simulierte Besucher los; jeder lädt die Seite und – wie ein Browser beim ersten Besuch –
 die Bilder, Styles und Skripte derselben Website (ohne Cache, mit eigenen Verbindungen).
 
-| Messwert | Bedeutung |
-|---|---|
-| Ladezeit | bis die Seite samt Dateien vollständig da ist – daran wird das Ziel gemessen (Standard: 3 s) |
-| Erste Antwort | bis der Server die ersten Daten schickt |
-| Seiten pro Sekunde | wie viele Seitenaufrufe der Server insgesamt schafft |
-| Besucher gleichzeitig | Schätzung: Seiten pro Sekunde × (Ladezeit + Pause zwischen zwei Klicks, Standard 30 s) |
+| Messwert              | Bedeutung                                                                                    |
+| --------------------- | -------------------------------------------------------------------------------------------- |
+| Ladezeit              | bis die Seite samt Dateien vollständig da ist – daran wird das Ziel gemessen (Standard: 3 s) |
+| Erste Antwort         | bis der Server die ersten Daten schickt                                                      |
+| Seiten pro Sekunde    | wie viele Seitenaufrufe der Server insgesamt schafft                                         |
+| Besucher gleichzeitig | Schätzung: Seiten pro Sekunde × (Ladezeit + Pause zwischen zwei Klicks, Standard 30 s)       |
 
 - Schritte: Einer allein · Immer mehr gleichzeitig · Echter Andrang · Großer Ansturm · Ausdauer · Kontrolle.
   „Lange Texte“, Kontrollfragen und der Kostenvergleich gibt es nur beim KI-Server.
@@ -135,10 +135,10 @@ PATCH, DELETE) und bei Bedarf unter „Weitere Einstellungen“ Kopfzeilen („N
 Anmeldung) und einen Body. Jede simulierte Anfrage ist genau diese Anfrage; die Antwort gilt als richtig,
 wenn der Status zur Erwartung passt (Standard „2xx“).
 
-| Messwert | Bedeutung |
-|---|---|
-| Antwortzeit | bis die Antwort vollständig da ist – daran wird das Ziel gemessen (Standard: 0,5 s) |
-| Erste Antwort | bis der Server die ersten Daten schickt |
+| Messwert            | Bedeutung                                                                            |
+| ------------------- | ------------------------------------------------------------------------------------ |
+| Antwortzeit         | bis die Antwort vollständig da ist – daran wird das Ziel gemessen (Standard: 0,5 s)  |
+| Erste Antwort       | bis der Server die ersten Daten schickt                                              |
 | Anfragen pro Minute | höchste zufällig verteilte Last, bei der Antwortzeit und Fehlerquote im Ziel bleiben |
 
 - Dieselben Schritte und Berichte wie beim Website-Test; die simulierten Aufrufer halten ihre
@@ -170,16 +170,16 @@ genau diese Anfragen **ohne Browser** abgespielt – deshalb sind auch hunderte 
 ohne dass auf deinem Rechner Browserfenster aufgehen. Veränderliche Werte (etwa eine Chat-ID aus einer
 früheren Antwort) erkennt der Test selbst und holt sie bei jeder Wiederholung frisch.
 
-| Schritt | Bedeutung |
-|---|---|
-| `tippe in "Feld" Text` | Feld = Beschriftung, Platzhaltertext oder CSS-Selektor; `{name}` wird im Formular zum Passwortfeld |
-| `klicke "Knopf"` | Knopf, Link oder Selektor |
-| `drücke Enter` | oder Tab, Escape … |
-| `warte auf Text "…"` / `warte auf "…"` | bis der Text da ist / bis das Element da ist |
-| `warte 2 s` | einfach warten |
-| `messen ab hier` | ab hier wird mitgeschnitten – genau einmal, danach mindestens ein Schritt |
-| `warte auf erste Antwort in "…"` | misst, wann das erste Wort erscheint (bei einem KI-Chat die wichtigste Zahl) |
-| `warte bis "…" fertig ist (2 s ruhig)` | fertig, wenn sich der Text so lange nicht mehr ändert |
+| Schritt                                | Bedeutung                                                                                          |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `tippe in "Feld" Text`                 | Feld = Beschriftung, Platzhaltertext oder CSS-Selektor; `{name}` wird im Formular zum Passwortfeld |
+| `klicke "Knopf"`                       | Knopf, Link oder Selektor                                                                          |
+| `drücke Enter`                         | oder Tab, Escape …                                                                                 |
+| `warte auf Text "…"` / `warte auf "…"` | bis der Text da ist / bis das Element da ist                                                       |
+| `warte 2 s`                            | einfach warten                                                                                     |
+| `messen ab hier`                       | ab hier wird mitgeschnitten – genau einmal, danach mindestens ein Schritt                          |
+| `warte auf erste Antwort in "…"`       | misst, wann das erste Wort erscheint (bei einem KI-Chat die wichtigste Zahl)                       |
+| `warte bis "…" fertig ist (2 s ruhig)` | fertig, wenn sich der Text so lange nicht mehr ändert                                              |
 
 - Gemessen werden **Antwortzeit** des Ablaufs (Ziel standardmäßig 10 s) und **erste Antwort**; die Kapazität
   wird in **Nutzern gleichzeitig** angegeben, bei standardmäßig 60 s Pause zwischen zwei Durchläufen.
@@ -215,42 +215,42 @@ verschiebt einen Lauf nach `results/.papierkorb/`; nach 7 Tagen wird er dort end
 
 ## Dateien
 
-| Datei | Zweck |
-|---|---|
-| `web/` | die Weboberfläche „LAST“ (Next.js, Tailwind) – wird mit Docker gestartet |
-| `stresstest_web.py` | Python-Backend: startet Tests, liefert Ergebnisse und Berichte |
-| `stresstest_ui.html` | alte, einfache Oberfläche – nur noch beim Start ohne Docker (`python stresstest_web.py`) |
-| `web_stresstest.py` | Lasttest für Websites und HTTP-APIs (nutzt die Lastgeneratoren aus `llm_stresstest.py`) |
-| `flow_stresstest.py`, `flow_recorder.py` | Abläufe: Schritt-Sprache, Aufzeichnung im Browser (Playwright), Abspielen per HTTP |
-| `report_web.py` | PowerPoint, PDF und Vergleichsbericht für Website-, API- und Ablauf-Läufe |
-| `tests/` | Tests für Website-, API- und Ablauf-Lasttest und ihre Berichte |
-| `llm_stresstest.py` | Testlogik und Prüfung der Messqualität (auch allein nutzbar) |
-| `report_pptx.py` | PowerPoint-Bericht in einfacher Sprache |
-| `report_pdf.py` | Kurzbericht als PDF auf einer A4-Seite (braucht `reportlab`, sonst wird er übersprungen) |
-| `report_compare.py` | Vergleichsbericht aus zwei oder mehr Läufen |
-| `results/<lauf>/notes.json` | Titel, Tags, Notiz, Pin eines Laufs (von Hand ergänzt) |
-| `results/.papierkorb/` | gelöschte Läufe, 7 Tage lang zurückholbar |
-| `docker-compose.e2e.yml` | zweite, getrennte Instanz für die automatischen Durchlauf-Tests (`web/e2e`) |
-| `Dockerfile`, `docker-compose.yml`, `.dockerignore` | Container für Windows, macOS und Linux |
-| `requirements.txt`, `requirements-browser.txt` | Python-Pakete, exakt gepinnt (Browser-Zusatz nur im Image-Ziel `browser`) |
-| `VERSION` | Versionsnummer – steht in jeder `summary.json` unter `meta.version` und auf der Startseite |
-| `pyproject.toml` | Lint-Regeln (ruff): `make lint` |
-| `.github/workflows/ci.yml` | CI: ruff, Python-Tests im Image, Typen/Lint/Vitest der Oberfläche, Durchlauf-Tests |
+| Datei                                               | Zweck                                                                                      |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `web/`                                              | die Weboberfläche „LAST“ (Next.js, Tailwind) – wird mit Docker gestartet                   |
+| `stresstest_web.py`                                 | Python-Backend: startet Tests, liefert Ergebnisse und Berichte                             |
+| `stresstest_ui.html`                                | alte, einfache Oberfläche – nur noch beim Start ohne Docker (`python stresstest_web.py`)   |
+| `web_stresstest.py`                                 | Lasttest für Websites und HTTP-APIs (nutzt die Lastgeneratoren aus `llm_stresstest.py`)    |
+| `flow_stresstest.py`, `flow_recorder.py`            | Abläufe: Schritt-Sprache, Aufzeichnung im Browser (Playwright), Abspielen per HTTP         |
+| `report_web.py`                                     | PowerPoint, PDF und Vergleichsbericht für Website-, API- und Ablauf-Läufe                  |
+| `tests/`                                            | Tests für Website-, API- und Ablauf-Lasttest und ihre Berichte                             |
+| `llm_stresstest.py`                                 | Testlogik und Prüfung der Messqualität (auch allein nutzbar)                               |
+| `report_pptx.py`                                    | PowerPoint-Bericht in einfacher Sprache                                                    |
+| `report_pdf.py`                                     | Kurzbericht als PDF auf einer A4-Seite (braucht `reportlab`, sonst wird er übersprungen)   |
+| `report_compare.py`                                 | Vergleichsbericht aus zwei oder mehr Läufen                                                |
+| `results/<lauf>/notes.json`                         | Titel, Tags, Notiz, Pin eines Laufs (von Hand ergänzt)                                     |
+| `results/.papierkorb/`                              | gelöschte Läufe, 7 Tage lang zurückholbar                                                  |
+| `docker-compose.e2e.yml`                            | zweite, getrennte Instanz für die automatischen Durchlauf-Tests (`web/e2e`)                |
+| `Dockerfile`, `docker-compose.yml`, `.dockerignore` | Container für Windows, macOS und Linux                                                     |
+| `requirements.txt`, `requirements-browser.txt`      | Python-Pakete, exakt gepinnt (Browser-Zusatz nur im Image-Ziel `browser`)                  |
+| `VERSION`                                           | Versionsnummer – steht in jeder `summary.json` unter `meta.version` und auf der Startseite |
+| `pyproject.toml`                                    | Lint-Regeln (ruff): `make lint`                                                            |
+| `.github/workflows/ci.yml`                          | CI: ruff, Python-Tests im Image, Typen/Lint/Vitest der Oberfläche, Durchlauf-Tests         |
 
 ## Was geprüft wird
 
-| Prüfung | Schnell (~15 min) | Gründlich (~50 min) |
-|---|---|---|
-| Vorab-Checks: Erreichbarkeit, Netzwerk-Umweg, Server frei?, echte Token-Zählung, feste Antwortlänge | ✓ | ✓ |
-| 1. Einer allein (mit gleichem Einleitungstext: Vergleich mit/ohne Prefix-Cache) | 5 Fragen | 10 Fragen |
-| 2. Immer mehr gleichzeitig | 1, 4, 16, 32, 64 · je 30 s · mind. 20 Antworten | 1 … 256 · je 60 s · mind. 40 Antworten |
-| Feinsuche der genauen Grenze | 1 Zwischenstufe | 2 Zwischenstufen |
-| 3. Echter Andrang: Fragen kommen zufällig (Poisson), bis die Schlange wächst | je 30 s | je 60 s |
-| 4. Lange Texte | 1k, 8k, 32k Tokens | 0,5k … 128k (bis zum Modell-Limit) |
-| 5. Großer Ansturm + Erholung | 32 auf einmal | 64 auf einmal |
-| 6. Ausdauer | 3 min | 15 min |
-| Kontrollmessung am Ende | ✓ | ✓ |
-| Laufend: Absturzerkennung, Aufpasser für den Messrechner, Server-Messwerte | ✓ | ✓ |
+| Prüfung                                                                                             | Schnell (~15 min)                               | Gründlich (~50 min)                    |
+| --------------------------------------------------------------------------------------------------- | ----------------------------------------------- | -------------------------------------- |
+| Vorab-Checks: Erreichbarkeit, Netzwerk-Umweg, Server frei?, echte Token-Zählung, feste Antwortlänge | ✓                                               | ✓                                      |
+| 1. Einer allein (mit gleichem Einleitungstext: Vergleich mit/ohne Prefix-Cache)                     | 5 Fragen                                        | 10 Fragen                              |
+| 2. Immer mehr gleichzeitig                                                                          | 1, 4, 16, 32, 64 · je 30 s · mind. 20 Antworten | 1 … 256 · je 60 s · mind. 40 Antworten |
+| Feinsuche der genauen Grenze                                                                        | 1 Zwischenstufe                                 | 2 Zwischenstufen                       |
+| 3. Echter Andrang: Fragen kommen zufällig (Poisson), bis die Schlange wächst                        | je 30 s                                         | je 60 s                                |
+| 4. Lange Texte                                                                                      | 1k, 8k, 32k Tokens                              | 0,5k … 128k (bis zum Modell-Limit)     |
+| 5. Großer Ansturm + Erholung                                                                        | 32 auf einmal                                   | 64 auf einmal                          |
+| 6. Ausdauer                                                                                         | 3 min                                           | 15 min                                 |
+| Kontrollmessung am Ende                                                                             | ✓                                               | ✓                                      |
+| Laufend: Absturzerkennung, Aufpasser für den Messrechner, Server-Messwerte                          | ✓                                               | ✓                                      |
 
 Jede Stufe wird nur im „eingeschwungenen Zustand“ gemessen: Anlauf- und Auslaufphase zählen nicht.
 Nach einer Fehlermeldung wartet jede simulierte Person kurz, bevor sie es erneut versucht –
@@ -264,7 +264,7 @@ Bleibt die Gesamtleistung zwei Stufen lang praktisch gleich und sind die Ziele s
   geschätzt, für wie viele Personen der Server reicht. Annahme: `--think-time` Sekunden Pause
   zwischen zwei Fragen einer Person (Standard 60). Bevorzugt aus „Echter Andrang“, sonst aus der Ramp.
 - **Ruckeln:** längste Pause zwischen zwei Textstücken einer Antwort (Stocken p95).
-- **Ziele erfüllt (Goodput):** Anteil der einzelnen Fragen, die Wartezeit- *und* Tempo-Ziel einhalten.
+- **Ziele erfüllt (Goodput):** Anteil der einzelnen Fragen, die Wartezeit- _und_ Tempo-Ziel einhalten.
 - **Verdrängungen / Prefix-Cache-Treffer:** aus `/metrics` (vLLM), je Stufe als Differenz.
 - **Thinking-Modelle:** Zeit bis zur eigentlichen Antwort nach dem Nachdenken, getrennt ausgewiesen.
 

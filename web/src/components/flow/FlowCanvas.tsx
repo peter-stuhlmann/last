@@ -7,9 +7,13 @@ export type Row = { id: number; step: Step };
 
 // Kleine Symbole je Art – bewusst schlicht, damit der Ablauf auf einen Blick lesbar bleibt
 const PATHS: Record<string, ReactNode> = {
-  open: <path d="M12 3a9 9 0 100 18 9 9 0 000-18zm-9 9h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z" />,
+  open: (
+    <path d="M12 3a9 9 0 100 18 9 9 0 000-18zm-9 9h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z" />
+  ),
   fill: <path d="M3 7h18v10H3zM7 11h.01M11 11h.01M15 11h.01M7 14h10" />,
-  click: <path d="M9 3v8.5l-2-2a1.6 1.6 0 00-2.3 2.3l4.6 5A5 5 0 0013 19h1a5 5 0 005-5v-3a1.5 1.5 0 00-3 0v-1a1.5 1.5 0 00-3 0V9a1.5 1.5 0 00-3 0V3a1 1 0 00-1-1 1 1 0 00-1 1z" />,
+  click: (
+    <path d="M9 3v8.5l-2-2a1.6 1.6 0 00-2.3 2.3l4.6 5A5 5 0 0013 19h1a5 5 0 005-5v-3a1.5 1.5 0 00-3 0v-1a1.5 1.5 0 00-3 0V9a1.5 1.5 0 00-3 0V3a1 1 0 00-1-1 1 1 0 00-1 1z" />
+  ),
   press: <path d="M20 5v6a3 3 0 01-3 3H6m0 0l4-4m-4 4l4 4" />,
   wait: <path d="M7 3h10M7 21h10M8 3c0 5 8 5 8 9s-8 4-8 9M16 3c0 5-8 5-8 9s8 4 8 9" />,
   raw: <path d="M12 8v5m0 3h.01M10.3 3.9L2.4 18a2 2 0 001.7 3h15.8a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z" />,
@@ -24,7 +28,17 @@ function iconFor(step: Step): string {
 
 function Icon({ name }: { name: string }) {
   return (
-    <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      width="18"
+      height="18"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       {PATHS[name]}
     </svg>
   );
@@ -153,7 +167,11 @@ function Zone({ tone, title, hint, children }: { tone: "prep" | "measure"; title
 
 /** Die Bausteine einer Zone, verbunden durch eine Linie (wie in n8n, nur ohne Verdrahten). */
 function Chain({ children }: { children: ReactNode }) {
-  return <ol className="relative grid gap-2 before:absolute before:bottom-4 before:left-[28px] before:top-4 before:w-px before:bg-white/20">{children}</ol>;
+  return (
+    <ol className="relative grid gap-2 before:absolute before:bottom-4 before:left-[28px] before:top-4 before:w-px before:bg-white/20">
+      {children}
+    </ol>
+  );
 }
 
 export function FlowCanvas({
@@ -212,7 +230,8 @@ export function FlowCanvas({
                 <Icon name="open" />
               </span>
               <p className="min-w-0 text-[13px] font-semibold">
-                Seite öffnen <span className="block truncate font-mono text-xs font-normal text-white/60">{startUrl ?? "Adresse oben eintragen"}</span>
+                Seite öffnen{" "}
+                <span className="block truncate font-mono text-xs font-normal text-white/60">{startUrl ?? "Adresse oben eintragen"}</span>
               </p>
             </li>
           )}

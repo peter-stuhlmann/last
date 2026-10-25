@@ -6,8 +6,14 @@ export const MAX_SECRET = 1024;
 
 /** Seitenschutz (.htaccess = HTTP Basic Auth) beim Ablauf – wie die Platzhalter-Werte nie gemerkt. */
 export const siteAuthSchema = z.object({
-  user: z.string().max(200).regex(/^[^:\x00-\x1f\x7f]*$/, "Seitenschutz: Benutzer ohne Doppelpunkt, eine Zeile"),
-  password: z.string().max(MAX_SECRET).regex(/^[^\x00-\x1f\x7f]*$/, "Seitenschutz: Passwort in einer Zeile"),
+  user: z
+    .string()
+    .max(200)
+    .regex(/^[^:\x00-\x1f\x7f]*$/, "Seitenschutz: Benutzer ohne Doppelpunkt, eine Zeile"),
+  password: z
+    .string()
+    .max(MAX_SECRET)
+    .regex(/^[^\x00-\x1f\x7f]*$/, "Seitenschutz: Passwort in einer Zeile"),
 });
 export type SiteAuth = z.infer<typeof siteAuthSchema>;
 export const MAX_ACCOUNTS = 50;
@@ -58,6 +64,25 @@ export function parseHeaderLines(textarea: string): { name: string; value: strin
 }
 
 /** Normalisiert eine Server-Adresse; null, wenn sie nicht zulässig ist. */
+/**
+ * Ergänzt eine Adresse ohne http:// oder https:// – niemand soll an einem fehlenden Präfix scheitern.
+ * Rechner im eigenen Netz (localhost, IP-Adressen, .lan/.local/.home, mit Port) bekommen http://, alles andere https://.
+ */
+export function withScheme(input: string): string {
+  const raw = input.trim();
+  if (!raw || /^[a-z][a-z0-9+.-]*:\/\//i.test(raw)) return raw;
+  const host = raw.replace(/^\/+/, "").split(/[/?#]/)[0].toLowerCase();
+  const name = host.replace(/:\d+$/, "");
+  const local =
+    host !== name ||
+    name === "localhost" ||
+    /^\d{1,3}(\.\d{1,3}){3}$/.test(name) ||
+    name.startsWith("[") ||
+    /\.(lan|local|home|internal|localhost)$/.test(name) ||
+    !name.includes(".");
+  return `${local ? "http" : "https"}://${raw.replace(/^\/+/, "")}`;
+}
+
 export function parseBaseUrl(input: unknown): string | null {
   if (typeof input !== "string") return null;
   const raw = input.trim();
@@ -213,7 +238,12 @@ const secretsSchema = z
   .refine((r) => Object.keys(r).length <= 20, "Höchstens 20 Platzhalter");
 
 // Ein Ziel darf keine Anführungszeichen enthalten – sie beenden es in der Schritt-Sprache
-const targetText = z.string().trim().min(1).max(200).regex(/^[^"\x00-\x1f]*$/, "Ungültiges Ziel");
+const targetText = z
+  .string()
+  .trim()
+  .min(1)
+  .max(200)
+  .regex(/^[^"\x00-\x1f]*$/, "Ungültiges Ziel");
 
 export const LIVE_KEYS = ["Enter", "Tab", "Escape", "ArrowDown", "ArrowUp", "Space", "Backspace"] as const;
 
@@ -225,6 +255,47 @@ export const liveStartSchema = z.object({
     .refine((v) => /^\s*öffne\s+https?:\/\//i.test(v), "Der Ablauf muss mit „öffne https://…“ beginnen."),
   secrets: secretsSchema.optional(),
   site_auth: siteAuthSchema.optional(),
+  /** Live-Vorführen: die Seite als Videostrom, Eingaben direkt in den Browser */
+  stream: z.boolean().optional(),
+});
+
+const coord = (max: number) => z.number().min(0).max(max);
+const oneLine = z
+  .string()
+  .min(1)
+  .max(4000)
+  .regex(/^[^\n\r]*$/, "Der Text muss eine Zeile sein");
+
+/** Live-Vorführen, POST /api/flow/live/input: Maus, Rad, Tasten und Text – in der Reihenfolge, in der der Nutzer sie ausgelöst hat. */
+export const liveInputSchema = z.object({
+  session: z.string().regex(/^[0-9a-f]{32}$/, "Unbekannte Sitzung"),
+  measuring: z.boolean().optional(),
+  events: z
+    .array(
+      z.discriminatedUnion("t", [
+        z.object({ t: z.literal("move"), x: coord(1280), y: coord(800) }),
+        z.object({ t: z.literal("click"), x: coord(1280), y: coord(800), dbl: z.boolean().optional() }),
+        z.object({
+          t: z.literal("wheel"),
+          x: coord(1280),
+          y: coord(800),
+          dx: z.number().min(-5000).max(5000).optional(),
+          dy: z.number().min(-5000).max(5000).optional(),
+        }),
+        z.object({ t: z.literal("type"), text: oneLine }),
+        z.object({ t: z.literal("text"), text: oneLine }),
+        z.object({
+          t: z.literal("key"),
+          key: z.string().regex(/^(?:[A-Za-z0-9]{1,12}|.)$/, "Ungültige Taste"),
+          mods: z
+            .array(z.enum(["Control", "Shift", "Alt", "Meta"]))
+            .max(3)
+            .optional(),
+        }),
+      ]),
+    )
+    .min(1)
+    .max(60),
 });
 
 /** Vorführen, POST /api/flow/live/look: nur ein frisches Bild der Seite. */
@@ -236,13 +307,28 @@ export const liveActSchema = z.object({
   secrets: secretsSchema.optional(),
   action: z.discriminatedUnion("type", [
     z.object({ type: z.literal("pick"), mark: z.string().regex(/^\d{1,7}$/), measuring: z.boolean().optional() }),
+    // Klick auf eine Stelle des Bildes, wo kein Knopf erkannt wurde (z. B. ein Schalter aus einem <div>)
+    z.object({
+      type: z.literal("pick_at"),
+      x: z.number().min(0).max(1280),
+      y: z.number().min(0).max(800),
+      measuring: z.boolean().optional(),
+    }),
     z.object({ type: z.literal("press"), key: z.enum(LIVE_KEYS), measuring: z.boolean().optional() }),
     // Blättern an einer Stelle der Seite (Koordinaten im Browserfenster 1280×800) – kein Schritt im Ablauf
-    z.object({ type: z.literal("scroll"), x: z.number().min(0).max(1280), y: z.number().min(0).max(800), dy: z.number().min(-5000).max(5000) }),
+    z.object({
+      type: z.literal("scroll"),
+      x: z.number().min(0).max(1280),
+      y: z.number().min(0).max(800),
+      dy: z.number().min(-5000).max(5000),
+    }),
     z.object({
       type: z.literal("fill"),
       target: z.object({ target: targetText, near: targetText.optional(), nth: z.number().int().min(1).max(999).optional() }),
-      text: z.string().max(4000).regex(/^[^\n\r]*$/, "Der Text muss eine Zeile sein"),
+      text: z
+        .string()
+        .max(4000)
+        .regex(/^[^\n\r]*$/, "Der Text muss eine Zeile sein"),
       enter: z.boolean().optional(),
       measuring: z.boolean().optional(),
     }),

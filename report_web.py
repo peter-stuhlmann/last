@@ -22,7 +22,7 @@ import re
 from pptx.enum.text import MSO_ANCHOR
 from pptx.util import Inches
 
-from llm_stresstest import IN_DOCKER, fmt, round_users
+from llm_stresstest import ERR_OK, IN_DOCKER, fmt, round_users
 from report_pptx import (
     BAD,
     CARD,
@@ -266,6 +266,10 @@ TEXTS = {
 }
 
 
+# Wovon Fehler gezählt werden: „2 der 35.114 Aufrufe“
+EVENTS = {"web": "Aufrufe", "api": "Anfragen", "flow": "Durchläufe"}
+
+
 def kind_of(summary):
     kind = (summary.get("config") or {}).get("kind")
     return kind if kind in TEXTS else "web"
@@ -424,23 +428,29 @@ def result_rows(summary):
     soak = f["soak"]
     if soak:
         slower = (soak.get("degradation") or {}).get("ttft_change_pct")
-        failed = soak["total"]["error_rate"] > 0
-        rows.append((BAD if failed else WARN if slower is not None and slower > 25 else GOOD, "Ausdauer",
+        tot = soak["total"]
+        rate = tot["error_rate"]
+        failed = rate > ERR_OK
+        rows.append((BAD if rate > 0.01 else WARN if failed or (slower is not None and slower > 25) else GOOD,
+                     "Ausdauer",
                      f"nach {mins(soak['minutes'])} "
-                     + (f"{fmt(soak['total']['error_rate'] * 100, 1)} % Fehler" if failed
+                     + (f"{fmt(tot['errors'], 0)} der {fmt(tot['n'], 0)} {EVENTS[kind_of(summary)]} schiefgegangen"
+                        if failed
                         else "unverändert schnell" if slower is None or abs(slower) < 5
-                        else f"{signed(slower)} {t['time']}")))
+                        else f"{signed(slower)} {t['time']}")
+                     + (f" (nur {fmt(tot['errors'], 0)} der {fmt(tot['n'], 0)} schiefgegangen)"
+                        if tot.get("errors") and not failed else "")))
     ctl_note = control_note(summary)
     if ctl_note:
         rows.append((ctl_note[0], "Kontrollmessung am Ende", ctl_note[1]))
     quality = summary.get("quality") or {}
     if quality.get("items"):
         # Der wichtigste Befund zuerst: rot vor gelb vor grün
-        worst = min(quality["items"], key=lambda i: ("bad", "warn", "good").index(i["status"]))
+        worst = min(quality["items"], key=lambda i: ("bad", "warn", "good", "info").index(i["status"]))
         rows.append(({"hoch": GOOD, "mittel": WARN, "niedrig": BAD}[quality["overall"]],
                      "Verlässlichkeit der Messung",
                      f"{quality['overall']} – " + ("der Messrechner kam gut hinterher" if worst["status"] == "good"
-                                                   else f"{worst['title']} {worst['value']}")))
+                                                   else worst.get("short") or f"{worst['title']} {worst['value']}")))
     total = f["pre"].get("total_bytes")
     if total and not api and not f["flow"]:
         rows.append((GOOD if total <= LIGHT_PAGE else WARN if total <= HEAVY_PAGE else BAD, "Gewicht der Seite",
@@ -685,7 +695,7 @@ def build_report(summary, path):
     notes(sl, "Urteil: grün, wenn die Kapazität zur erwarteten Last passt und Ansturm sowie Dauerlast sauber "
               "überstanden wurden; gelb bei knapper Kapazität, Fehlern im Ansturm oder langsamer werdenden "
               f"Antworten; rot, wenn die Kapazität deutlich nicht reicht oder {t['subject']} ausfiel. "
-              f"Ziel (SLO): {t['time']} p95 ≤ {fmt(slo, 2)} s, keine Fehler.")
+              f"Ziel (SLO): {t['time']} p95 ≤ {fmt(slo, 2)} s, höchstens ein Fehler auf 1.000.")
 
     # ═══ So haben wir getestet ═══
     _method_slide(d, summary, f, os.path.dirname(os.path.abspath(path)))
@@ -752,7 +762,7 @@ def build_report(summary, path):
                     "unter der gestrichelten Linie bleibt, ist alles gut.", meaning)
         footer(sl, t["gleichzeitig_note"])
         notes(sl, f"Ramp mit fester Parallelität, je Stufe {n0(cfg.get('level_seconds', 0))} s im eingeschwungenen "
-                  f"Zustand. Linien: {t['time']} p50 und p95. Ziel erreicht = p95 ≤ SLO und keine Fehler.")
+                  f"Zustand. Linien: {t['time']} p50 und p95. Ziel erreicht = p95 ≤ SLO und höchstens ein Fehler auf 1.000.")
 
         # ═══ Gesamtleistung ═══
         sl = d.slide()

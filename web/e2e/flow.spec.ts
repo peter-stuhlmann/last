@@ -17,7 +17,15 @@ test("Ablauf-Test: aufzeichnen, abspielen, Bericht mit Bildschirmfotos", async (
   await page.route("**/api/start", async (route) => {
     const body = route.request().postDataJSON() as Record<string, unknown>;
     await route.continue({
-      postData: JSON.stringify({ ...body, levels: "1,2", level_seconds: 5, warmup_seconds: 1, min_samples: 2, baseline_requests: 2, tests: "baseline,ramp" }),
+      postData: JSON.stringify({
+        ...body,
+        levels: "1,2",
+        level_seconds: 5,
+        warmup_seconds: 1,
+        min_samples: 2,
+        baseline_requests: 2,
+        tests: "baseline,ramp",
+      }),
     });
   });
 
@@ -64,7 +72,14 @@ test("Ablauf-Test: aufzeichnen, abspielen, Bericht mit Bildschirmfotos", async (
   const rawHref = (await page.getByRole("link", { name: /Rohdaten/ }).getAttribute("href"))!;
   for (const file of ["summary.json", "raw_requests.jsonl"]) {
     const text = await (await request.get(rawHref.replace("raw_requests.jsonl", file))).text();
-    for (const secret of ["sehr-geheim-42", "sitzung-abcdefgh", "tester@example.de", "auch-geheim-43", "sitzung-zweitesk", "zweite@example.de"]) {
+    for (const secret of [
+      "sehr-geheim-42",
+      "sitzung-abcdefgh",
+      "tester@example.de",
+      "auch-geheim-43",
+      "sitzung-zweitesk",
+      "zweite@example.de",
+    ]) {
       expect(text.includes(secret)).toBe(false);
     }
   }
@@ -74,7 +89,15 @@ test("Ablauf vorführen: durchklicken, daraus testen", async ({ page }) => {
   await page.route("**/api/start", async (route) => {
     const body = route.request().postDataJSON() as Record<string, unknown>;
     await route.continue({
-      postData: JSON.stringify({ ...body, levels: "1,2", level_seconds: 5, warmup_seconds: 1, min_samples: 2, baseline_requests: 2, tests: "baseline,ramp" }),
+      postData: JSON.stringify({
+        ...body,
+        levels: "1,2",
+        level_seconds: 5,
+        warmup_seconds: 1,
+        min_samples: 2,
+        baseline_requests: 2,
+        tests: "baseline,ramp",
+      }),
     });
   });
   await page.goto("/");
@@ -82,6 +105,9 @@ test("Ablauf vorführen: durchklicken, daraus testen", async ({ page }) => {
   await page.getByRole("textbox", { name: "Adresse der Startseite" }).fill(START);
   await page.getByRole("button", { name: /Ablauf vorführen/ }).click();
   const dialog = page.getByRole("dialog", { name: "Ablauf vorführen" });
+  // Standard ist die Live-Ansicht (Bild-Strom, direkt klicken und tippen). Dieser Test geht über die Elementansicht:
+  // Knöpfe und Felder haben dort Namen, die sich ohne Koordinaten ansprechen lassen.
+  await dialog.getByRole("button", { name: "Elementansicht" }).click({ timeout: 60_000 });
 
   // Anmelden – wie ein Mensch: ins Feld klicken, Text eingeben, auf den Knopf klicken
   const type = async (field: string, value: string, enter = false) => {
@@ -99,7 +125,9 @@ test("Ablauf vorführen: durchklicken, daraus testen", async ({ page }) => {
   await expect(dialog.getByRole("button", { name: "Eingeben in „Nachricht“" })).toBeVisible({ timeout: 60_000 });
   await dialog.getByRole("button", { name: "⏱ Ab hier messen" }).click();
   await type("Nachricht", "Was ist ein Lasttest?", true);
-  await expect(dialog.getByRole("complementary", { name: "Der Ablauf bisher" }).getByText("Warten, bis die Seite fertig ist")).toBeVisible({ timeout: 60_000 });
+  await expect(dialog.getByRole("complementary", { name: "Der Ablauf bisher" }).getByText("Warten, bis die Seite fertig ist")).toBeVisible({
+    timeout: 60_000,
+  });
 
   const axe = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
   expect(axe.violations.map((v) => v.id)).toEqual([]);

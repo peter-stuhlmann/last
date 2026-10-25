@@ -23,7 +23,12 @@ function cleanSnapshot(v: unknown): LiveSnapshot | undefined {
     .slice(0, 200)
     .map((e): LiveElement => {
       const b = obj(e.box) ?? {};
-      return { mark: String(e.mark), kind: e.kind as LiveElement["kind"], label: str(e.label, 200), box: { x: num(b.x), y: num(b.y), w: num(b.w), h: num(b.h) } };
+      return {
+        mark: String(e.mark),
+        kind: e.kind as LiveElement["kind"],
+        label: str(e.label, 200),
+        box: { x: num(b.x), y: num(b.y), w: num(b.w), h: num(b.h) },
+      };
     });
   return {
     url: str(d.url, 2048),
@@ -53,7 +58,11 @@ export function cleanLiveReply(v: unknown): LiveReply {
   if (typeof d.session === "string" && /^[0-9a-f]{32}$/.test(d.session)) out.session = d.session;
   const snap = cleanSnapshot(d.snapshot);
   if (snap) out.snapshot = snap;
-  if (Array.isArray(d.steps)) out.steps = d.steps.map((s) => str(s, 4500)).filter(Boolean).slice(0, 10);
+  if (Array.isArray(d.steps))
+    out.steps = d.steps
+      .map((s) => str(s, 4500))
+      .filter(Boolean)
+      .slice(0, 10);
   if (d.thumb !== undefined) out.thumb = jpeg(d.thumb, 500_000);
   if (d.need === "text") {
     const target = cleanTarget(d.target);

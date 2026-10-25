@@ -49,8 +49,8 @@ describe("NewTestForm", () => {
     expect(screen.getByRole("spinbutton", { name: /Nutzer im Team/ })).toBeInTheDocument();
     expect(screen.getByRole("spinbutton", { name: /Warten höchstens/ })).toHaveValue(2);
     expect(screen.getByRole("spinbutton", { name: /Lesetempo mindestens/ })).toHaveValue(10);
-    expect(screen.getByText("5 Stufen · bis 64 gleichzeitig")).toBeInTheDocument();
-    expect(screen.getByText("9 Stufen · bis 256 gleichzeitig")).toBeInTheDocument();
+    expect(screen.getByText("steigert in 5 Schritten bis 64 gleichzeitig")).toBeInTheDocument();
+    expect(screen.getByText("steigert in 9 Schritten bis 256 gleichzeitig")).toBeInTheDocument();
     await expectAccessible(container);
   });
 
@@ -104,13 +104,44 @@ describe("NewTestForm", () => {
     const { user } = setup();
     const url = screen.getByRole("textbox", { name: "Adresse des Servers" });
     await user.clear(url);
-    await user.type(url, "spark.buero.lan");
+    await user.type(url, "http://spark buero");
     await user.click(screen.getByRole("button", { name: /Test starten/ }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(/http:\/\/ oder https:\/\//);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/keine gültige Adresse/);
     expect(url).toHaveAttribute("aria-invalid", "true");
     expect(url).toHaveFocus();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("ergänzt http:// selbst, statt die Adresse abzulehnen", async () => {
+    const { user } = setup();
+    const url = screen.getByRole("textbox", { name: "Adresse des Servers" });
+    await user.clear(url);
+    await user.type(url, "spark.buero.lan:8000/v1");
+    await user.tab();
+    expect(url).toHaveValue("http://spark.buero.lan:8000/v1");
+  });
+
+  it("merkt sich die Erlaubnis für genau diese Adresse", async () => {
+    fetchMock.mockResolvedValue(Response.json({ ok: true }));
+    const first = setup();
+    const url = screen.getByRole("textbox", { name: "Adresse des Servers" });
+    await first.user.clear(url);
+    await first.user.type(url, "http://spark.buero.lan:8000/v1");
+    await first.user.click(screen.getByRole("checkbox", { name: /eigener Server/ }));
+    await first.user.click(screen.getByRole("button", { name: /Test starten/ }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/lauf"));
+    first.unmount();
+
+    const again = setup();
+    const box = await screen.findByRole("checkbox", { name: /eigener Server/ });
+    await waitFor(() => expect(box).toBeChecked());
+    expect(screen.getByText("Für spark.buero.lan:8000 schon einmal bestätigt.")).toBeInTheDocument();
+    // Ein anderes Ziel muss neu bestätigt werden
+    const other = screen.getByRole("textbox", { name: "Adresse des Servers" });
+    await again.user.clear(other);
+    await again.user.type(other, "http://anderer.example");
+    expect(box).not.toBeChecked();
   });
 
   it("zeigt Fehler des Servers an", async () => {
@@ -175,7 +206,14 @@ describe("NewTestForm", () => {
 
 describe("NewTestForm für Websites", () => {
   const web = {
-    defaults: { levels: "1,2,4,8,16,32,64,128,256", level_seconds: 60, soak_minutes: 15, slo_load: 3, think_time: 30, tests: "baseline,ramp,rate,spike,soak" },
+    defaults: {
+      levels: "1,2,4,8,16,32,64,128,256",
+      level_seconds: 60,
+      soak_minutes: 15,
+      slo_load: 3,
+      think_time: 30,
+      tests: "baseline,ramp,rate,spike,soak",
+    },
     quick: { levels: "1,4,16,32,64", level_seconds: 30, soak_minutes: 3 },
   };
 
@@ -234,7 +272,13 @@ describe("NewTestForm für Websites", () => {
 
 describe("NewTestForm für HTTP-APIs", () => {
   const api = {
-    defaults: { levels: "1,2,4,8,16,32,64,128,256", level_seconds: 60, soak_minutes: 15, slo_load: 0.5, tests: "baseline,ramp,rate,spike,soak" },
+    defaults: {
+      levels: "1,2,4,8,16,32,64,128,256",
+      level_seconds: 60,
+      soak_minutes: 15,
+      slo_load: 0.5,
+      tests: "baseline,ramp,rate,spike,soak",
+    },
     quick: { levels: "1,4,16,32,64", level_seconds: 30, soak_minutes: 3 },
   };
 
@@ -249,13 +293,14 @@ describe("NewTestForm für HTTP-APIs", () => {
     expect(screen.getByRole("radio", { name: /HTTP-API/ })).toBeEnabled();
     await user.click(screen.getByRole("radio", { name: /HTTP-API/ }));
     expect(screen.getByRole("textbox", { name: "Adresse der API" })).toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "Methode" })).toHaveValue("GET");
+    expect(screen.getByRole("combobox", { name: "Methode" })).toHaveTextContent("GET");
     expect(screen.getByRole("spinbutton", { name: /Anfragen pro Minute/ })).toBeInTheDocument();
     expect(screen.getByRole("spinbutton", { name: /Antwort nach höchstens/ })).toHaveValue(0.5);
     expect(screen.getByRole("textbox", { name: /Erwarteter Status/ })).toHaveValue("2xx");
     expect(screen.queryByRole("textbox", { name: "Body" })).not.toBeInTheDocument();
 
-    await user.selectOptions(screen.getByRole("combobox", { name: "Methode" }), "POST");
+    await user.click(screen.getByRole("combobox", { name: "Methode" }));
+    await user.click(screen.getByRole("option", { name: "POST" }));
     expect(screen.getByRole("textbox", { name: "Body" })).toBeInTheDocument();
     expect(screen.getByText(/verändert der Test Daten/)).toBeInTheDocument();
   });
@@ -265,7 +310,8 @@ describe("NewTestForm für HTTP-APIs", () => {
     const user = setupApi();
     await user.click(screen.getByRole("radio", { name: /HTTP-API/ }));
     await user.type(screen.getByRole("textbox", { name: "Adresse der API" }), "https://api.example/v1/items");
-    await user.selectOptions(screen.getByRole("combobox", { name: "Methode" }), "POST");
+    await user.click(screen.getByRole("combobox", { name: "Methode" }));
+    await user.click(screen.getByRole("option", { name: "POST" }));
     await user.clear(screen.getByRole("textbox", { name: /Erwarteter Status/ }));
     await user.type(screen.getByRole("textbox", { name: /Erwarteter Status/ }), "201");
     await user.type(screen.getByRole("textbox", { name: "Kopfzeilen" }), "Authorization: Bearer geheim");
@@ -275,9 +321,16 @@ describe("NewTestForm für HTTP-APIs", () => {
     await waitFor(() => expect(push).toHaveBeenCalledWith("/lauf"));
 
     expect(sentBody()).toMatchObject({
-      kind: "api", method: "POST", expect_status: "201", base_url: "https://api.example/v1/items",
-      headers: [{ name: "Authorization", value: "Bearer geheim" }], body: '{"name": "x"}',
-      confirm_owner: true, slo_load: 0.5, levels: "1,4,16,32,64", tests: "baseline,ramp,rate,spike,soak",
+      kind: "api",
+      method: "POST",
+      expect_status: "201",
+      base_url: "https://api.example/v1/items",
+      headers: [{ name: "Authorization", value: "Bearer geheim" }],
+      body: '{"name": "x"}',
+      confirm_owner: true,
+      slo_load: 0.5,
+      levels: "1,4,16,32,64",
+      tests: "baseline,ramp,rate,spike,soak",
     });
     expect(localStorage.getItem("last.form.v1")).not.toContain("geheim");
     expect(JSON.parse(localStorage.getItem("last.secrets.v1")!)).toMatchObject({
@@ -300,7 +353,14 @@ describe("NewTestForm für HTTP-APIs", () => {
 
 describe("NewTestForm für Abläufe", () => {
   const flow = {
-    defaults: { levels: "1,2,4,8,16,32", level_seconds: 60, soak_minutes: 15, slo_load: 10, think_time: 60, tests: "baseline,ramp,rate,spike,soak" },
+    defaults: {
+      levels: "1,2,4,8,16,32",
+      level_seconds: 60,
+      soak_minutes: 15,
+      slo_load: 10,
+      think_time: 60,
+      tests: "baseline,ramp,rate,spike,soak",
+    },
     quick: { levels: "1,2,4,8,16", level_seconds: 30, soak_minutes: 3 },
   };
   const steps = 'tippe in "E-Mail" {email}\ntippe in "Passwort" {passwort}\nklicke "Anmelden"\nmessen ab hier\nklicke "Senden"';
@@ -340,9 +400,15 @@ describe("NewTestForm für Abläufe", () => {
     await waitFor(() => expect(push).toHaveBeenCalledWith("/lauf"));
 
     expect(sentBody()).toMatchObject({
-      kind: "flow", base_url: "https://chat.example/login", steps: `öffne https://chat.example/login\n${steps}`,
-      secrets: { email: "tester@example.de", passwort: "sehr-geheim" }, confirm_owner: true,
-      slo_load: 10, think_time: 60, levels: "1,2,4,8,16", tests: "baseline,ramp,rate,spike,soak",
+      kind: "flow",
+      base_url: "https://chat.example/login",
+      steps: `öffne https://chat.example/login\n${steps}`,
+      secrets: { email: "tester@example.de", passwort: "sehr-geheim" },
+      confirm_owner: true,
+      slo_load: 10,
+      think_time: 60,
+      levels: "1,2,4,8,16",
+      tests: "baseline,ramp,rate,spike,soak",
     });
     const form = localStorage.getItem("last.form.v1")!;
     expect(form).not.toContain("geheim");
@@ -379,7 +445,10 @@ describe("NewTestForm für Abläufe", () => {
     await user.click(screen.getByRole("checkbox", { name: /eigene Anwendung/ }));
     await user.click(screen.getByRole("button", { name: /Test starten/ }));
     expect(await screen.findByRole("alert")).toHaveTextContent(/Schritt/);
-    await user.type(screen.getByRole("textbox", { name: "Die Schritte" }), 'tippe in "Passwort" {{passwort}\nmessen ab hier\nklicke "Senden"');
+    await user.type(
+      screen.getByRole("textbox", { name: "Die Schritte" }),
+      'tippe in "Passwort" {{passwort}\nmessen ab hier\nklicke "Senden"',
+    );
     await user.click(screen.getByRole("button", { name: /Test starten/ }));
     expect(await screen.findByRole("alert")).toHaveTextContent(/passwort/);
     expect(fetchMock).not.toHaveBeenCalled();
@@ -398,7 +467,14 @@ describe("Backend ohne Browser", () => {
 
 describe("Abläufe mit mehreren Konten", () => {
   const flow = {
-    defaults: { levels: "1,2,4,8,16,32", level_seconds: 60, soak_minutes: 15, slo_load: 10, think_time: 60, tests: "baseline,ramp,rate,spike,soak" },
+    defaults: {
+      levels: "1,2,4,8,16,32",
+      level_seconds: 60,
+      soak_minutes: 15,
+      slo_load: 10,
+      think_time: 60,
+      tests: "baseline,ramp,rate,spike,soak",
+    },
     quick: { levels: "1,2,4,8,16", level_seconds: 30, soak_minutes: 3 },
   };
 
@@ -420,7 +496,10 @@ describe("Abläufe mit mehreren Konten", () => {
     await user.click(screen.getByRole("radio", { name: /Ablauf/ }));
     await user.click(screen.getByRole("button", { name: "Als Text" }));
     await user.type(screen.getByRole("textbox", { name: "Adresse der Startseite" }), "https://chat.example/login");
-    await user.type(screen.getByRole("textbox", { name: "Die Schritte" }), 'tippe in "Passwort" {{passwort}\nmessen ab hier\nklicke "Senden"');
+    await user.type(
+      screen.getByRole("textbox", { name: "Die Schritte" }),
+      'tippe in "Passwort" {{passwort}\nmessen ab hier\nklicke "Senden"',
+    );
     await user.click(screen.getByRole("checkbox", { name: /Mehrere Konten/ }));
     expect(screen.queryByLabelText("Wert für {passwort}")).not.toBeInTheDocument();
     await user.type(screen.getByRole("textbox", { name: "Konten" }), "passwort\ngeheim-eins\ngeheim-zwei");

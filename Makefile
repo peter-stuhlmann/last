@@ -23,7 +23,7 @@ export MSYS_NO_PATHCONV = 1
 
 .DEFAULT_GOAL := help
 .PHONY: help up build rebuild down restart status logs logs-web logs-backend open \
-        test lint test-web check e2e e2e-up e2e-down test-all shell results trash-empty update clean desktop
+        test lint test-web check format e2e e2e-up e2e-down test-all shell results trash-empty update clean desktop
 
 help: ## diese Übersicht
 	@awk 'BEGIN {FS = ":.*## "; printf "\nBefehle:\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2} END {print ""}' $(MAKEFILE_LIST)
@@ -87,8 +87,11 @@ lint: ## Python-Lint (ruff) – dieselben Regeln wie in der CI
 test-web: ## Tests der Oberfläche (Vitest, inkl. Barrierefreiheit)
 	cd web && npm test
 
-check: ## Typen und Lint der Oberfläche
-	cd web && npm run typecheck && npm run lint
+check: ## Typen, Lint und Formatierung der Oberfläche
+	cd web && npm run typecheck && npm run lint && npm run format:check
+
+format: ## alle Dateien außer Python mit Prettier formatieren
+	cd web && npm run format
 
 e2e-up: ## zweite, getrennte Instanz für die Durchlauf-Tests starten (Port 8099)
 	$(E2E_COMPOSE) up -d --build --wait

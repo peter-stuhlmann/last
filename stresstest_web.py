@@ -304,7 +304,7 @@ _TARGET_FIELDS = {"target": str, "near": str, "nth": int}
 
 def clean_live_action(a):
     """Eine Aktion beim Vorführen – streng geprüft, weil sie direkt im Browser ausgeführt wird."""
-    if not isinstance(a, dict) or a.get("type") not in ("pick", "fill", "press", "scroll"):
+    if not isinstance(a, dict) or a.get("type") not in ("pick", "pick_at", "fill", "press", "scroll"):
         raise ValueError("Unbekannte Aktion.")
     if a["type"] == "scroll":
         vals = [a.get(k) for k in ("x", "y", "dy")]
@@ -312,6 +312,11 @@ def clean_live_action(a):
                 not (0 <= vals[0] <= 1280 and 0 <= vals[1] <= 800 and -5000 <= vals[2] <= 5000):
             raise ValueError("Ungültiges Blättern.")
         return {"type": "scroll", "x": float(vals[0]), "y": float(vals[1]), "dy": float(vals[2])}
+    if a["type"] == "pick_at":
+        vals = [a.get(k) for k in ("x", "y")]
+        if not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in vals) or                 not (0 <= vals[0] <= 1280 and 0 <= vals[1] <= 800):
+            raise ValueError("Ungültige Stelle.")
+        return {"type": "pick_at", "x": float(vals[0]), "y": float(vals[1]), "measuring": a.get("measuring") is True}
     if a["type"] == "pick":
         if not isinstance(a.get("mark"), str) or not a["mark"].isdigit() or len(a["mark"]) > 7:
             raise ValueError("Unbekanntes Element.")
@@ -336,6 +341,44 @@ def clean_live_action(a):
         raise ValueError("Der Text muss eine Zeile sein (höchstens 4000 Zeichen).")
     return {"type": "fill", "target": target, "text": text, "enter": a.get("enter") is True,
             "measuring": a.get("measuring") is True}
+
+
+_KEY_RE = re.compile(r"^(?:[A-Za-z0-9]{1,12}|.)$")
+_MODS = {"Control", "Shift", "Alt", "Meta"}
+
+
+def clean_live_events(v):
+    """Eingaben beim Live-Vorführen (Maus, Rad, Tasten, Text) – streng geprüft, weil sie direkt im Browser landen."""
+    if not isinstance(v, list) or not 1 <= len(v) <= 60:
+        raise ValueError("Ungültige Eingaben.")
+    num = lambda x, lo, hi: isinstance(x, (int, float)) and not isinstance(x, bool) and lo <= x <= hi  # noqa: E731
+    out = []
+    for e in v:
+        t = e.get("t") if isinstance(e, dict) else None
+        if t in ("move", "click", "wheel"):
+            if not (num(e.get("x"), 0, 1280) and num(e.get("y"), 0, 800)):
+                raise ValueError("Ungültige Stelle.")
+            ev = {"t": t, "x": float(e["x"]), "y": float(e["y"])}
+            if t == "wheel":
+                if not (num(e.get("dx", 0), -5000, 5000) and num(e.get("dy", 0), -5000, 5000)):
+                    raise ValueError("Ungültiges Blättern.")
+                ev.update(dx=float(e.get("dx", 0)), dy=float(e.get("dy", 0)))
+            if t == "click":
+                ev["dbl"] = e.get("dbl") is True
+        elif t in ("type", "text"):
+            text = e.get("text")
+            if not isinstance(text, str) or not text or len(text) > 4000 or "\n" in text or "\r" in text:
+                raise ValueError("Ungültiger Text.")
+            ev = {"t": t, "text": text}
+        elif t == "key":
+            key, mods = e.get("key"), e.get("mods") or []
+            if not isinstance(key, str) or not _KEY_RE.match(key) or not isinstance(mods, list) or                     not set(mods) <= _MODS or len(mods) > 3:
+                raise ValueError("Ungültige Taste.")
+            ev = {"t": "key", "key": key, "mods": mods}
+        else:
+            raise ValueError("Unbekannte Eingabe.")
+        out.append(ev)
+    return out
 
 
 def clean_secrets(v):
@@ -401,6 +444,8 @@ async def flow_live(req):
         async with live.lock:
             try:
                 result = await asyncio.wait_for(live.open(steps, secrets, site_auth), LIVE_TIMEOUT)
+                if cfg.get("stream") is True:
+                    await live.start_stream()
             except lt.PreflightError as e:
                 failed = str(e)
             except TimeoutError:
@@ -428,6 +473,46 @@ async def flow_live(req):
         return web.json_response({"error": f"Nach {LIVE_TIMEOUT} s keine Antwort – der Browser wurde geschlossen."},
                                  status=504)
     return web.json_response(result)
+
+
+@routes.post("/api/flow/live/input")
+async def flow_live_input(req):
+    """Live-Vorführen: Maus, Rad, Tasten und Text der Oberfläche – direkt in den Browser, Schritte in Reihenfolge."""
+    try:
+        cfg = await req.json()
+        if not isinstance(cfg, dict):
+            raise ValueError("Ungültige Anfrage.")
+        events = clean_live_events(cfg.get("events"))
+    except ValueError as e:
+        return web.json_response({"error": str(e)}, status=400)
+    live = req.app["live"].session
+    if live is None or cfg.get("session") != live.id or live._cdp is None:
+        return web.json_response({"error": "Der Browser wurde inzwischen geschlossen – bitte neu starten."}, status=410)
+    live.put(events, cfg.get("measuring") is True)
+    return web.json_response({"ok": True})
+
+
+@routes.get("/api/flow/live/stream")
+async def flow_live_stream(req):
+    """Live-Vorführen als Server-Sent Events: „frame“ (JPEG, Base64) und „msg“ (JSON: Schritte, Felder, Hinweise)."""
+    live = req.app["live"].session
+    if live is None or req.query.get("session") != live.id or live._cdp is None:
+        return web.json_response({"error": "Der Browser wurde inzwischen geschlossen – bitte neu starten."}, status=410)
+    resp = web.StreamResponse(headers={"Content-Type": "text/event-stream", "Cache-Control": "no-cache",
+                                       "X-Accel-Buffering": "no"})
+    await resp.prepare(req)
+    live._sent = 0                                   # nach einem erneuten Verbinden das aktuelle Bild noch einmal
+    live._wake.set()
+    try:
+        while req.app["live"].session is live:
+            for kind, data in await live.events():
+                if kind == "ping":
+                    await resp.write(b": ping\n\n")
+                else:
+                    await resp.write(f"event: {kind}\ndata: {data}\n\n".encode())
+    except (ConnectionResetError, asyncio.CancelledError):
+        pass
+    return resp
 
 
 @routes.post("/api/stop")
@@ -561,6 +646,19 @@ def empty_trash(root):
             pass
 
 
+def rederive(s):
+    """Abgeleitete Kennzahlen frisch rechnen – auch Läufe aus älteren Versionen bekommen so die aktuelle
+    Bewertung. Website-Tests prüfen die Messqualität erst am Ende – vorher bleibt sie weg."""
+    if s.get("config", {}).get("kind") in ("web", "api", "flow"):
+        if s.get("quality"):
+            s["quality"] = ws.assess_quality(s)
+        s["capacity"], s["verdict"] = ws.capacity(s), ws.verdict(s)
+    else:
+        s["quality"] = lt.assess_quality(s)
+        s["capacity"], s["economics"], s["verdict"] = lt.capacity(s), lt.economics(s), lt.verdict(s)
+    return s
+
+
 def run_row(root, name):
     """Eine Zeile der Lauf-Liste: Stammdaten, Notizen und die Kennzahlen für den Verlauf."""
     path = os.path.join(root, name)
@@ -569,7 +667,7 @@ def run_row(root, name):
         return None
     try:
         with open(sfile, encoding="utf-8") as f:
-            s = json.load(f)
+            s = rederive(json.load(f))
     except Exception:
         return None
     cfg, kind = s.get("config") or {}, (s.get("config") or {}).get("kind") or "llm"
@@ -637,12 +735,7 @@ async def delete_run(req):
 async def run_summary(req):
     _, path = _run_dir(req)
     with open(os.path.join(path, "summary.json"), encoding="utf-8") as f:
-        s = json.load(f)
-    if s.get("config", {}).get("kind") in ("web", "api", "flow"):
-        return web.json_response(s, dumps=lambda o: json.dumps(o, default=str))
-    # Abgeleitete Kennzahlen immer frisch rechnen – auch für Läufe aus älteren Versionen
-    s.setdefault("quality", lt.assess_quality(s))
-    s["capacity"], s["economics"], s["verdict"] = lt.capacity(s), lt.economics(s), lt.verdict(s)
+        s = rederive(json.load(f))
     return web.json_response(s, dumps=lambda o: json.dumps(o, default=str))
 
 

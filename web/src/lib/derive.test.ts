@@ -82,12 +82,8 @@ const samples: Sample[] = [
 describe("phaseSteps", () => {
   it("markiert erledigte, aktive und offene Schritte", () => {
     const steps = phaseSteps(running(), samples, true);
-    expect(steps.map((s) => s.key)).toEqual([
-      "prechecks", "baseline", "ramp", "rate", "context", "spike", "soak", "control",
-    ]);
-    expect(steps.map((s) => s.status)).toEqual([
-      "done", "done", "active", "pending", "pending", "pending", "pending", "pending",
-    ]);
+    expect(steps.map((s) => s.key)).toEqual(["prechecks", "baseline", "ramp", "rate", "context", "spike", "soak", "control"]);
+    expect(steps.map((s) => s.status)).toEqual(["done", "done", "active", "pending", "pending", "pending", "pending", "pending"]);
     expect(steps[1].duration).toBe(40);
     expect(steps[2].detail).toBe("Stufe 4 von 5 · 32 gleichzeitig");
   });
@@ -119,6 +115,10 @@ describe("liveFocus", () => {
   it("hat einen ruhigen Startzustand", () => {
     const f = liveFocus({ ...running(), meta: { current_test: null }, ramp: undefined }, []);
     expect(f.value).toBe("–");
+  });
+  it("sagt nach dem Ende, wie es ausgegangen ist – nicht mehr „Vorab-Check“", () => {
+    expect(liveFocus(running(), samples, "done")).toEqual({ label: "Fertig", value: "✓", unit: "erledigt", fraction: 1 });
+    expect(liveFocus(running(), samples, "stopped").label).toBe("Abgebrochen");
   });
 });
 
@@ -194,9 +194,7 @@ describe("capacityView", () => {
 describe("kpiCards", () => {
   it("liefert die vier Kennzahlen", () => {
     const k = kpiCards(finishedSummary());
-    expect(k.map((x) => `${x.value} ${x.unit}`)).toEqual([
-      "0,32 s", "32 gleichzeitig", "700 tok/s", "100 %",
-    ]);
+    expect(k.map((x) => `${x.value} ${x.unit}`)).toEqual(["0,32 s", "32 Fragen", "700 tok/s", "100 %"]);
     expect(k[2].text).toContain("526 Wörter");
     expect(k[3].text).toContain("48 Kontrollfragen");
   });
@@ -215,7 +213,7 @@ describe("ampelRows", () => {
     expect(rows[2].value).toBe("bis 120 Fragen/min");
     expect(rows[3].label).toBe("Lange Texte (32.768 Tokens)");
     expect(rows[3].value).toBe("8,4 s bis zum 1. Wort");
-    expect(rows[6].value).toBe("−2 % zum Anfang");
+    expect(rows[6].value).toBe("so schnell wie am Anfang");
   });
   it("kennzeichnet nicht gelaufene Tests", () => {
     const rows = ampelRows(finishedSummary({ spike: undefined, soak: undefined }));
@@ -282,7 +280,10 @@ describe("Website-Läufe", () => {
     expect(d.rec?.concurrency).toBe(32);
     expect(d.max?.concurrency).toBe(64);
     expect(curvePoints(web()).map((p) => [p.c, p.tps, p.ttft, p.ok])).toEqual([
-      [1, 1.5, 0.7, true], [16, 20, 1.1, true], [32, 31, 2.4, true], [64, 34, 6.5, false],
+      [1, 1.5, 0.7, true],
+      [16, 20, 1.1, true],
+      [32, 31, 2.4, true],
+      [64, 34, 6.5, false],
     ]);
   });
 
@@ -301,19 +302,29 @@ describe("Website-Läufe", () => {
     expect(h.title).toBe("Die Website hält mit.");
     expect(h.text).toContain("32 Besucher");
     expect(h.kpis.map((k) => `${k.label}: ${k.value} ${k.unit}`)).toEqual([
-      "Seite geladen nach: 2,4 s", "Erste Antwort: 0,90 s", "Seiten pro Sekunde: 31 Seiten/s", "Fehler: 0,0 %",
+      "Seite geladen nach: 2,4 s",
+      "Erste Antwort: 0,90 s",
+      "Seiten pro Sekunde: 31 Seiten/s",
+      "Fehler: 0,0 %",
     ]);
     expect(liveHeadline(web()).tone).toBe("warn");
   });
 
   it("liefert passende Kennzahlen und Ampelzeilen", () => {
     expect(kpiCards(web()).map((k) => `${k.label}: ${k.value} ${k.unit}`)).toEqual([
-      "Einer allein: 0,60 s", "Sweet Spot: 32 gleichzeitig", "Höchstleistung: 34 Seiten/s", "Erste Antwort: 0,08 s",
+      "Einer allein: 0,60 s",
+      "Im selben Augenblick: 32 Aufrufe",
+      "Höchstleistung: 34 Seiten/s",
+      "Erste Antwort: 0,08 s",
     ]);
     const rows = ampelRows(web());
     expect(rows.map((r) => r.label)).toEqual([
-      "Ladezeit bei normaler Last", "Erste Antwort des Servers", "Echter Andrang",
-      "Großer Ansturm", "Ausdauer über 3 Minuten", "Kontrollmessung am Ende",
+      "Ladezeit bei normaler Last",
+      "Erste Antwort des Servers",
+      "Echter Andrang",
+      "Großer Ansturm",
+      "Ausdauer über 3 Minuten",
+      "Kontrollmessung am Ende",
     ]);
     expect(rows[0].value).toBe("0,60 – 2,4 s");
     expect(rows[2].value).toBe("bis 1.500 Aufrufe/min");
@@ -331,11 +342,16 @@ describe("Website-Läufe", () => {
 
 describe("Verlässlichkeit der Messung", () => {
   const item = (status: "good" | "warn" | "bad", value: string) => ({
-    status, title: "Kam der Messrechner hinterher?", value, text: "",
+    status,
+    title: "Kam der Messrechner hinterher?",
+    value,
+    text: "",
   });
 
   it("warnt in der Ampel, wenn der Messrechner überlastet war", () => {
-    const s = webSummary({ quality: { overall: "niedrig", items: [item("good", "ja"), item("bad", "nein (400 ms bei 64 gleichzeitig)")] } });
+    const s = webSummary({
+      quality: { overall: "niedrig", items: [item("good", "ja"), item("bad", "nein (400 ms bei 64 gleichzeitig)")] },
+    });
     const row = ampelRows(s).at(-1)!;
     expect(row.label).toBe("Verlässlichkeit der Messung");
     expect(row.status).toBe("bad");
@@ -351,6 +367,64 @@ describe("Verlässlichkeit der Messung", () => {
 
   it("lässt die Zeile weg, solange nichts geprüft wurde", () => {
     expect(ampelRows(webSummary()).map((r) => r.label)).not.toContain("Verlässlichkeit der Messung");
+  });
+
+  it("wertet einen nur überlasteten Messrechner als „mittel“ – die Zahl ist dann eine Untergrenze", () => {
+    const lag = { ...item("bad", "nein"), key: "lag", short: "dein Rechner war am Limit – die Werte sind eher zu schlecht" };
+    const row = ampelRows(webSummary({ quality: { overall: "niedrig", items: [lag] } })).at(-1)!;
+    expect(row).toMatchObject({ status: "warn", value: "mittel – dein Rechner war am Limit – die Werte sind eher zu schlecht" });
+    const late = { ...item("bad", "max. 400 ms zu spät"), key: "late" };
+    expect(ampelRows(webSummary({ quality: { overall: "niedrig", items: [lag, late] } })).at(-1)!.status).toBe("bad");
+  });
+
+  it("sagt in Alltagssprache, was los war, wenn das Backend es mitliefert", () => {
+    const short = "dein Rechner kam mit dem Losschicken nicht hinterher – die Werte sind eher zu gut";
+    const bad = { ...item("bad", "max. 572 ms zu spät"), key: "late", short };
+    const row = ampelRows(webSummary({ quality: { overall: "niedrig", items: [bad] } })).at(-1)!;
+    expect(row.value).toBe(`niedrig – ${short}`);
+  });
+});
+
+describe("Einzelne Fehler und Kontrollmessung", () => {
+  const withSoak = (errors: number, n = 35114) => {
+    const s = webSummary();
+    s.soak!.total = stats({ n, ok: n - errors, errors, error_rate: errors / n, user_tps_p50: null });
+    return ampelRows(s).find((r) => r.label.startsWith("Ausdauer"))!;
+  };
+
+  it("zählt einzelne Fehler, statt 0,0 % rot zu zeigen", () => {
+    expect(withSoak(2)).toMatchObject({ status: "good", value: "stabil, nur 2 von 35.114 Aufrufen fehlgeschlagen" });
+    expect(withSoak(100)).toMatchObject({ status: "warn", value: "100 von 35.114 Aufrufen fehlgeschlagen" });
+    expect(withSoak(1000).status).toBe("bad");
+  });
+
+  it("kostet für einen Fehler auf tausend keine Stufe", () => {
+    const cfg = webSummary().config;
+    expect(meetsSlo(stats({ user_tps_p50: null, e2e_p95: 1, n: 2000, errors: 1, error_rate: 1 / 2000 }), cfg)).toBe(true);
+    expect(meetsSlo(stats({ user_tps_p50: null, e2e_p95: 1, n: 500, errors: 1, error_rate: 1 / 500 }), cfg)).toBe(false);
+  });
+
+  it("wertet schneller am Ende nie als Problem und Rauschen als gleich", () => {
+    const row = (ttft: number, e2e: number) => {
+      const s = webSummary();
+      s.control = { s: stats({ e2e_p50: e2e }), tps_diff_pct: null, ttft_diff_pct: ttft };
+      return ampelRows(s).find((r) => r.label === "Kontrollmessung am Ende")!;
+    };
+    expect(row(-22, 0.47)).toEqual({ label: "Kontrollmessung am Ende", value: "schneller als am Anfang", status: "good" });
+    expect(row(28, 0.62)).toMatchObject({ value: "so schnell wie am Anfang", status: "good" }); // nur 0,02 s
+    expect(row(40, 0.84)).toMatchObject({ value: "40 % langsamer als am Anfang", status: "warn" });
+  });
+
+  it("schreibt winzige Zeiten nicht als 0,00", () => {
+    const s = webSummary();
+    s.baseline = { ...s.baseline!, ttft_p50: 0.003 };
+    expect(kpiCards(s)[3]).toMatchObject({ value: "< 0,01", unit: "s" });
+  });
+
+  it("erklärt, woraus die große Zahl hochgerechnet ist", () => {
+    expect(capacityView(webSummary()).basis).toBe(
+      "Hochgerechnet: Im Test liefen bis zu 1.500 Aufrufe pro Minute flüssig. Angenommen ist, dass jeder Besucher etwa alle 30 s eine Seite aufruft – es sind also nie alle im selben Augenblick dran.",
+    );
   });
 });
 
@@ -377,7 +451,10 @@ describe("HTTP-API-Läufe", () => {
     expect(h.text).toContain("64 Anfragen laufen gleichzeitig");
     expect(h.kpis.map((k) => k.label)).toEqual(["Antwort nach", "Erste Antwort", "Anfragen pro Sekunde", "Fehler"]);
     expect(kpiCards(apiSummary()).map((k) => `${k.label}: ${k.value} ${k.unit}`)).toEqual([
-      "Einer allein: 0,05 s", "Sweet Spot: 32 gleichzeitig", "Höchstleistung: 34 Anfr./s", "Erste Antwort: 0,04 s",
+      "Einer allein: 0,05 s",
+      "Im selben Augenblick: 32 Anfragen",
+      "Höchstleistung: 34 Anfr./s",
+      "Erste Antwort: 0,04 s",
     ]);
     const rows = ampelRows(apiSummary());
     expect(rows[0].label).toBe("Antwortzeit bei normaler Last");
@@ -413,7 +490,10 @@ describe("Ablauf-Läufe", () => {
     expect(h.text).toContain("64 Nutzer machen den Ablauf gleichzeitig");
     expect(h.kpis.map((k) => k.label)).toEqual(["Antwort nach", "Erste Antwort", "Durchläufe pro Sekunde", "Fehler"]);
     expect(kpiCards(flowSummary()).map((k) => `${k.label}: ${k.value} ${k.unit}`)).toEqual([
-      "Einer allein: 4,0 s", "Sweet Spot: 32 gleichzeitig", "Höchstleistung: 6,4 Durchl./s", "Erste Antwort: 0,90 s",
+      "Einer allein: 4,0 s",
+      "Im selben Augenblick: 32 Durchläufe",
+      "Höchstleistung: 6,4 Durchl./s",
+      "Erste Antwort: 0,90 s",
     ]);
     expect(kpiCards(flowSummary())[2].text).toContain("Durchläufe pro Minute");
     const rows = ampelRows(flowSummary());

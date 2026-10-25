@@ -142,7 +142,8 @@ export interface Summary {
   skipped?: string[];
   quality?: {
     overall: "hoch" | "mittel" | "niedrig";
-    items: { status: Tone | "info"; title: string; value: string; text: string }[];
+    /** key: „lag“ (Messrechner überlastet), „late“ (Besucher verspätet), „count“ · short: Ergebnis in Alltagssprache */
+    items: { status: Tone | "info"; title: string; value: string; text: string; key?: string; short?: string }[];
   };
   capacity: {
     think_time: number;
@@ -153,7 +154,7 @@ export interface Summary {
   };
   probes: Probes | null;
   economics: Economics | null;
-  verdict: { status: Tone; headline: string; reasons: [Tone, string][] };
+  verdict: { status: Tone; headline: string; reasons: [Tone | "info", string][] };
   monitor?: Sample[];
 }
 

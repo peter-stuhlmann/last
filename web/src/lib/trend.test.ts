@@ -4,8 +4,23 @@ import { filterRuns, trendGroups, trendText } from "./trend";
 
 function run(name: string, over: Partial<RunInfo> = {}): RunInfo {
   return {
-    name, kind: "web", model: null, base_url: "https://shop.example/", started: null, tests: ["ramp"], report: true, pdf: true,
-    title: null, tags: [], note: "", pinned: false, users: 400, target_users: 500, status: "warn", alone: 0.8, ...over,
+    name,
+    kind: "web",
+    model: null,
+    base_url: "https://shop.example/",
+    started: null,
+    tests: ["ramp"],
+    report: true,
+    pdf: true,
+    title: null,
+    tags: [],
+    note: "",
+    pinned: false,
+    users: 400,
+    target_users: 500,
+    status: "warn",
+    alone: 0.8,
+    ...over,
   };
 }
 
@@ -21,14 +36,22 @@ const runs: RunInfo[] = [
 describe("trendGroups", () => {
   it("gruppiert nach Art und Adresse (zuletzt getestete Gruppe zuerst), Läufe älteste zuerst, nur mit Kapazität", () => {
     const groups = trendGroups(runs);
-    expect(groups.map((g) => g.label)).toEqual(["KI-Server · spark:8000 · qwen", "HTTP-API · api.example/v1/items", "Website · shop.example"]);
+    expect(groups.map((g) => g.label)).toEqual([
+      "KI-Server · spark:8000 · qwen",
+      "HTTP-API · api.example/v1/items",
+      "Website · shop.example",
+    ]);
     expect(groups[2].runs.map((r) => r.name)).toEqual(["results_20260901_100000", "results_20260915_100000", "results_20261001_100000"]);
     expect(groups[2].unit).toBe("Besucher");
     expect(groups[1].unit).toBe("Anfragen/min");
   });
 
   it("zeigt nur Gruppen mit mindestens zwei Läufen als Verlauf an", () => {
-    expect(trendGroups(runs).filter((g) => g.runs.length >= 2).map((g) => g.key)).toEqual(["web|https://shop.example/"]);
+    expect(
+      trendGroups(runs)
+        .filter((g) => g.runs.length >= 2)
+        .map((g) => g.key),
+    ).toEqual(["web|https://shop.example/"]);
   });
 });
 
@@ -41,7 +64,10 @@ describe("trendText", () => {
   });
 
   it("benennt auch Verschlechterung und Stillstand", () => {
-    const worse = trendGroups([run("results_20260901_100000", { users: 800, alone: 0.5 }), run("results_20260902_100000", { users: 600, alone: 0.5 })])[0];
+    const worse = trendGroups([
+      run("results_20260901_100000", { users: 800, alone: 0.5 }),
+      run("results_20260902_100000", { users: 600, alone: 0.5 }),
+    ])[0];
     expect(trendText(worse)).toContain("von 800 auf 600 Besucher gesunken (−25 %)");
     expect(trendText(worse)).toContain("blieb bei 0,50 s");
     const same = trendGroups([run("results_20260901_100000", { users: 600 }), run("results_20260902_100000", { users: 610 })])[0];

@@ -33,20 +33,37 @@
       "package.json"
     ],
     "extraResources": [
-      { "from": "build/backend", "to": "backend" },
-      { "from": "build/browsers", "to": "browsers" },
-      { "from": "build/web", "to": "web", "filter": ["**/*", ".next/**/*"] }
+      {
+        "from": "build/backend",
+        "to": "backend"
+      },
+      {
+        "from": "build/browsers",
+        "to": "browsers"
+      },
+      {
+        "from": "build/web",
+        "to": "web",
+        "filter": [
+          "**/*",
+          ".next/**/*"
+        ]
+      }
     ],
     "mac": {
-      "target": ["dmg"],
+      "target": [
+        "dmg"
+      ],
       "category": "public.app-category.developer-tools",
       "icon": "build/icons/icon.png",
       "identity": "-",
       "hardenedRuntime": false
     },
     "win": {
-      "target": ["nsis"],
-      "icon": "build/icons/icon.png"
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icons/icon.ico"
     },
     "nsis": {
       "oneClick": false,
@@ -58,11 +75,16 @@
       "shortcutName": "LAST",
       "runAfterFinish": true,
       "deleteAppDataOnUninstall": false,
-      "installerLanguages": ["de_DE"],
+      "installerLanguages": [
+        "de_DE"
+      ],
       "language": "1031"
     },
     "linux": {
-      "target": ["AppImage", "deb"],
+      "target": [
+        "AppImage",
+        "deb"
+      ],
       "category": "Development",
       "executableName": "last",
       "icon": "build/icons/icon.png",

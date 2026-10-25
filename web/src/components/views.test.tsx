@@ -21,7 +21,11 @@ function runningState(): LiveState {
       ...s,
       meta: { started: "2026-10-04T23:41:00", current_test: "ramp" },
       ramp: { steps: s.ramp!.steps.slice(0, 4), break: null, saturated: null },
-      rate: undefined, context: undefined, spike: undefined, soak: undefined, control: undefined,
+      rate: undefined,
+      context: undefined,
+      spike: undefined,
+      soak: undefined,
+      control: undefined,
     },
     samples: [
       { t: 20, phase: "baseline" },
@@ -39,7 +43,7 @@ describe("LiveView", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Der Server hält mit." })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "Stufe 4 / 5: 32 gleichzeitig" })).toBeInTheDocument();
 
-    const steps = within(screen.getByRole("list", { name: "Ablauf des Tests" })).getAllByRole("listitem");
+    const steps = within(screen.getByRole("list", { name: "Schritte des Tests" })).getAllByRole("listitem");
     expect(steps).toHaveLength(8);
     expect(steps[2]).toHaveAttribute("aria-current", "step");
     expect(steps[2]).toHaveTextContent("Stufe 4 von 5 · 32 gleichzeitig");
@@ -54,7 +58,7 @@ describe("LiveView", () => {
 
   it("bietet die Lastkurve auch als Tabelle an", () => {
     render(<LiveView live={runningState()} onStop={vi.fn()} />);
-    const table = screen.getByRole("table", { name: /Gesamtleistung und Wartezeit je Stufe/ });
+    const table = screen.getByRole("table", { name: /Wartezeit und Gesamtleistung je Stufe/ });
     expect(within(table).getAllByRole("row")).toHaveLength(5);
     expect(within(table).getByRole("cell", { name: "612 tok/s" })).toBeInTheDocument();
   });
@@ -75,40 +79,27 @@ describe("LiveView", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Gerade läuft kein Test." })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Neuen Test starten/ })).toHaveAttribute("href", "/");
 
-    rerender(
-      <LiveView
-        live={{ ...runningState(), state: "error", error: "Server nicht erreichbar" }}
-        onStop={vi.fn()}
-      />,
-    );
+    rerender(<LiveView live={{ ...runningState(), state: "error", error: "Server nicht erreichbar" }} onStop={vi.fn()} />);
     expect(screen.getByRole("alert")).toHaveTextContent("Server nicht erreichbar");
   });
 
   it("verlinkt nach dem Ende auf das Ergebnis", () => {
     render(<LiveView live={{ ...runningState(), state: "done" }} onStop={vi.fn()} />);
-    expect(screen.getByRole("link", { name: /Ergebnis ansehen/ })).toHaveAttribute(
-      "href",
-      "/laeufe/results_20261004_234100",
-    );
+    expect(screen.getByRole("link", { name: /Ergebnis ansehen/ })).toHaveAttribute("href", "/laeufe/results_20261004_234100");
     expect(screen.queryByRole("button", { name: "Abbrechen" })).not.toBeInTheDocument();
   });
 });
 
 describe("ResultView", () => {
   it("zeigt Urteil, Kennzahlen, Ampel und Kosten", async () => {
-    const { container } = render(
-      <ResultView name="results_20261004_234100" summary={finishedSummary()} report pdf />,
-    );
+    const { container } = render(<ResultView name="results_20261004_234100" summary={finishedSummary()} report pdf />);
     expect(screen.getByRole("heading", { level: 1, name: "Grünes Licht." })).toBeInTheDocument();
     expect(screen.getByText("Der Server ist für unseren Einsatz geeignet.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /PowerPoint herunterladen/ })).toHaveAttribute(
       "href",
       "/api/runs/results_20261004_234100/report.pptx",
     );
-    expect(screen.getByRole("link", { name: /PDF/ })).toHaveAttribute(
-      "href",
-      "/api/runs/results_20261004_234100/report.pdf",
-    );
+    expect(screen.getByRole("link", { name: /PDF/ })).toHaveAttribute("href", "/api/runs/results_20261004_234100/report.pdf");
 
     const ampel = within(screen.getByRole("list", { name: "Alle Ergebnisse auf einen Blick" })).getAllByRole("listitem");
     expect(ampel).toHaveLength(7);
@@ -134,7 +125,17 @@ describe("ResultView", () => {
 
 describe("RunsList", () => {
   const runs = ["results_20261004_234100", "results_20261003_101500", "results_20261001_080000"].map((name) => ({
-    name, model: "brain", base_url: "http://spark.buero.lan:8000/v1", started: null, title: null, tags: [], note: "", pinned: false, tests: ["baseline", "ramp"], report: true, pdf: true,
+    name,
+    model: "brain",
+    base_url: "http://spark.buero.lan:8000/v1",
+    started: null,
+    title: null,
+    tags: [],
+    note: "",
+    pinned: false,
+    tests: ["baseline", "ramp"],
+    report: true,
+    pdf: true,
   }));
 
   it("aktiviert den Vergleich erst ab zwei gewählten Läufen", async () => {
@@ -148,14 +149,8 @@ describe("RunsList", () => {
     expect(compare()).toHaveAttribute("aria-disabled", "true");
     await user.click(boxes[2]);
     expect(compare()).not.toHaveAttribute("aria-disabled");
-    expect(compare()).toHaveAttribute(
-      "href",
-      "/api/compare?runs=results_20261004_234100%2Cresults_20261001_080000",
-    );
-    expect(screen.getByRole("link", { name: /04\.10\.2026, 23:41/ })).toHaveAttribute(
-      "href",
-      "/laeufe/results_20261004_234100",
-    );
+    expect(compare()).toHaveAttribute("href", "/api/compare?runs=results_20261004_234100%2Cresults_20261001_080000");
+    expect(screen.getByRole("link", { name: /04\.10\.2026, 23:41/ })).toHaveAttribute("href", "/laeufe/results_20261004_234100");
     await expectAccessible(container);
   });
 
@@ -170,7 +165,7 @@ describe("LiveView direkt nach dem Start", () => {
     const early = normalizeSummary({ config: finishedSummary().config, meta: {} } as never)!;
     render(<LiveView live={{ ...initialLive, connected: true, state: "running", run: "results_1", summary: early }} onStop={vi.fn()} />);
     expect(screen.getByRole("heading", { level: 1, name: "Messung läuft …" })).toBeInTheDocument();
-    const steps = within(screen.getByRole("list", { name: "Ablauf des Tests" })).getAllByRole("listitem");
+    const steps = within(screen.getByRole("list", { name: "Schritte des Tests" })).getAllByRole("listitem");
     expect(steps[0]).toHaveAttribute("aria-current", "step");
   });
 });
@@ -192,7 +187,14 @@ describe("Website-Läufe in den Ansichten", () => {
     const s = webSummary();
     render(
       <LiveView
-        live={{ ...initialLive, connected: true, state: "running", run: "results_1", summary: { ...s, meta: { current_test: "ramp" } }, samples: [{ t: 90, phase: "ramp_c64" }] }}
+        live={{
+          ...initialLive,
+          connected: true,
+          state: "running",
+          run: "results_1",
+          summary: { ...s, meta: { current_test: "ramp" } },
+          samples: [{ t: 90, phase: "ramp_c64" }],
+        }}
         onStop={vi.fn()}
       />,
     );
@@ -207,8 +209,34 @@ describe("Website-Läufe in den Ansichten", () => {
     render(
       <RunsList
         runs={[
-          { name: "results_20261005_100000", kind: "web", model: null, base_url: "https://shop.example/", started: null, title: null, tags: [], note: "", pinned: false, tests: ["baseline", "ramp"], report: false, pdf: false },
-          { name: "results_20261004_234100", kind: "llm", model: "brain", base_url: "http://spark:8000/v1", started: null, title: null, tags: [], note: "", pinned: false, tests: ["ramp"], report: true, pdf: true },
+          {
+            name: "results_20261005_100000",
+            kind: "web",
+            model: null,
+            base_url: "https://shop.example/",
+            started: null,
+            title: null,
+            tags: [],
+            note: "",
+            pinned: false,
+            tests: ["baseline", "ramp"],
+            report: false,
+            pdf: false,
+          },
+          {
+            name: "results_20261004_234100",
+            kind: "llm",
+            model: "brain",
+            base_url: "http://spark:8000/v1",
+            started: null,
+            title: null,
+            tags: [],
+            note: "",
+            pinned: false,
+            tests: ["ramp"],
+            report: true,
+            pdf: true,
+          },
         ]}
       />,
     );
@@ -221,7 +249,18 @@ describe("Website-Läufe in den Ansichten", () => {
   it("lässt nur Läufe gleicher Art miteinander vergleichen", async () => {
     const user = userEvent.setup();
     const run = (name: string, kind: "web" | "llm") => ({
-      name, kind, model: null, base_url: "https://shop.example/", started: null, title: null, tags: [], note: "", pinned: false, tests: ["ramp"], report: true, pdf: true,
+      name,
+      kind,
+      model: null,
+      base_url: "https://shop.example/",
+      started: null,
+      title: null,
+      tags: [],
+      note: "",
+      pinned: false,
+      tests: ["ramp"],
+      report: true,
+      pdf: true,
     });
     render(
       <RunsList
@@ -260,12 +299,19 @@ describe("Website-Läufe in den Ansichten", () => {
 
 describe("LiveView bei unterbrochener Verbindung", () => {
   it("sagt, dass neu verbunden wird und der Test weiterläuft", () => {
-    render(<LiveView live={{ ...initialLive, connected: true, offline: true, state: "running", run: "results_1", summary: webSummary() }} onStop={vi.fn()} />);
+    render(
+      <LiveView
+        live={{ ...initialLive, connected: true, offline: true, state: "running", run: "results_1", summary: webSummary() }}
+        onStop={vi.fn()}
+      />,
+    );
     expect(screen.getByRole("status", { name: "Verbindung" })).toHaveTextContent(/Verbindung unterbrochen.*läuft weiter/);
   });
 
   it("zeigt den Hinweis sonst nicht", () => {
-    render(<LiveView live={{ ...initialLive, connected: true, state: "running", run: "results_1", summary: webSummary() }} onStop={vi.fn()} />);
+    render(
+      <LiveView live={{ ...initialLive, connected: true, state: "running", run: "results_1", summary: webSummary() }} onStop={vi.fn()} />,
+    );
     expect(screen.queryByRole("status", { name: "Verbindung" })).not.toBeInTheDocument();
   });
 });
@@ -288,7 +334,14 @@ describe("HTTP-API-Läufe in den Ansichten", () => {
   it("zeigt live die API-Begriffe", () => {
     render(
       <LiveView
-        live={{ ...initialLive, connected: true, state: "running", run: "results_1", summary: { ...apiSummary(), meta: { current_test: "ramp" } }, samples: [{ t: 90, phase: "ramp_c64" }] }}
+        live={{
+          ...initialLive,
+          connected: true,
+          state: "running",
+          run: "results_1",
+          summary: { ...apiSummary(), meta: { current_test: "ramp" } },
+          samples: [{ t: 90, phase: "ramp_c64" }],
+        }}
         onStop={vi.fn()}
       />,
     );
@@ -298,7 +351,26 @@ describe("HTTP-API-Läufe in den Ansichten", () => {
   });
 
   it("kennzeichnet API-Läufe in der Liste", () => {
-    render(<RunsList runs={[{ name: "results_20261006_090000", kind: "api", model: null, base_url: "https://api.example/v1/items", started: null, title: null, tags: [], note: "", pinned: false, tests: ["ramp"], report: true, pdf: true }]} />);
+    render(
+      <RunsList
+        runs={[
+          {
+            name: "results_20261006_090000",
+            kind: "api",
+            model: null,
+            base_url: "https://api.example/v1/items",
+            started: null,
+            title: null,
+            tags: [],
+            note: "",
+            pinned: false,
+            tests: ["ramp"],
+            report: true,
+            pdf: true,
+          },
+        ]}
+      />,
+    );
     expect(screen.getByText("HTTP-API")).toBeInTheDocument();
   });
 });
@@ -321,7 +393,26 @@ describe("Ablauf-Läufe in den Ansichten", () => {
   });
 
   it("kennzeichnet Abläufe in der Liste", () => {
-    render(<RunsList runs={[{ name: "results_20261006_120000", kind: "flow", model: null, base_url: "https://chat.example/login", started: null, title: null, tags: [], note: "", pinned: false, tests: ["ramp"], report: true, pdf: true }]} />);
+    render(
+      <RunsList
+        runs={[
+          {
+            name: "results_20261006_120000",
+            kind: "flow",
+            model: null,
+            base_url: "https://chat.example/login",
+            started: null,
+            title: null,
+            tags: [],
+            note: "",
+            pinned: false,
+            tests: ["ramp"],
+            report: true,
+            pdf: true,
+          },
+        ]}
+      />,
+    );
     expect(screen.getByText("Ablauf")).toBeInTheDocument();
   });
 });

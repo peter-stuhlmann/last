@@ -16,10 +16,10 @@ Zum Entwickeln:
     npm install
     npm run dev                      # Oberfläche auf http://localhost:3000
 
-| Variable | Bedeutung | Standard |
-|---|---|---|
-| `BACKEND_URL` | Adresse des Python-Backends (nur serverseitig) | `http://127.0.0.1:8090` |
-| `ALLOWED_HOSTS` | weitere erlaubte Host-Namen, kommagetrennt | – (nur localhost) |
+| Variable        | Bedeutung                                      | Standard                |
+| --------------- | ---------------------------------------------- | ----------------------- |
+| `BACKEND_URL`   | Adresse des Python-Backends (nur serverseitig) | `http://127.0.0.1:8090` |
+| `ALLOWED_HOSTS` | weitere erlaubte Host-Namen, kommagetrennt     | – (nur localhost)       |
 
 ## Prüfen
 
@@ -34,13 +34,13 @@ Zum Entwickeln:
 
 ## Aufbau
 
-| Pfad | Inhalt |
-|---|---|
-| `src/proxy.ts` | Host-Prüfung, CSRF-Schutz, Content Security Policy mit Nonce |
-| `src/app/api/*` | schmale, geprüfte Durchreiche zum Backend (Start, Stopp, Ereignisse, Downloads) |
-| `src/lib/validation.ts` | erlaubte Eingaben für einen Teststart (zod) |
-| `src/lib/derive.ts` | macht aus Messwerten die Aussagen der Oberfläche (Ampel, Prognose, Kosten) |
-| `src/components/` | die drei Screens und ihre Bausteine |
+| Pfad                    | Inhalt                                                                          |
+| ----------------------- | ------------------------------------------------------------------------------- |
+| `src/proxy.ts`          | Host-Prüfung, CSRF-Schutz, Content Security Policy mit Nonce                    |
+| `src/app/api/*`         | schmale, geprüfte Durchreiche zum Backend (Start, Stopp, Ereignisse, Downloads) |
+| `src/lib/validation.ts` | erlaubte Eingaben für einen Teststart (zod)                                     |
+| `src/lib/derive.ts`     | macht aus Messwerten die Aussagen der Oberfläche (Ampel, Prognose, Kosten)      |
+| `src/components/`       | die drei Screens und ihre Bausteine                                             |
 
 ## Sicherheit in Kürze
 

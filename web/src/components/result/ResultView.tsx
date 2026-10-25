@@ -41,7 +41,12 @@ function FlowMeasured({ name, summary }: { name: string; summary: Summary }) {
                   {measure ? "ab hier wird gemessen" : s.text}
                 </span>
                 {s.screenshot ? (
-                  <a href={`/api/runs/${name}/${s.screenshot}`} target="_blank" rel="noopener" className="rounded-md ring-offset-2 focus-visible:ring-2 focus-visible:ring-cyan">
+                  <a
+                    href={`/api/runs/${name}/${s.screenshot}`}
+                    target="_blank"
+                    rel="noopener"
+                    className="rounded-md ring-offset-2 focus-visible:ring-2 focus-visible:ring-cyan"
+                  >
                     {/* eslint-disable-next-line @next/next/no-img-element -- next/image braucht Inline-Styles, die die CSP verbietet */}
                     <img
                       src={`/api/runs/${name}/${s.screenshot}`}
@@ -71,10 +76,10 @@ function FlowMeasured({ name, summary }: { name: string; summary: Summary }) {
                   {q.query ? `?${pretty(q.query)}` : ""}
                 </span>
                 <span className="font-mono text-[11px] text-white/55">Status {q.status}</span>
-                {q.stream && <span className="rounded-md bg-violet/25 px-1.5 font-mono text-[10px] uppercase tracking-wide">gestreamt</span>}
-                {q.dynamic.length > 0 && (
-                  <span className="font-mono text-[11px] text-white/55">veränderlich: {q.dynamic.join(", ")}</span>
+                {q.stream && (
+                  <span className="rounded-md bg-violet/25 px-1.5 font-mono text-[10px] uppercase tracking-wide">gestreamt</span>
                 )}
+                {q.dynamic.length > 0 && <span className="font-mono text-[11px] text-white/55">veränderlich: {q.dynamic.join(", ")}</span>}
               </li>
             ))}
           </ul>
@@ -333,9 +338,21 @@ export function ResultView({ name, summary, report, pdf }: { name: string; summa
                 {cap.users != null ? nf(cap.users, 0) : "–"}
               </span>
               <span className="text-[15px] font-medium leading-[22px] text-white/75">
-                {kind === "api" ? "Anfragen pro Minute" : kind === "flow" ? "Nutzer gleichzeitig" : web ? "Besucher gleichzeitig" : "aktive Nutzer"}
+                {kind === "api"
+                  ? "Anfragen pro Minute"
+                  : kind === "flow"
+                    ? "Nutzer gleichzeitig"
+                    : web
+                      ? "Besucher gleichzeitig"
+                      : "aktive Nutzer"}
                 <br />
-                {kind === "api" ? "gehen flüssig durch" : kind === "flow" ? "in der Anwendung möglich" : web ? "möglich" : "im Team möglich"}
+                {kind === "api"
+                  ? "gehen flüssig durch"
+                  : kind === "flow"
+                    ? "in der Anwendung möglich"
+                    : web
+                      ? "möglich"
+                      : "im Team möglich"}
               </span>
             </p>
             {cap.users != null && <CapacityBar users={cap.usersFraction} target={cap.targetFraction} />}
@@ -349,6 +366,7 @@ export function ResultView({ name, summary, report, pdf }: { name: string; summa
               )}
               {cap.users == null && <span className="text-white/70">Ohne Lasttest keine Schätzung.</span>}
             </p>
+            {cap.basis && <p className="mt-3 max-w-[400px] text-xs leading-[18px] text-white/65">{cap.basis}</p>}
           </div>
         </div>
       </section>

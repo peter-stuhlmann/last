@@ -32,7 +32,14 @@ class Verlaesslichkeit(unittest.TestCase):
         q = ws.assess_quality(with_lag(2, 4, 9, 20))
         self.assertEqual(q["overall"], "hoch")
         self.assertTrue(all(i["status"] == "good" for i in q["items"]))
-        self.assertEqual(set(q["items"][0]), {"status", "title", "value", "text"})
+        self.assertEqual(set(q["items"][0]), {"status", "title", "value", "text", "key", "short"})
+
+    def test_nur_entscheidende_stufen_zaehlen(self):
+        # Scheitert schon die Stufe 32, fließt 64 in keine Zahl ein – wie überlastet der Rechner dort war, ist egal
+        s = with_lag(2, 4, 9, 400)
+        s["ramp"]["steps"][2]["e2e_p95"] = 4.0
+        item = next(i for i in ws.assess_quality(s)["items"] if i.get("key") == "lag")
+        self.assertEqual(item["status"], "good")
 
     def test_ueberlasteter_messrechner_wird_benannt(self):
         q = ws.assess_quality(with_lag(2, 4, 40, 400))
@@ -63,19 +70,30 @@ class Verlaesslichkeit(unittest.TestCase):
 
 
 class Auswirkung(unittest.TestCase):
-    def test_urteil_warnt_bei_unsauberer_messung(self):
+    def test_ueberlasteter_rechner_kippt_gutes_urteil_nicht(self):
+        # Ist nur der Messrechner am Limit, sind die Werte zu schlecht – Grün bleibt Grün, mit Hinweis
         s = with_lag(2, 4, 40, 400)
         s["quality"] = ws.assess_quality(s)
         v = ws.verdict(s)
+        self.assertEqual(v["status"], "good")
+        self.assertIn(("info", "Dein Rechner war beim Erzeugen der Last am Limit – die Website schafft "
+                               "vermutlich sogar mehr als gemessen."), [tuple(r) for r in v["reasons"]])
+
+    def test_verspaetete_besucher_warnen(self):
+        # Kamen die Besucher nicht pünktlich, ist die Zahl eher zu gut – das muss gelb werden
+        s = with_lag(2, 4, 9, 20, late=400)
+        s["quality"] = ws.assess_quality(s)
+        v = ws.verdict(s)
         self.assertEqual(v["status"], "warn")
-        self.assertTrue(any("Messung" in text for _, text in v["reasons"]))
+        self.assertTrue(any("eher zu hoch" in text for _, text in v["reasons"]))
 
     def test_bericht_nennt_die_verlaesslichkeit(self):
         s = with_lag(2, 4, 40, 400)
         s["quality"] = ws.assess_quality(s)
         rows = {area: (color, text) for color, area, text in rw.result_rows(s)}
         self.assertEqual(rows["Verlässlichkeit der Messung"][0], BAD)
-        self.assertIn("Messrechner", rows["Verlässlichkeit der Messung"][1])
+        self.assertEqual(rows["Verlässlichkeit der Messung"][1],
+                         "niedrig – dein Rechner war am Limit – die Werte sind eher zu schlecht")
         clean = with_lag(2, 4, 9, 20)
         clean["quality"] = ws.assess_quality(clean)
         self.assertEqual({a: c for c, a, _ in rw.result_rows(clean)}["Verlässlichkeit der Messung"], GOOD)
@@ -92,6 +110,38 @@ class Auswirkung(unittest.TestCase):
         text = all_text(path)
         self.assertIn("Kam der Messrechner hinterher?", text)
         self.assertIn("Wie verlässlich ist die Messung?", text)
+
+
+class EinzelneFehler(unittest.TestCase):
+    """Ein paar Verbindungsabbrüche unter Zehntausenden Aufrufen sind Netz-Rauschen, kein Problem."""
+
+    def soak(self, errors, n=35114):
+        from test_report_web import page
+        s = sample()
+        s["soak"]["total"] = page(n=n, ok=n - errors, errors=errors, error_rate=errors / n)
+        return s
+
+    def test_vereinzelte_fehler_bleiben_gruen(self):
+        s = self.soak(2)
+        v = ws.verdict(s)
+        self.assertEqual(v["status"], "good")
+        self.assertIn("nur 2 der 35.114 Aufrufe gingen schief", " ".join(t for _, t in v["reasons"]))
+        rows = {area: (color, text) for color, area, text in rw.result_rows(s)}
+        self.assertEqual(rows["Ausdauer"][0], GOOD)
+        self.assertIn("nur 2 der 35.114 schiefgegangen", rows["Ausdauer"][1])
+
+    def test_spuerbare_fehler_werden_gelb_dann_rot(self):
+        self.assertEqual(ws.verdict(self.soak(100))["status"], "warn")        # 0,3 %
+        v = ws.verdict(self.soak(1000))                                         # 2,8 %
+        self.assertEqual(v["status"], "bad")
+        self.assertIn("gingen 1.000 der 35.114 Aufrufe schief (2,8 %)", " ".join(t for _, t in v["reasons"]))
+        self.assertEqual({a: c for c, a, _ in rw.result_rows(self.soak(1000))}["Ausdauer"], BAD)
+
+    def test_ein_fehler_kostet_keine_stufe(self):
+        cfg = sample()["config"]
+        from test_report_web import step
+        self.assertTrue(ws.meets_slo(step(32, n=2000, errors=1, error_rate=1 / 2000), cfg))
+        self.assertFalse(ws.meets_slo(step(32, n=500, errors=1, error_rate=1 / 500), cfg))
 
 
 class Aufpasser(unittest.IsolatedAsyncioTestCase):

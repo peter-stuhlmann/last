@@ -675,8 +675,13 @@ def summarize_timed(results, win_start, win_end, c, slo=None):
     return s
 
 
+# Bis zu einem Fehler auf tausend Anfragen gilt als sauber – einzelne Verbindungsabbrüche gibt es in
+# jedem Netz, sie sagen nichts über die Belastbarkeit.
+ERR_OK = 0.001
+
+
 def meets_slo(s, slo_ttft, slo_tps):
-    return (s["error_rate"] == 0 and s["ttft_p95"] is not None and s["ttft_p95"] <= slo_ttft
+    return (s["error_rate"] <= ERR_OK and s["ttft_p95"] is not None and s["ttft_p95"] <= slo_ttft
             and s["user_tps_p50"] is not None and s["user_tps_p50"] >= slo_tps)
 
 
@@ -710,6 +715,37 @@ def round_users(v):
 
 def rate_ok(s, slo_t, slo_u):
     return meets_slo(s, slo_t, slo_u) and not s.get("overloaded")
+
+
+def deciding(stages, ok, key):
+    """Die Stufen, die das Ergebnis bestimmen: alle bis einschließlich der ersten, die die Ziele
+    verfehlt. Was danach kam, fließt in keine Zahl mehr ein – wie sauber dort gemessen wurde, ist egal."""
+    out = []
+    for s in sorted(stages, key=lambda x: x[key]):
+        out.append(s)
+        if not ok(s):
+            break
+    return out
+
+
+def quality_note(summary, status, subj):
+    """Was eine unsaubere Messung für das Urteil bedeutet – (Ampel, Satz) oder None.
+    War nur der Messrechner überlastet, sind die Werte zu schlecht: Ein gutes Urteil bleibt gut."""
+    q = summary.get("quality") or {}
+    if q.get("overall") != "niedrig":
+        return None
+    keys = {i.get("key") for i in q.get("items", []) if i["status"] == "bad"}
+    if keys == {"lag"}:
+        if status == "good":
+            return ("info", f"Dein Rechner war beim Erzeugen der Last am Limit – {subj} schafft vermutlich "
+                            "sogar mehr als gemessen.")
+        return ("warn", "Dein Rechner war beim Erzeugen der Last am Limit – ein Teil der langsamen Werte kann "
+                        "an ihm liegen. Zur Sicherheit von einem stärkeren Rechner aus wiederholen.")
+    if keys <= {"lag", "late"}:
+        return ("warn", "Dein Rechner kam beim Losschicken nicht hinterher – die Zahl ist eher zu hoch. "
+                        "Zur Sicherheit von einem stärkeren Rechner aus wiederholen.")
+    return ("warn", "Die Messung selbst war nicht ganz sauber (siehe „Verlässlichkeit“) – Test wiederholen, "
+                    "bevor entschieden wird.")
 
 
 def capacity(summary):
@@ -888,7 +924,7 @@ def verdict(summary):
     cfg = summary.get("config") or {}
     cap_ = capacity(summary)
     users, target = cap_.get("users"), cfg.get("target_users") or 0
-    rank = {"good": 0, "warn": 1, "bad": 2}
+    rank = {"info": 0, "good": 0, "warn": 1, "bad": 2}
     st, reasons = "good", []
 
     def note(status, text):
@@ -931,9 +967,9 @@ def verdict(summary):
         else:
             note("good", f"Günstiger als die Cloud, sobald er zu {fmt(eco['breakeven_pct'], 0)} % "
                          "der Arbeitszeit ausgelastet ist.")
-    q = (summary.get("quality") or {}).get("overall")
-    if q == "niedrig":
-        note("warn", "Die Messung selbst war nicht ganz sauber – Test wiederholen, bevor entschieden wird.")
+    qn = quality_note(summary, st, "der Server")
+    if qn:
+        note(*qn)
     headline = {"good": "Der Server ist für unseren Einsatz geeignet.",
                 "warn": "Der Server ist geeignet – mit Einschränkungen.",
                 "bad": "Der Server reicht in dieser Form nicht aus."}[st]
@@ -1661,8 +1697,9 @@ def assess_quality(summary):
     steps = (summary.get("ramp") or {}).get("steps", [])
     brk = (summary.get("ramp") or {}).get("break")
 
-    def add(status, title, value, text):
-        items.append({"status": status, "title": title, "value": value, "text": text})
+    def add(status, title, value, text, key=None, short=None):
+        items.append({"status": status, "title": title, "value": value, "text": text,
+                      **({"key": key} if key else {}), **({"short": short} if short else {})})
 
     busy = pre.get("busy")
     if busy is None:
@@ -1691,8 +1728,13 @@ def assess_quality(summary):
                 "Das Netzwerk ist langsam (z. B. VPN). Alle Wartezeiten sind um etwa diesen Wert "
                 "zu hoch – der Server selbst ist schneller.")
 
-    rate_stages = (summary.get("rate") or {}).get("stages", [])
-    lags = [(f"{s['concurrency']} gleichzeitig", s.get("client_lag_ms")) for s in steps
+    # Nur die Stufen zählen, die das Ergebnis bestimmen – war der Messrechner erst weit jenseits der
+    # Grenze überlastet, ändert das an keiner Zahl etwas.
+    slo_t, slo_u = cfg.get("slo_ttft", 2.0), cfg.get("slo_user_tps", 10.0)
+    rate_stages = deciding((summary.get("rate") or {}).get("stages", []),
+                           lambda s: rate_ok(s, slo_t, slo_u), "rate")
+    lags = [(f"{s['concurrency']} gleichzeitig", s.get("client_lag_ms"))
+            for s in deciding(steps, lambda s: meets_slo(s, slo_t, slo_u), "concurrency")
             if s.get("client_lag_ms") is not None]
     lags += [(f"{fmt(s['rate'] * 60, 0)} Fragen/min", s.get("client_lag_ms")) for s in rate_stages
              if s.get("client_lag_ms") is not None]
@@ -1700,15 +1742,18 @@ def assess_quality(summary):
         worst_c, worst = max(lags, key=lambda x: x[1])
         if worst < 30:
             add("good", "Kam der Messrechner hinterher?", f"ja (max. {fmt(worst, 0)} ms Verzug)",
-                "Der Rechner, der die Fragen stellt, war nie überlastet. Er misst also sauber.")
+                "Der Rechner, der die Fragen stellt, war nie überlastet. Er misst also sauber.", "lag",
+                "dein Rechner kam gut hinterher")
         elif worst < 150:
             add("warn", "Kam der Messrechner hinterher?", f"knapp ({fmt(worst, 0)} ms bei {worst_c})",
                 "Bei vielen gleichzeitigen Fragen hatte der Messrechner viel zu tun. Die Wartezeiten "
-                "auf den höchsten Stufen könnten etwas zu hoch sein.")
+                "auf den höchsten Stufen könnten etwas zu hoch sein.", "lag",
+                "dein Rechner war knapp am Limit")
         else:
             add("bad", "Kam der Messrechner hinterher?", f"nein ({fmt(worst, 0)} ms bei {worst_c})",
                 "Der Messrechner war überlastet. Die Werte auf den höchsten Stufen sind zu "
-                "schlecht – der Server kann mehr. Besser von einem stärkeren Rechner testen.")
+                "schlecht – der Server kann mehr. Besser von einem stärkeren Rechner testen.", "lag",
+                "dein Rechner war am Limit – die Werte sind eher zu schlecht")
 
     lates = [s["send_late_ms"] for s in rate_stages if s.get("send_late_ms") is not None]
     if lates:
@@ -1720,7 +1765,10 @@ def assess_quality(summary):
              "warn": "Einige Fragen gingen etwas verspätet los. Die tatsächliche Menge pro Minute "
                      "war dadurch leicht kleiner als geplant.",
              "bad": "Der Messrechner kam mit dem Losschicken nicht hinterher. Die Ergebnisse von "
-                    "„Echter Andrang“ sind zu gut – besser von einem stärkeren Rechner testen."}[st])
+                    "„Echter Andrang“ sind zu gut – besser von einem stärkeren Rechner testen."}[st], "late",
+            {"good": "alle Fragen pünktlich losgeschickt",
+             "warn": "einige Fragen gingen verspätet los",
+             "bad": "dein Rechner kam mit dem Losschicken nicht hinterher – die Werte sind eher zu gut"}[st])
 
     if pre.get("usage") is not None:
         if pre.get("usage"):

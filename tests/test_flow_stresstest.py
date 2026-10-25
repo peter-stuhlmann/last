@@ -347,6 +347,20 @@ class VorfuehrenEndpunkt(AioHTTPTestCase):
                          {"type": "fill", "target": {"target": "Menge", "near": "Zeile 2", "nth": 2}, "text": "3", "enter": True,
                           "measuring": False})
 
+    async def test_prueft_live_eingaben_streng(self):
+        ok = sw.clean_live_events([{"t": "move", "x": 1, "y": 2}, {"t": "click", "x": 3, "y": 4, "extra": 1},
+                                   {"t": "wheel", "x": 5, "y": 6, "dy": 100}, {"t": "type", "text": "a"},
+                                   {"t": "key", "key": "Enter", "mods": ["Control"]}])
+        self.assertEqual([e["t"] for e in ok], ["move", "click", "wheel", "type", "key"])
+        self.assertNotIn("extra", ok[1])
+        for bad in ([], "x", [{"t": "eval", "js": "1"}], [{"t": "click", "x": 2000, "y": 1}],
+                    [{"t": "click", "x": "1", "y": 1}], [{"t": "type", "text": "zwei\nzeilen"}],
+                    [{"t": "type", "text": ""}], [{"t": "key", "key": "F12!"}],
+                    [{"t": "key", "key": "a", "mods": ["Super"]}], [{"t": "wheel", "x": 1, "y": 1, "dy": 99999}],
+                    [{"t": "move", "x": 1, "y": 1}] * 61):
+            with self.assertRaises(ValueError, msg=bad):
+                sw.clean_live_events(bad)
+
     async def test_ohne_sitzung_klare_ansage(self):
         status, data = await self.post("act", {"session": "weg", "action": {"type": "press", "key": "Enter"}})
         self.assertEqual(status, 410)

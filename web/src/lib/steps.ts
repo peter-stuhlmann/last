@@ -178,7 +178,11 @@ export function secretName(text: string): string | null {
 
 /** Ein freier Platzhalter-Name: „passwort“, sonst „passwort2“, „passwort3“ … */
 export function freePlaceholder(base: string, used: string[]): string {
-  const clean = base.replace(/[^A-Za-z0-9_]/g, "").replace(/^[^A-Za-z]+/, "").slice(0, 24) || "wert";
+  const clean =
+    base
+      .replace(/[^A-Za-z0-9_]/g, "")
+      .replace(/^[^A-Za-z]+/, "")
+      .slice(0, 24) || "wert";
   if (!used.includes(clean)) return clean;
   for (let i = 2; ; i++) if (!used.includes(`${clean}${i}`)) return `${clean}${i}`;
 }
@@ -226,6 +230,8 @@ export function sentence(step: Step): Sentence {
     case "measure":
       return { title: "Ab hier wird gemessen" };
     case "raw":
-      return step.line.startsWith("#") ? { title: "Notiz", what: step.line.slice(1).trim() } : { title: "Unbekannter Schritt", what: step.line };
+      return step.line.startsWith("#")
+        ? { title: "Notiz", what: step.line.slice(1).trim() }
+        : { title: "Unbekannter Schritt", what: step.line };
   }
 }

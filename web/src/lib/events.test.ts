@@ -9,7 +9,13 @@ describe("reduceLive", () => {
     s = reduceLive(s, { type: "log", lines: ["[23:39:12] a", "[23:39:13] b"] });
     s = reduceLive(s, { type: "samples", samples: [{ t: 2, phase: "idle" }] });
     s = reduceLive(s, {
-      type: "state", state: "running", error: null, run: "results_1", report: false, pdf: false, summary: finishedSummary(),
+      type: "state",
+      state: "running",
+      error: null,
+      run: "results_1",
+      report: false,
+      pdf: false,
+      summary: finishedSummary(),
     });
     expect(s.connected).toBe(true);
     expect(s.run).toBe("results_1");
@@ -43,7 +49,9 @@ describe("reduceLive", () => {
 describe("parseLogLine", () => {
   it("trennt Uhrzeit und Text und erkennt die Art der Zeile", () => {
     expect(parseLogLine("[23:39:12] ━━ 2/6 Immer mehr gleichzeitig ━━")).toEqual({
-      time: "23:39:12", text: "━━ 2/6 Immer mehr gleichzeitig ━━", kind: "heading",
+      time: "23:39:12",
+      text: "━━ 2/6 Immer mehr gleichzeitig ━━",
+      kind: "heading",
     });
     expect(parseLogLine("[23:41:21] ✓ Bericht fertig.").kind).toBe("good");
     expect(parseLogLine("[23:41:21] ✗ Unerwarteter Fehler").kind).toBe("bad");
@@ -56,7 +64,13 @@ describe("frisch gestarteter Lauf", () => {
   it("füllt Felder auf, die das Backend erst nach den ersten Messungen schickt", () => {
     const early = { config: finishedSummary().config, meta: { local_monitor: false } } as unknown as Summary;
     const s = reduceLive(initialLive, {
-      type: "state", state: "running", error: null, run: "results_1", report: false, pdf: false, summary: early,
+      type: "state",
+      state: "running",
+      error: null,
+      run: "results_1",
+      report: false,
+      pdf: false,
+      summary: early,
     });
     expect(s.summary?.capacity).toEqual({ think_time: 60, users: null, source: null });
     expect(s.summary?.probes).toBeNull();

@@ -15,6 +15,9 @@ const isFlow = (cfg: Pick<RunConfig, "kind">) => cfg.kind === "flow";
 /** Website, API und Ablauf messen Lade- bzw. Antwortzeiten statt Tokens. */
 const isTimed = (cfg: Pick<RunConfig, "kind">) => isWeb(cfg) || isApi(cfg) || isFlow(cfg);
 
+/** Bis zu einem Fehler auf tausend gilt als sauber – wie im Backend (llm_stresstest.ERR_OK). */
+export const ERR_OK = 0.001;
+
 export interface Terms {
   subject: string;
   /** „Besucher“, „Anfragen“, „Nutzer“ – Mehrzahl */
@@ -166,7 +169,7 @@ function throughput(s: Stats, cfg: Cfg): number | null {
 
 export function meetsSlo(s: Stats, cfg: Cfg): boolean {
   const wait = waitP95(s, cfg);
-  if (s.error_rate !== 0 || wait == null || wait > sloSeconds(cfg)) return false;
+  if (s.error_rate > ERR_OK || wait == null || wait > sloSeconds(cfg)) return false;
   return isTimed(cfg) || (s.user_tps_p50 != null && s.user_tps_p50 >= cfg.slo_user_tps);
 }
 
@@ -247,6 +250,31 @@ function rampDetail(summary: Summary, samples: Sample[]): { detail: string; frac
 }
 
 /** Die Zeitleiste links: was ist erledigt, was läuft, was kommt noch. */
+/**
+ * Kontrollmessung in Worten – wie report_web.control_note: Unterschiede unter 5 % (bei Websites auch unter
+ * 0,05 s) sind Messrauschen, und schneller als am Anfang ist nie ein Problem.
+ */
+function controlView(summary: Summary): { text: string; status: Status } | null {
+  const c = summary.control;
+  if (!c) return null;
+  const web = isTimed(summary.config);
+  // Website: Ladezeit (+ heißt langsamer) · KI-Server: Tempo (− heißt langsamer)
+  const slower = web ? c.ttft_diff_pct : c.tps_diff_pct != null ? -c.tps_diff_pct : null;
+  if (slower == null) return null;
+  const a = summary.baseline?.e2e_p50;
+  const b = c.s.e2e_p50;
+  if (Math.abs(slower) < 5 || (web && a != null && b != null && Math.abs(b - a) < 0.05)) {
+    return { text: "so schnell wie am Anfang", status: "good" };
+  }
+  if (slower < 0) return { text: "schneller als am Anfang", status: "good" };
+  return { text: `${nf(slower, 0)} % langsamer als am Anfang`, status: slower > (web ? 25 : 10) ? "warn" : "good" };
+}
+
+/** „2 von 35.114 Aufrufen“ – lesbarer als eine auf 0,0 % gerundete Fehlerquote. */
+function errorCount(s: Stats, cfg: Cfg): string {
+  return `${nf(s.errors, 0)} von ${nf(s.n, 0)} ${terms(cfg).errorsOf}`;
+}
+
 export function phaseSteps(summary: Summary, samples: Sample[], running: boolean): PhaseStep[] {
   const cfg = summary.config;
   const web = isTimed(cfg);
@@ -258,6 +286,7 @@ export function phaseSteps(summary: Summary, samples: Sample[], running: boolean
   const b = summary.baseline;
   const maxCtx = Math.max(0, ...numberList(cfg.context_lengths));
   const soakMinutes = nf(cfg.soak_minutes, cfg.soak_minutes < 1 ? 1 : 0);
+  const control = controlView(summary);
 
   const texts: Record<TestKey, { title: string; pending: string; done: string }> = {
     baseline: {
@@ -307,7 +336,7 @@ export function phaseSteps(summary: Summary, samples: Sample[], running: boolean
     control: {
       title: "Kontrolle",
       pending: "Noch so schnell wie am Anfang?",
-      done: summary.control ? `${signedPct(summary.control.tps_diff_pct)} zum Anfang` : "",
+      done: control ? control.text.charAt(0).toUpperCase() + control.text.slice(1) : "",
     },
   };
 
@@ -395,8 +424,10 @@ export interface Focus {
   fraction: number;
 }
 
-/** Der große Ring: woran wird gerade gemessen? */
-export function liveFocus(summary: Summary, samples: Sample[]): Focus {
+/** Der große Ring: woran wird gerade gemessen? Nach dem Ende („ended“) sagt er, wie es ausgegangen ist. */
+export function liveFocus(summary: Summary, samples: Sample[], ended?: "done" | "stopped" | "error"): Focus {
+  if (ended === "done") return { label: "Fertig", value: "✓", unit: "erledigt", fraction: 1 };
+  if (ended) return { label: ended === "stopped" ? "Abgebrochen" : "Fehler", value: "–", unit: "Test beendet", fraction: 0 };
   const phase = lastSample(samples)?.phase ?? "";
   const test = summary.meta.current_test ?? phaseOfSample(phase);
   const cfg = summary.config;
@@ -557,7 +588,7 @@ export function verdictView(summary: Summary): {
   status: Status;
   title: string;
   text: string;
-  reasons: [Tone, string][];
+  reasons: [Tone | "info", string][];
 } {
   const v = summary.verdict;
   const hasLoad = Boolean(summary.ramp || summary.rate);
@@ -575,6 +606,29 @@ export interface CapacityView {
   /** Position auf dem Balken, 0–1 */
   usersFraction: number;
   targetFraction: number;
+  /** Woraus die Zahl hochgerechnet ist – damit „4.900“ neben „64 gleichzeitig“ nicht wie ein Widerspruch aussieht */
+  basis: string | null;
+}
+
+function capacityBasis(summary: Summary): string | null {
+  const cfg = summary.config;
+  const cap = summary.capacity;
+  if (isApi(cfg)) return "So viele Anfragen gingen im Test flüssig durch – zufällig verteilt, wie im Alltag.";
+  const t = terms(cfg);
+  const measured =
+    cap.source === "rate"
+      ? `bis zu ${perMinute(cap.rate_ok)} ${t.perMinute} pro Minute`
+      : cap.source === "ramp"
+        ? `${cap.rec_concurrency} ${t.perMinute} im selben Augenblick`
+        : null;
+  if (!measured) return null;
+  const think = nf(cap.think_time, 0);
+  const habit = isFlow(cfg)
+    ? `jeder Nutzer nach einem Durchlauf etwa ${think} s Pause macht`
+    : isWeb(cfg)
+      ? `jeder Besucher etwa alle ${think} s eine Seite aufruft`
+      : `jede Person etwa alle ${think} s eine Frage stellt`;
+  return `Hochgerechnet: Im Test liefen ${measured} flüssig. Angenommen ist, dass ${habit} – es sind also nie alle im selben Augenblick dran.`;
 }
 
 export function capacityView(summary: Summary): CapacityView {
@@ -582,6 +636,7 @@ export function capacityView(summary: Summary): CapacityView {
   const target = summary.config.target_users > 0 ? summary.config.target_users : null;
   const scale = Math.max(users ?? 0, target ?? 0) / 0.7 || 1;
   return {
+    basis: users != null ? capacityBasis(summary) : null,
     users,
     target,
     reservePct: users != null && target != null ? Math.round((users / target - 1) * 100) : null,
@@ -613,11 +668,11 @@ export function kpiCards(summary: Summary): KpiCard[] {
 
   const sweet: KpiCard = {
     key: "sweet",
-    label: "Sweet Spot",
+    label: "Im selben Augenblick",
     value: rec ? String(rec.concurrency) : "–",
-    unit: "gleichzeitig",
+    unit: t.perMinute,
     text: rec
-      ? "so viele gleichzeitig, und alle Ziele werden noch erreicht"
+      ? "so viele auf einmal, und alle Ziele werden noch erreicht"
       : summary.ramp
         ? "bei keiner Stufe wurden alle Ziele erreicht"
         : "nicht getestet",
@@ -638,7 +693,10 @@ export function kpiCards(summary: Summary): KpiCard[] {
         label: "Höchstleistung",
         value: nf(peak, peak != null && peak < 10 ? 1 : 0),
         unit: t.throughputUnit,
-        text: peak != null ? `≈ ${nf(peak * 60, 0)} ${api ? "Anfragen" : isFlow(cfg) ? "Durchläufe" : "Seitenaufrufe"} pro Minute für alle zusammen` : "nicht getestet",
+        text:
+          peak != null
+            ? `≈ ${nf(peak * 60, 0)} ${api ? "Anfragen" : isFlow(cfg) ? "Durchläufe" : "Seitenaufrufe"} pro Minute für alle zusammen`
+            : "nicht getestet",
       },
       {
         key: "quality",
@@ -690,6 +748,18 @@ function range(lo: string, hi: string): string {
 }
 
 /** „Alle Ergebnisse auf einen Blick“. */
+/**
+ * Wie sehr kann man den Zahlen trauen? Wie quality.overall – nur: War allein der Messrechner überlastet
+ * („lag“), sind die Werte eher zu schlecht, die Zahl also eine Untergrenze. Das ist „mittel“, nicht „niedrig“ –
+ * passend zum Urteil, das dann grün bleibt (llm_stresstest.quality_note).
+ */
+export function trustLevel(summary: Summary): "hoch" | "mittel" | "niedrig" | null {
+  const q = summary.quality;
+  if (!q) return null;
+  const bad = q.items.filter((i) => i.status === "bad");
+  return q.overall === "niedrig" && bad.length > 0 && bad.every((i) => i.key === "lag") ? "mittel" : q.overall;
+}
+
 export function ampelRows(summary: Summary): AmpelRow[] {
   const cfg = summary.config;
   const web = isTimed(cfg);
@@ -754,7 +824,7 @@ export function ampelRows(summary: Summary): AmpelRow[] {
         : spike.recovered === false
           ? "erholt sich nicht vollständig"
           : spike.burst.error_rate > 0
-            ? `${nf(spike.burst.error_rate * 100, 0)} % Fehler, dann erholt`
+            ? `${errorCount(spike.burst, cfg)} mit Fehler, dann erholt`
             : served,
       status: spike.crashed ? "bad" : spike.recovered === false || spike.burst.error_rate > 0 ? "warn" : "good",
     });
@@ -762,40 +832,46 @@ export function ampelRows(summary: Summary): AmpelRow[] {
 
   const soak = summary.soak;
   if (soak) {
-    const failed = soak.total.error_rate > 0;
+    // Einzelne Fehler (bis ERR_OK) sind Netz-Rauschen, ab 1 % ist es ein echtes Problem
+    const rate = soak.total.error_rate;
+    const failed = rate > ERR_OK;
     // KI-Server: das Tempo fällt ab. Website: die Ladezeit steigt.
     const drop = soak.degradation?.tps_change_pct ?? 0;
     const slower = soak.degradation?.ttft_change_pct ?? 0;
     const tired = web ? slower > 25 : drop < -10;
     const tiredText = web ? `wird langsamer (${signedPct(slower)} ${t.wait})` : `wird müde (${signedPct(drop)})`;
+    const errors = errorCount(soak.total, cfg);
     rows.push({
       label: `Ausdauer über ${nf(soak.minutes, soak.minutes < 1 ? 1 : 0)} Minuten`,
-      value: failed ? `${nf(soak.total.error_rate * 100, 1)} % Fehler` : tired ? tiredText : "stabil, kein Abfall",
-      status: failed ? "bad" : tired ? "warn" : "good",
+      value: failed
+        ? `${errors} fehlgeschlagen`
+        : tired
+          ? tiredText
+          : soak.total.errors > 0
+            ? `stabil, nur ${errors} fehlgeschlagen`
+            : "stabil, kein Abfall",
+      status: rate > 0.01 ? "bad" : failed || tired ? "warn" : "good",
     });
   } else rows.push({ label: "Ausdauer", ...NOT_TESTED });
 
-  const control = summary.control;
-  if (control) {
-    const diff = control.tps_diff_pct;
-    rows.push({
-      label: "Kontrollmessung am Ende",
-      value: `${signedPct(diff)} zum Anfang`,
-      // Ladezeiten einer Website schwanken von Haus aus stärker als das Tempo eines KI-Servers
-      status: diff != null && Math.abs(diff) > (web ? 25 : 10) ? "warn" : "good",
-    });
-  } else rows.push({ label: "Kontrollmessung am Ende", ...NOT_TESTED });
+  const control = controlView(summary);
+  rows.push(
+    control
+      ? { label: "Kontrollmessung am Ende", value: control.text, status: control.status }
+      : { label: "Kontrollmessung am Ende", ...NOT_TESTED },
+  );
 
   // Hat der Messrechner selbst mitgehalten? Sonst wären die Zeiten zu hoch – zu Unrecht.
   const quality = summary.quality;
-  if (quality?.items.length) {
+  const level = trustLevel(summary);
+  if (quality?.items.length && level) {
     const order = ["bad", "warn", "good", "info"];
     const worst = [...quality.items].sort((a, b) => order.indexOf(a.status) - order.indexOf(b.status))[0];
     const clean = worst.status === "good" || worst.status === "info";
     rows.push({
       label: "Verlässlichkeit der Messung",
-      value: `${quality.overall} – ${clean ? "die Messung war sauber" : `${worst.title} ${worst.value}`}`,
-      status: ({ hoch: "good", mittel: "warn", niedrig: "bad" } as const)[quality.overall],
+      value: `${level} – ${clean ? "die Messung war sauber" : (worst.short ?? `${worst.title} ${worst.value}`)}`,
+      status: ({ hoch: "good", mittel: "warn", niedrig: "bad" } as const)[level],
     });
   }
 
