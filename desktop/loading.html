@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'" />
+    <title>LAST</title>
+    <style>
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        background: #0b0d14;
+        color: rgb(255 255 255 / 0.8);
+        font: 15px/1.5 -apple-system, "Segoe UI", Ubuntu, sans-serif;
+      }
+      body {
+        display: grid;
+        place-items: center;
+      }
+      .box {
+        text-align: center;
+      }
+      .logo {
+        font-weight: 700;
+        font-size: 28px;
+        letter-spacing: -0.01em;
+        color: #fff;
+      }
+      .bar {
+        width: 220px;
+        height: 4px;
+        margin: 18px auto 12px;
+        border-radius: 2px;
+        background: rgb(255 255 255 / 0.1);
+        overflow: hidden;
+      }
+      .bar::after {
+        content: "";
+        display: block;
+        width: 40%;
+        height: 100%;
+        border-radius: 2px;
+        background: linear-gradient(90deg, #7c5cff, #22d3ee);
+        animation: run 1.2s ease-in-out infinite;
+      }
+      @keyframes run {
+        from {
+          transform: translateX(-100%);
+        }
+        to {
+          transform: translateX(250%);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .bar::after {
+          animation: none;
+          width: 100%;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="box" role="status">
+      <div class="logo">LAST</div>
+      <div class="bar" aria-hidden="true"></div>
+      <div>Startet …</div>
+    </div>
+  </body>
+</html>

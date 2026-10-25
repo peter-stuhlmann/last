@@ -17,6 +17,7 @@ Benötigt llm_stresstest.py und stresstest_ui.html im selben Ordner.
 import argparse
 import asyncio
 import datetime as dt
+import hmac
 import json
 import os
 import re
@@ -705,10 +706,25 @@ async def run_raw(req):
         "Content-Disposition": f'attachment; filename="raw_{name[8:]}.jsonl"'})
 
 
-def make_app(results_root):
+TOKEN_HEADER = "X-Last-Token"
+
+
+def token_guard(token):
+    """In der Desktop-App läuft das Backend auf dem eigenen Rechner an einem freien Port. Andere Programme und
+    Webseiten im Browser könnten es dort erreichen – deshalb antwortet es nur mit dem Schlüssel, den die App beim
+    Start erzeugt und der Oberfläche mitgibt."""
+    @web.middleware
+    async def guard(req, handler):
+        if not hmac.compare_digest(req.headers.get(TOKEN_HEADER, ""), token):
+            return web.json_response({"error": "Kein Zugriff."}, status=403)
+        return await handler(req)
+    return guard
+
+
+def make_app(results_root, token=None):
     os.makedirs(results_root, exist_ok=True)
     empty_trash(results_root)
-    app = web.Application()
+    app = web.Application(middlewares=[token_guard(token)] if token else [])
     app["runner"] = Runner(results_root)
     app["live"] = LiveSlot()
     app.add_routes(routes)
@@ -733,7 +749,7 @@ def main():
     ap.add_argument("--results", default=os.path.join(HERE, "results"),
                     help="Ordner für alle Testläufe")
     a = ap.parse_args()
-    app = make_app(a.results)
+    app = make_app(a.results, os.environ.get("LAST_BACKEND_TOKEN") or None)
     shown = "localhost" if a.host in ("127.0.0.1", "0.0.0.0") else a.host
     print(f"\n  LLM-Härtetest läuft auf  http://{shown}:{a.port}\n"
           f"  Ergebnisse werden gespeichert in {a.results}\n")

@@ -4,6 +4,24 @@ Lasttest für OpenAI-kompatible Modellserver (vLLM, SGLang, llama.cpp, Ollama), 
 (Anmelden, dann z. B. einen KI-Chat benutzen), mit Weboberfläche
 („LAST“, Next.js) und PowerPoint-Bericht.
 
+## Als Desktop-App (macOS, Windows, Ubuntu – ohne Docker)
+
+Für alle, die einfach testen wollen: installieren, öffnen, loslegen. Die App bringt alles mit
+(Testlogik, Oberfläche und den Browser für Abläufe) und läuft nur auf dem eigenen Rechner.
+
+- **macOS:** `LAST-….dmg` öffnen, LAST in „Programme“ ziehen. Beim ersten Start Rechtsklick → **Öffnen**
+  (die App ist noch nicht von Apple signiert).
+- **Windows:** `LAST Setup ….exe` ausführen – der Assistent fragt „nur für mich“ (ohne Admin-Rechte) oder
+  „für alle Benutzer“ und nach dem Ordner. Warnt SmartScreen, „Weitere Informationen“ → **Trotzdem ausführen**.
+  Deinstallieren über Einstellungen → Apps → LAST.
+- **Ubuntu:** `sudo apt install ./last-desktop_….deb` (oder die `.AppImage` ausführbar machen und starten).
+
+Die Ergebnisse landen in **Dokumente/LAST**, Protokolle bei Problemen unter
+`~/Library/Logs/LAST` (macOS), `%APPDATA%\LAST\logs` (Windows) bzw. `~/.config/LAST/logs` (Ubuntu).
+
+Die Installer baut die GitHub-Action „Desktop-App“ für alle drei Systeme (Artefakte am Lauf). Selbst bauen –
+für das eigene System, Python 3.12 und Node nötig: `make desktop` → `desktop/dist/`.
+
 ## Mit Docker (Windows, macOS, Linux – ohne Python-Installation)
 
 Voraussetzung: Docker Desktop (Windows/macOS) bzw. Docker mit Compose-Plugin (Linux).

@@ -104,5 +104,17 @@ class LaeufeVerwalten(AioHTTPTestCase):
         runner.task = None
 
 
+class Schluessel(AioHTTPTestCase):
+    """Desktop-App: Das Backend antwortet nur mit dem Schlüssel, den die App beim Start vergibt."""
+    async def get_application(self):
+        return sw.make_app(tempfile.mkdtemp(), token="geheimer-schluessel")
+
+    async def test_ohne_schluessel_kein_zugriff(self):
+        self.assertEqual((await self.client.get("/api/state")).status, 403)
+        self.assertEqual((await self.client.get("/api/state", headers={"X-Last-Token": "falsch"})).status, 403)
+        r = await self.client.get("/api/state", headers={"X-Last-Token": "geheimer-schluessel"})
+        self.assertEqual(r.status, 200)
+
+
 if __name__ == "__main__":
     unittest.main()

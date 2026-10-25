@@ -5,3 +5,8 @@ __pycache__/
 .venv/
 venv/
 .playwright-mcp/
+
+# Desktop-App: Zwischenstände und fertige Installer
+desktop/build/
+desktop/dist/
+desktop/node_modules/

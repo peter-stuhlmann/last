@@ -7,8 +7,13 @@ const BACKEND_URL = (process.env.BACKEND_URL ?? "http://127.0.0.1:8090").replace
 
 export const BACKEND_DOWN = "Das Test-Backend ist nicht erreichbar.";
 
+// In der Desktop-App verlangt das Backend einen Schlüssel (siehe stresstest_web.token_guard); im Docker-Betrieb nicht.
+const BACKEND_TOKEN = process.env.BACKEND_TOKEN ?? "";
+
 export function backendFetch(path: string, init: RequestInit = {}): Promise<Response> {
-  return fetch(`${BACKEND_URL}${path}`, { cache: "no-store", ...init });
+  const headers = new Headers(init.headers);
+  if (BACKEND_TOKEN) headers.set("X-Last-Token", BACKEND_TOKEN);
+  return fetch(`${BACKEND_URL}${path}`, { cache: "no-store", ...init, headers });
 }
 
 async function backendJson<T>(path: string, timeoutMs = 4000): Promise<T | null> {

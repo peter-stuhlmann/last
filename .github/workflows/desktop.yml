@@ -1,0 +1,77 @@
+# Baut die Desktop-App für macOS (Apple Silicon), Windows und Ubuntu – jeweils auf dem eigenen System,
+# denn das eingepackte Python-Backend (PyInstaller) lässt sich nicht über Kreuz bauen. Jede gepackte App wird
+# einmal gestartet (Rauchtest), die Installer liegen danach als Artefakte am Lauf.
+#
+# Noch unsigniert: macOS fragt beim ersten Öffnen nach (Rechtsklick → Öffnen), Windows zeigt SmartScreen.
+name: Desktop-App
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+    branches: ["main", "nextjs-oberflaeche"]
+    paths: ["desktop/**", "web/**", "*.py", "requirements*.txt", "VERSION", ".github/workflows/desktop.yml"]
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: macOS (Apple Silicon), os: macos-14, target: --mac --arm64 }
+          - { name: Windows, os: windows-latest, target: --win --x64 }
+          - { name: Ubuntu, os: ubuntu-22.04, target: --linux --x64 }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            web/package-lock.json
+            desktop/package-lock.json
+
+      - name: Backend einpacken (Python, Playwright, Chromium)
+        run: python desktop/scripts/build_backend.py
+      - name: Oberfläche bauen (Next.js standalone)
+        run: node desktop/scripts/build_web.mjs
+      - name: Icon
+        run: |
+          cd web && npx playwright install chromium
+          cd ../desktop && npm ci && node scripts/build_icon.mjs
+
+      - name: App packen
+        working-directory: desktop
+        run: npx electron-builder ${{ matrix.target }} --publish never -c.extraMetadata.version="$(cat ../VERSION)"
+
+      - name: Rauchtest (Linux mit virtuellem Bildschirm)
+        if: runner.os == 'Linux'
+        working-directory: desktop
+        run: xvfb-run -a node scripts/smoke.mjs
+      - name: Rauchtest
+        if: runner.os != 'Linux'
+        working-directory: desktop
+        run: node scripts/smoke.mjs
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LAST-${{ runner.os }}-${{ runner.arch }}
+          path: |
+            desktop/dist/*.dmg
+            desktop/dist/*.exe
+            desktop/dist/*.AppImage
+            desktop/dist/*.deb
+            desktop/dist/smoke.png
+          if-no-files-found: error

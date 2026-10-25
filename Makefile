@@ -23,7 +23,7 @@ export MSYS_NO_PATHCONV = 1
 
 .DEFAULT_GOAL := help
 .PHONY: help up build rebuild down restart status logs logs-web logs-backend open \
-        test lint test-web check e2e e2e-up e2e-down test-all shell results trash-empty update clean
+        test lint test-web check e2e e2e-up e2e-down test-all shell results trash-empty update clean desktop
 
 help: ## diese Übersicht
 	@awk 'BEGIN {FS = ":.*## "; printf "\nBefehle:\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2} END {print ""}' $(MAKEFILE_LIST)
@@ -100,6 +100,16 @@ e2e: ## Durchlauf-Tests im echten Browser (startet und entfernt die Instanz selb
 	$(MAKE) e2e-up
 	cd web && npx playwright test; status=$$?; cd .. && $(MAKE) e2e-down; exit $$status
 
+# Python 3.12 für den Build; mit uv (brew install uv) ohne eigene Installation
+PYTHON312 ?= $(shell command -v python3.12 || uv python find 3.12 2>/dev/null)
+
+desktop: ## Desktop-App für dieses System bauen (ohne Docker) → desktop/dist/
+	$(PYTHON312) desktop/scripts/build_backend.py
+	node desktop/scripts/build_web.mjs
+	cd desktop && npm ci && node scripts/build_icon.mjs
+	cd desktop && env -u ELECTRON_RUN_AS_NODE npx electron-builder --publish never -c.extraMetadata.version="$$(cat ../VERSION)"
+	cd desktop && node scripts/smoke.mjs
+
 test-all: lint test test-web check e2e ## alles prüfen
 
 # ── Aufräumen ──────────────────────────────────────────────────────────────
@@ -108,4 +118,4 @@ clean: ## Container, lokale Images und Build-Reste entfernen – results/ bleibt
 	-$(E2E_COMPOSE) down -v --rmi local --remove-orphans
 	$(COMPOSE) down --rmi local --remove-orphans
 	docker builder prune -f
-	rm -rf web/.next web/test-results web/playwright-report __pycache__ tests/__pycache__
+	rm -rf web/.next web/test-results web/playwright-report __pycache__ tests/__pycache__ desktop/build desktop/dist

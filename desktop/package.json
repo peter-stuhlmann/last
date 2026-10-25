@@ -1,0 +1,72 @@
+{
+  "name": "last-desktop",
+  "productName": "LAST",
+  "version": "1.2.0",
+  "description": "LAST – Lasttests für KI-Server, APIs, Websites und Abläufe",
+  "author": "neusta",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "backend": "python scripts/build_backend.py",
+    "web": "node scripts/build_web.mjs",
+    "icon": "node scripts/build_icon.mjs",
+    "postinstall": "node node_modules/electron/install.js",
+    "start": "electron .",
+    "dist": "electron-builder --publish never"
+  },
+  "devDependencies": {
+    "electron": "44.9.3",
+    "electron-builder": "26.17.0"
+  },
+  "build": {
+    "appId": "de.neusta.last",
+    "productName": "LAST",
+    "copyright": "neusta",
+    "afterPack": "scripts/after_pack.js",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build/icons"
+    },
+    "files": [
+      "main.js",
+      "loading.html",
+      "package.json"
+    ],
+    "extraResources": [
+      { "from": "build/backend", "to": "backend" },
+      { "from": "build/browsers", "to": "browsers" },
+      { "from": "build/web", "to": "web", "filter": ["**/*", ".next/**/*"] }
+    ],
+    "mac": {
+      "target": ["dmg"],
+      "category": "public.app-category.developer-tools",
+      "icon": "build/icons/icon.png",
+      "identity": "-",
+      "hardenedRuntime": false
+    },
+    "win": {
+      "target": ["nsis"],
+      "icon": "build/icons/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "LAST",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "installerLanguages": ["de_DE"],
+      "language": "1031"
+    },
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "category": "Development",
+      "executableName": "last",
+      "icon": "build/icons/icon.png",
+      "maintainer": "neusta"
+    }
+  }
+}
