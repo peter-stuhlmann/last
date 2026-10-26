@@ -15,15 +15,15 @@ concurrency:
 jobs:
   python:
     name: Python · Lint und Tests (Backend-Image)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/ruff-action@v3
+      - uses: actions/checkout@v5
+      - uses: astral-sh/ruff-action@v4.1.0
         with:
           args: check .
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
       - name: Backend-Image bauen (browser)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           target: browser
@@ -34,7 +34,7 @@ jobs:
       - name: Unit-Tests (inkl. Aufzeichnung mit Chromium)
         run: docker run --rm --tmpfs /tmp -v "$PWD":/src -w /src llm-stresstest:ci python -m unittest discover -s tests
       - name: Schlankes Image baut ebenfalls
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           target: slim
@@ -43,13 +43,13 @@ jobs:
 
   web:
     name: Oberfläche · Typen, Lint, Vitest
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: web
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -62,11 +62,11 @@ jobs:
 
   e2e:
     name: Durchlauf-Tests · Docker-Stack + Playwright
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [python, web]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -84,7 +84,7 @@ jobs:
       - name: Protokolle bei Fehlern
         if: failure()
         run: docker compose -p last-e2e -f docker-compose.yml -f docker-compose.e2e.yml logs --no-color --tail=200
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: failure()
         with:
           name: playwright-traces
