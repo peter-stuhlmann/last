@@ -77,7 +77,7 @@ test("Website-Test von der Eingabe bis zum Bericht", async ({ page, request }) =
 
   // Live-Ansicht
   await expect(page).toHaveURL(/\/lauf$/);
-  await expect(page.getByRole("list", { name: "Schritte des Tests"})).toBeVisible();
+  await expect(page.getByRole("list", { name: "Schritte des Tests" })).toBeVisible();
   await expect(page.getByText("Besucher gleichzeitig auf der Website")).toBeVisible();
   await expectAccessible(page);
 
