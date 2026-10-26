@@ -22,7 +22,7 @@ test("HTTP-API-Test von der Eingabe bis zum Bericht", async ({ page, request }) 
 
   await page.goto("/");
   await page.locator("label", { hasText: "HTTP-API" }).click();
-  await expect(page.getByRole("combobox", { name: "Methode" })).toHaveValue("GET");
+  await expect(page.getByRole("combobox", { name: "Methode" })).toHaveText("GET");
   await page.getByRole("textbox", { name: "Adresse der API" }).fill(ENDPOINT);
   await page.getByRole("spinbutton", { name: "Anfragen pro Minute" }).fill("600");
   await page.getByText("Weitere Einstellungen").click();
