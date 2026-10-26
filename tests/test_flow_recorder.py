@@ -312,7 +312,7 @@ class Vorfuehren(unittest.IsolatedAsyncioTestCase):
         await self.live.start_stream()
         box = {e["label"]: e["box"] for e in r["snapshot"]["elements"]}
         mid = lambda b: (b["x"] + b["w"] / 2, b["y"] + b["h"] / 2)  # noqa: E731
-        (ex, ey), (px, py), (bx, by) = mid(box["E-Mail"]), mid(box["Passwort"]), mid(box["Anmelden"])
+        (ex, ey), _, (bx, by) = mid(box["E-Mail"]), mid(box["Passwort"]), mid(box["Anmelden"])
         got = await self.stream({"t": "click", "x": ex, "y": ey}, {"t": "type", "text": "tester@example.de"},
                                 {"t": "key", "key": "Tab"}, {"t": "type", "text": "sehr-geheim-42"},
                                 {"t": "click", "x": bx, "y": by}, wait=4)

@@ -4,6 +4,7 @@
   "version": "1.2.0",
   "description": "LAST – Lasttests für KI-Server, APIs, Websites und Abläufe",
   "author": "neusta",
+  "homepage": "https://github.com/peter-stuhlmann/last",
   "private": true,
   "main": "main.js",
   "scripts": {

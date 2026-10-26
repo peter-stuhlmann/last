@@ -571,7 +571,7 @@ _ABOUT_JS = """([mark, nameMax]) => {""" + _HELPERS_JS + """
   // Ohne Beschriftung (ein Schalter aus <div>): Testkennung oder eine Klasse, die nach Absicht aussieht
   for (const attr of ["data-testid", "data-test", "data-cy"]) {
     const v = el.getAttribute(attr);
-    if (v && /^[\w-]{1,60}$/.test(v)) selectors.push(`[${attr}='${v}']`);
+    if (v && /^[\\w-]{1,60}$/.test(v)) selectors.push(`[${attr}='${v}']`);
   }
   if (!["input", "textarea", "button", "a"].includes(tag)) {
     for (const c of el.classList) if (/^[A-Za-z][A-Za-z-]{2,30}$/.test(c)) selectors.push(`${tag}.${c}`);

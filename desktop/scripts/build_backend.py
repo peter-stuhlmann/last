@@ -17,6 +17,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 BUILD = os.path.join(ROOT, "desktop", "build")
 VENV = os.path.join(BUILD, "venv")
 WIN = sys.platform == "win32"
+# Die Windows-Konsole der CI kann kein „→“ (cp1252) – Ausgaben immer als UTF-8
+sys.stdout.reconfigure(encoding="utf-8")
 
 # Was das Backend zur Laufzeit lädt – auch, was nur in Funktionen importiert wird
 MODULES = ["stresstest_web", "llm_stresstest", "web_stresstest", "flow_stresstest", "flow_recorder", "flow_live",
